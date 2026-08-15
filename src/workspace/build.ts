@@ -118,6 +118,9 @@ const STEP_TIMEOUT_MS: Record<BuildStepId, number> = {
  * Steps go through `spawn` rather than `run`: a clone and a hydrate are minutes of progress output
  * a user needs to see, and their output is never parsed. The one exception is the dirty-tree check
  * below, whose output IS the data.
+ *
+ * The step lines go to STDERR for the same reason: stdout carries the report, and `build --json`
+ * promises one parseable object there.
  */
 export async function runPlan(
 	ctx: Context,
@@ -134,7 +137,8 @@ export async function runPlan(
 		}
 		if (step.id === 'refresh') await assertClean(ctx, workspace);
 
-		ctx.io.out(`${step.id}: ${rendered}`);
+		// progress, not the report; on stdout it would sit in front of `build --json`'s one object
+		ctx.io.err(`${step.id}: ${rendered}`);
 		const [file, ...args] = step.command as [string, ...string[]];
 		const code = await ctx.runner.spawn(file, args, {
 			cwd: step.id === 'clone' ? ctx.cwd : workspace,

@@ -117,6 +117,18 @@ describe('drangler build', () => {
 		await run(ctx, ['build', '--json']);
 		expect(ctx.io.json<{ resumed: boolean }>().resumed).toBe(true);
 	});
+
+	/**
+	 * The regression: each step wrote its progress line to stdout, so `build --json` printed
+	 * `clone: git clone ...` in front of the object and `| jq` failed on any build that did work.
+	 * The case above could not catch it, because a resumed build runs no step at all.
+	 */
+	it('leaves stdout parseable when steps run, with their progress on stderr', async () => {
+		const ctx = ctxFor({});
+		expect(await run(ctx, ['build', '--json'])).toBe(EXIT.OK);
+		expect(ctx.io.json<{ resumed: boolean }>().resumed).toBe(false);
+		expect(ctx.io.stderr.join('\n')).toContain(`clone: ${CLONE}`);
+	});
 });
 
 describe('drangler validate', () => {
