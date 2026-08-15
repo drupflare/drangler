@@ -6,18 +6,34 @@ import { runHealth } from './commands/health';
 import {
 	runConvertCommand,
 	runExportCommand,
+	runInstallCommand,
 	runPlanCommand,
+	runRestoreCommand,
 	runSurveyCommand
 } from './commands/migrate';
 import { runSecretsScan } from './commands/secrets';
 import { runStatus } from './commands/status';
+import {
+	runBuildCommand,
+	runDeployCommand,
+	runDevCommand,
+	runValidateCommand
+} from './commands/workspace';
 import type { Context } from './context';
 
 export const VERSION = '0.1.0';
 
 const DESCRIPTION =
-	'Start, maintain and migrate a drupflare site. Read-only by default: nothing here deploys, ' +
-	'deletes or writes to a remote host.';
+	'Start, maintain and migrate a drupflare site. Read-only apart from four commands that say ' +
+	'what they write: build, dev, deploy and migrate install.';
+
+/** every command that works on a local checkout takes the same three, so they are declared once */
+function withWorkspace(command: Command): Command {
+	return command
+		.option('--workspace <dir>', 'the drupflare/worker checkout to work in')
+		.option('--source <path-or-url>', 'where to clone the worker from; a local path is fine')
+		.option('--ref <ref>', 'branch or tag to clone');
+}
 
 /**
  * Builds the whole command tree against one context.
@@ -63,6 +79,70 @@ export function buildProgram(ctx: Context): Command {
 		.description('Preflight the toolchain and the Cloudflare credential')
 		.option('--json', 'emit the report as JSON')
 		.action(async (opts) => void (await runDoctor(ctx, opts)));
+
+	withWorkspace(program.command('build'))
+		.description('Clone drupflare/worker and build it into a deployable tree')
+		.option(
+			'--from <tarball>',
+			'hydrate from a local release payload instead of downloading one'
+		)
+		.option('--refresh', 'fetch and fast-forward an existing checkout; refuses on a dirty tree')
+		.option('--force', 'redo the install and hydrate steps even when their output is present')
+		.option('--dry-run', 'print the step plan and run nothing')
+		.option('--json', 'emit the report as JSON')
+		.action(async (opts) => void (await runBuildCommand(ctx, opts)));
+
+	program
+		.command('validate')
+		.description('Everything that has to hold before dev or deploy will work')
+		.option('--workspace <dir>', 'the drupflare/worker checkout to check')
+		.option(
+			'--config <file>',
+			'the wrangler config to score, workspace-relative',
+			'wrangler.jsonc'
+		)
+		.option(
+			'--only <checks>',
+			'a comma-separated subset: workspace,artifacts,config,scrub,bundle'
+		)
+		.option('--json', 'emit the report as JSON')
+		.action(async (opts) => void (await runValidateCommand(ctx, opts)));
+
+	withWorkspace(program.command('dev'))
+		.argument('[wrangler-args...]', 'passed through to wrangler, after a `--`')
+		.description('Build if needed, validate, then run a local Drupal under `wrangler dev`')
+		.option(
+			'--config <file>',
+			'the wrangler config to run, workspace-relative',
+			'wrangler.jsonc'
+		)
+		.option(
+			'--from <tarball>',
+			'hydrate from a local release payload instead of downloading one'
+		)
+		.option('--no-build', 'fail rather than building a workspace that is not ready')
+		.option('--skip-validate', 'run wrangler without the gate')
+		.action(
+			async (extra: string[], opts) => void (await runDevCommand(ctx, extra ?? [], opts))
+		);
+
+	withWorkspace(program.command('deploy'))
+		.argument('[wrangler-args...]', 'passed through to wrangler, after a `--`')
+		.description('Build if needed, validate, then deploy to your own Cloudflare account')
+		.option(
+			'--config <file>',
+			'the wrangler config to deploy, workspace-relative',
+			'wrangler.jsonc'
+		)
+		.option(
+			'--from <tarball>',
+			'hydrate from a local release payload instead of downloading one'
+		)
+		.option('--no-build', 'fail rather than building a workspace that is not ready')
+		.option('--skip-validate', 'deploy without the gate')
+		.action(
+			async (extra: string[], opts) => void (await runDeployCommand(ctx, extra ?? [], opts))
+		);
 
 	program
 		.command('health')
@@ -213,6 +293,30 @@ export function buildProgram(ctx: Context): Command {
 						: { maxStatementChars: Number(opts.maxStatementChars) })
 				}))
 		);
+
+	migrate
+		.command('install')
+		.description(
+			'Land a migrated database or asset in a workspace, backing up what it replaces'
+		)
+		.option('--workspace <dir>', 'the drupflare/worker checkout to write into')
+		.option('--db <file>', 'a SQLite database file to install as assets/drupal/site.sqlite')
+		.option(
+			'--asset <from=to>',
+			'any other file, with a workspace-relative destination; repeatable',
+			(value: string, all: string[] = []) => [...all, value]
+		)
+		.option('--repack', 'run `bun run assets:sql` afterwards, which is what makes --db ship')
+		.option('--dry-run', 'print what would be written and what would be backed up first')
+		.option('--json', 'emit the report as JSON')
+		.action(async (opts) => void (await runInstallCommand(ctx, opts)));
+
+	migrate
+		.command('restore')
+		.description('Put a backup set taken by `migrate install` back where it came from')
+		.requiredOption('--backup <dir>', 'a directory holding backup.json')
+		.option('--json', 'emit the report as JSON')
+		.action(async (opts) => void (await runRestoreCommand(ctx, opts)));
 
 	return program;
 }
