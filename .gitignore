@@ -14,6 +14,10 @@ coverage/
 *.log
 /tmp-*
 
+# a workspace built here by drangler build, and anything migrate install backed up
+.drupflare/
+.drangler-backup/
+
 # editor and OS
 .idea/
 .DS_Store
