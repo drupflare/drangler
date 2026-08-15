@@ -20,6 +20,8 @@
 <p>Steps go through <code>spawn</code> rather than <code>run</code>: a clone and a hydrate are minutes of progress output
 a user needs to see, and their output is never parsed. The one exception is the dirty-tree check
 below, whose output IS the data.</p>
+<p>The step lines go to STDERR for the same reason: stdout carries the report, and <code>build --json</code>
+promises one parseable object there.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -30,7 +32,7 @@ below, whose output IS the data.</p>
 <li><span><span class="tsd-kind-parameter">source</span>: <a href="../interfaces/workspace_source.WorkerSource.html" class="tsd-signature-type tsd-kind-interface">WorkerSource</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/workspace_build.BuildReport.html" class="tsd-signature-type tsd-kind-interface">BuildReport</a><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/991c50a4756bd9354ad01fe342d00662d36b27d8/src/workspace/build.ts#L122">src/workspace/build.ts:122</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/workspace/build.ts#L125">src/workspace/build.ts:125</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

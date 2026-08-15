@@ -554,21 +554,26 @@ and a second copy would drift from it. The pack check runs that repository's own
 <hr>
 <h2 id="🧪-testing" class="tsd-anchor-link">🧪 Testing<a href="#🧪-testing" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p>Two lanes. The gate is hermetic; the integration lane needs Docker.</p>
-<pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">typecheck</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test</span><span class="hl-1"> </span><span class="hl-4"># 531 assertions across 18 specs, no network, no daemon</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:coverage</span><br/><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e</span><span class="hl-1"> </span><span class="hl-4"># 30 assertions across 4 specs, against a real Drupal</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">e2e:down</span><span class="hl-1"> </span><span class="hl-4"># remove the containers and their volumes</span>
+<pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">typecheck</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test</span><span class="hl-1"> </span><span class="hl-4"># 532 assertions across 18 specs, no network, no daemon</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:coverage</span><br/><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e</span><span class="hl-1">       </span><span class="hl-4"># 35 assertions across 5 specs, against a real Drupal</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e:clone</span><span class="hl-1"> </span><span class="hl-4"># the clone lane alone; no Docker, about ten seconds</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">e2e:down</span><span class="hl-1">       </span><span class="hl-4"># remove the containers and their volumes</span>
 </code><button type="button">Copy</button></pre>
 
-<p><strong>531 passing</strong> in the gate at <strong>98% statements</strong>, with every external effect behind an injected
+<p><strong>532 passing</strong> in the gate at <strong>98% statements</strong>, with every external effect behind an injected
 seam: the terminal, the filesystem, subprocesses, <code>fetch</code>, and the environment. No gate test opens a
 socket, reaches a VPS, contacts Cloudflare, or clones a repository. The workspace commands are
 covered against a scripted runner whose build steps land the files they really produce, so the gate
 scores itself against a tree the build made rather than against an empty directory.</p>
-<p><strong>30 passing</strong> in the integration lane, which boots MariaDB and a real Drupal 11 in Docker, runs the
+<p><strong>35 passing</strong> in the integration lane, which boots MariaDB and a real Drupal 11 in Docker, runs the
 survey over a real SSH connection, and drives a real Durable Object under <code>wrangler dev</code>. Both
 migration directions are asserted byte for byte, and the comparator reads hex through a different
-path from the one that moved the data. <code>tests/e2e/README.md</code> covers the topology, the seed corpus and
-its gaps, and the planted defects that prove the lane can fail.</p>
-<p>The lane skips without Docker and fails when <code>REQUIRE_DOCKER=1</code> is set. It never runs on push,
-because installing Drupal takes minutes; <code>.github/workflows/e2e.yml</code> is dispatch plus nightly.</p>
+path from the one that moved the data. Alongside it, the clone lane builds a workspace out of the
+published <code>drupflare/worker</code> with the real runner and the real filesystem, which is the only place
+<code>git clone</code>, <code>bun install</code> and the interpreter alias are read from the thing that ships rather than
+from a fixture. Three more assertions cover hydrating a release payload and wait on the first tag.
+<code>tests/e2e/README.md</code> covers the topology, the seed corpus and its gaps, and the planted defects
+that prove the lane can fail.</p>
+<p>Two requirements, two gates, two jobs in <code>.github/workflows/e2e.yml</code>. Each skips when what it needs
+is absent and fails when the lane declares it: <code>REQUIRE_DOCKER=1</code> for the Drupal half,
+<code>REQUIRE_CLONE=1</code> for the clone half.</p>
 <hr>
 <h2 id="🔗-related-repositories" class="tsd-anchor-link">🔗 Related Repositories<a href="#🔗-related-repositories" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <table>
