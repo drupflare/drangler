@@ -55,6 +55,8 @@ export interface ProbeResult {
 	 * old enough to predate the marker, which is a different thing from a renamed contract.
 	 */
 	headerVersion: number | null;
+	/** `x-cfw-plan`, which the object sets on a MISS; null when the response came from a cache tier */
+	plan: string | null;
 	/** whichever Drupal cache headers a plain host sets, when probing a VPS */
 	drupalCache: string | null;
 	drupalDynamicCache: string | null;
@@ -141,6 +143,7 @@ function emptyResult(target: string, requested: string, kind: SiteKind): ProbeRe
 		phpBooted: null,
 		queueDepth: null,
 		headerVersion: null,
+		plan: null,
 		drupalCache: null,
 		drupalDynamicCache: null,
 		generator: null,
@@ -219,6 +222,7 @@ export async function probeSite(deps: ProbeDeps, opts: ProbeOptions): Promise<Pr
 				: response.headers.get('x-cfw-php-booted') === '1',
 		queueDepth: num(response.headers, 'x-cfw-queue-depth'),
 		headerVersion: num(response.headers, 'x-cfw-v'),
+		plan: response.headers.get('x-cfw-plan'),
 		generator: response.headers.get('x-generator'),
 		verdict: classify(response.status, cfw, 'worker')
 	};
