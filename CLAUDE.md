@@ -129,7 +129,9 @@ that stored the string and encoded per call would read a binary member back as s
 
 ## The e2e lane is where the converter is actually tested
 
-`tests/e2e/` needs Docker and is `workflow_dispatch` plus nightly, never the push gate. Read
+`tests/e2e/` holds two requirements, not one: `workspace-clone.spec.ts` needs the network and a
+readable `drupflare/worker`, everything else needs Docker. They are separate CI jobs behind
+`REQUIRE_CLONE` and `REQUIRE_DOCKER` so a red one names which requirement failed. Read
 `tests/e2e/README.md` before changing anything in it. Three rules that are load-bearing:
 
 - **The comparator must not share a mechanism with the mover.** Both sides read hex -- `HEX()` in
@@ -229,7 +231,10 @@ Platform figures the migration rules score against live in one table, `LIMITS` i
 - Comments: lowercase, terse, one line, no trailing period, only where the WHY is non-obvious.
 - No comments in config files or `.github/` workflows.
 - Every command's `--json` prints the same object its text render is derived from, so the two cannot
-  drift.
+  drift. **Stdout carries that object and nothing else**: progress goes to stderr, which is what
+  `runPlan` got wrong -- each step's line landed in front of `build --json`'s object and broke `jq`
+  on any build that did work. The resumed case ran no step, so the passing `--json` test could not
+  see it.
 
 ## Commands
 
@@ -244,20 +249,30 @@ bun run build:binary # bun build --compile into dist/drangler
 **Re-measure that count before quoting it.** It has been stale once already, and a number copied
 forward from a previous session is not a measurement.
 
-## What the workspace lane cannot test yet
+## What the workspace lane covers, and the one half that waits on a release
 
-`drupflare/worker` is not published, so **no gate test clones it and nothing exercises
-`bun run hydrate` against a real release payload.** That is a real gap and it is named rather than
-papered over:
+`drupflare/worker` is public, and `tests/e2e/workspace-clone.spec.ts` builds a workspace out of it
+with the real runner and the real filesystem. What each lane is worth:
 
-- The gate covers argument parsing, workspace resolution, step ordering, the resume decision, the
-  gate sets, and every check's verdict, all against a scripted runner and a memory filesystem.
-- The clone, install, hydrate and resume path was verified by hand against a throwaway git
-  repository shaped like a worker checkout -- a `package.json` naming the package, a `hydrate`
-  script, a config and a binary seam. That proves everything except the payload download.
-- `--source` takes a local path precisely so this stays exercisable: `git clone /path/to/worker` is
-  an ordinary clone of a repository that happens to be on this disk.
+- **The gate** covers argument parsing, workspace resolution, step ordering, the resume decision,
+  the gate sets and every check's verdict, against a scripted runner and a memory filesystem.
+- **The clone lane** covers what only exists off this machine: that a `git clone` lands a tree whose
+  `package.json` names `@drupflare/worker`, that `bun install` resolves it from npm, that
+  `interpreterFiles()` reads the alias the worker ships rather than the one in a fixture, that
+  `validate` names all nine missing artifacts on a clean checkout and exits 3, and that a second
+  plan re-clones and re-installs nothing.
+- **The payload half waits on a release**, because no tag exists yet. It runs against a tarball
+  named by `DRANGLER_E2E_PAYLOAD`, and it starts running against the real thing on its own the
+  first time a release is cut -- `resolvePayload()` probes for the tag, so nothing needs editing.
+  Set `REQUIRE_PAYLOAD=1` once a release is expected to always be there.
 
-When the repository is published, the missing lane is one e2e spec that clones the real thing at a
-tag, hydrates, and asserts `validate` comes back green. It belongs in `tests/e2e/`, not the gate:
-it needs a network and a release.
+`--source` takes a local path precisely so all of this stays exercisable against a fork:
+`git clone /path/to/worker` is an ordinary clone of a repository that happens to be on this disk.
+
+**Only a release proves a payload is deployable, so only a release is asserted green.** A tarball
+handed in by `DRANGLER_E2E_PAYLOAD` is whatever somebody built: the lane requires every check to
+reach a verdict on it and reports `scrub` rather than asserting it. A published one has passed
+`release-payload.ts`'s credential gate at pack time and `tests/node/pack-secrets.spec.ts` over the
+attached bytes at release time. Measured while wiring this up: the tarball in the worker's local
+`dist/` was built ten hours before its pack was scrubbed and still carries a `hash_salt`, which is
+exactly the input that must not be allowed to pass as a release.
