@@ -1,0 +1,67 @@
+coverage:
+  precision: 2
+  round: down
+  range: '10...90'
+  status:
+    project:
+      default:
+        target: 78%
+        threshold: 2%
+    patch:
+      default:
+        target: 70%
+        threshold: 5%
+
+comment:
+  layout: 'condensed_header, condensed_files, condensed_footer'
+  require_changes: true
+
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: unit
+      paths:
+        - src/
+    - name: integration
+      paths:
+        - src/
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        informational: true
+  individual_components:
+    - component_id: migrate
+      name: drangler/migrate
+      paths: ['src/migrate/**']
+    - component_id: health
+      name: drangler/health
+      paths: ['src/health/**']
+    - component_id: cloudflare
+      name: drangler/cloudflare
+      paths: ['src/cloudflare/**']
+    - component_id: secrets
+      name: drangler/secrets
+      paths: ['src/secrets/**']
+    - component_id: workspace
+      name: drangler/workspace
+      paths: ['src/workspace/**']
+    - component_id: host
+      name: drangler/host
+      paths: ['src/host/**']
+    - component_id: commands
+      name: drangler/commands
+      paths: ['src/commands/**']
+    - component_id: cli
+      name: drangler/cli
+      paths: ['src/program.ts', 'src/run.ts', 'src/cli.ts', 'src/context.ts']
+
+ignore:
+  - 'tests/**/*'
+  - 'coverage/**/*'
+  - '**/*.spec.ts'
+  - 'docker/**/*'
+  - 'dist/**/*'
