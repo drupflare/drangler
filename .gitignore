@@ -10,6 +10,9 @@ coverage/
 *.lcov
 .vitest-cache/
 
+# wrangler's own scratch, left in the fixture worker by the e2e lane
+.wrangler/
+
 # logs and scratch
 *.log
 /tmp-*
