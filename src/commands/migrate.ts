@@ -1,6 +1,6 @@
 import type { Context } from '../context';
 import { DranglerError, FindingError, UsageError } from '../errors';
-import { emit, kv } from '../format';
+import { emit, bytes as humanBytes, kv, table } from '../format';
 import { convertDump, DO_STATEMENT_CHARS, type Dialect } from '../migrate/convert';
 import { buildPlan, renderPlan } from '../migrate/plan';
 import type { Direction } from '../migrate/rules';
@@ -19,6 +19,15 @@ import {
 	type Transcript,
 	type Transport
 } from '../migrate/transport';
+import { inWorkspace } from '../workspace/artifacts';
+import {
+	applyCopy,
+	planCopy,
+	restoreBackup,
+	type CopyEntry,
+	type CopyPlan
+} from '../workspace/copy';
+import { assertUsable, readState, resolveWorkspace, WORKER_PACKAGE } from '../workspace/layout';
 
 export interface SurveyOptions {
 	host: string;
@@ -398,4 +407,163 @@ export async function runConvertCommand(ctx: Context, opts: ConvertCommandOption
 			`${result.skipped.length} statement(s) were not converted`
 		);
 	}
+}
+
+/** where a migrated site database lands in a workspace, which is what `bun run assets:sql` reads */
+export const SITE_DB_PATH = 'assets/drupal/site.sqlite';
+
+export interface InstallOptions {
+	workspace?: string;
+	/** a SQLite database file, not a SQL dump; `migrate convert` produces the dump that builds one */
+	db?: string;
+	/** repeated `<from>=<workspace-relative to>` pairs */
+	asset?: string[];
+	/** run `bun run assets:sql` afterwards, which is what makes a landed database ship */
+	repack?: boolean;
+	dryRun?: boolean;
+	json?: boolean;
+}
+
+/** `<from>=<to>`, where `to` is workspace-relative and may not climb out of the workspace */
+export function parseAssetPair(pair: string, workspace: string): CopyEntry {
+	const at = pair.indexOf('=');
+	if (at <= 0 || at === pair.length - 1) {
+		throw new UsageError(`--asset wants \`<from>=<to>\`, not \`${pair}\``);
+	}
+	const from = pair.slice(0, at);
+	const to = pair.slice(at + 1);
+	if (to.startsWith('/') || to.split('/').includes('..')) {
+		throw new UsageError(
+			`--asset destination \`${to}\` must be a path inside the workspace; drangler will not ` +
+				'write outside it'
+		);
+	}
+	return { from, to: inWorkspace(workspace, to) };
+}
+
+/**
+ * Lands migrated bytes in a workspace, backing up anything it would overwrite.
+ *
+ * The last mile of an on-boarding migration, and until now it was the one step the user did by hand:
+ * `migrate convert` wrote a dump and then stopped. Everything here goes through one primitive that
+ * takes every backup first, verifies each one by digest, and only then writes -- so a failure part
+ * way leaves either the original tree or a complete backup of it, never half of each.
+ *
+ * **A database is not the same thing as a dump.** `--db` takes a SQLite FILE; a converted dump
+ * becomes one with `sqlite3 site.sqlite < dump.sql`, and that step is printed rather than run,
+ * because replaying somebody's dump is a decision with a different blast radius from copying a file.
+ */
+export async function runInstallCommand(ctx: Context, opts: InstallOptions): Promise<void> {
+	const location = resolveWorkspace(ctx, opts);
+	const state = readState(ctx.files, location.path);
+	assertUsable(state);
+	if (!state.checkout) {
+		throw new UsageError(
+			`${location.path} is not a ${WORKER_PACKAGE} checkout; run drangler build first`
+		);
+	}
+
+	const entries: CopyEntry[] = [
+		...(opts.db === undefined
+			? []
+			: [{ from: opts.db, to: inWorkspace(location.path, SITE_DB_PATH) }]),
+		...(opts.asset ?? []).map((pair) => parseAssetPair(pair, location.path))
+	];
+	if (entries.length === 0) {
+		throw new UsageError('nothing to install; pass --db and/or --asset <from>=<to>');
+	}
+
+	const plan = planCopy(ctx.files, entries);
+	if (opts.dryRun === true) {
+		emit(ctx.io, opts.json === true, { workspace: location.path, plan, applied: null }, () =>
+			renderInstall(location.path, plan, null)
+		);
+		return;
+	}
+
+	const result = applyCopy(ctx.files, plan, location.path, ctx.now());
+	// not conditioned on --db: an --asset can land a database too, and a silently ignored flag is worse
+	if (opts.repack === true) {
+		ctx.io.out(`${location.path}$ bun run assets:sql`);
+		const code = await ctx.runner.spawn('bun', ['run', 'assets:sql'], {
+			cwd: location.path,
+			timeoutMs: 30 * 60_000
+		});
+		if (code !== 0) {
+			throw new DranglerError(
+				'repack',
+				`bun run assets:sql exited ${code}; the database is installed and the chunks the ` +
+					`worker replays are stale. The backup is at ${result.backupDir ?? '(none taken)'}`
+			);
+		}
+	}
+
+	emit(ctx.io, opts.json === true, { workspace: location.path, plan, applied: result }, () =>
+		renderInstall(location.path, plan, result)
+	);
+}
+
+function renderInstall(
+	workspace: string,
+	plan: CopyPlan,
+	applied: ReturnType<typeof applyCopy> | null
+): string[] {
+	const lines = [
+		...kv([
+			['workspace', workspace],
+			['files', String(plan.items.length)],
+			['backups needed', String(plan.backups)]
+		]),
+		'',
+		...table(
+			['action', 'size', 'destination'],
+			plan.items.map((i) => [i.verdict, humanBytes(i.bytes), i.to])
+		)
+	];
+	if (applied === null) {
+		lines.push('', 'dry run; nothing was written');
+		return lines;
+	}
+	lines.push(
+		'',
+		applied.backupDir === null
+			? 'nothing was overwritten, so no backup was taken'
+			: `${applied.backedUp.length} file(s) backed up to ${applied.backupDir}`
+	);
+	if (applied.backupDir !== null) {
+		lines.push(`  put them back with: drangler migrate restore --backup ${applied.backupDir}`);
+	}
+	const db = plan.items.find((i) => i.to.endsWith(SITE_DB_PATH));
+	if (db !== undefined && db.verdict !== 'identical') {
+		lines.push(
+			'',
+			'the database is in place and the chunks the worker replays are not; regenerate them:',
+			`  cd ${workspace} && bun run assets:sql`
+		);
+	}
+	return lines;
+}
+
+export interface RestoreOptions {
+	backup: string;
+	json?: boolean;
+}
+
+/**
+ * Puts a backup set back.
+ *
+ * A backup nothing can restore is a filing cabinet, so this is not optional scope. Every recorded
+ * digest is verified before the first write, for the same reason the backups are taken before the
+ * first write.
+ */
+export async function runRestoreCommand(ctx: Context, opts: RestoreOptions): Promise<void> {
+	const entries = restoreBackup(ctx.files, opts.backup);
+	emit(ctx.io, opts.json === true, { backup: opts.backup, restored: entries }, () => [
+		...table(
+			['size', 'restored to'],
+			entries.map((e) => [humanBytes(e.bytes), e.path])
+		),
+		'',
+		`${entries.length} file(s) restored from ${opts.backup}`
+	]);
 }
