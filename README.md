@@ -376,27 +376,33 @@ Two lanes. The gate is hermetic; the integration lane needs Docker.
 
 ```sh
 bun run typecheck
-bun run test # 531 assertions across 18 specs, no network, no daemon
+bun run test # 532 assertions across 18 specs, no network, no daemon
 bun run test:coverage
 
-bun run test:e2e # 30 assertions across 4 specs, against a real Drupal
-bun run e2e:down # remove the containers and their volumes
+bun run test:e2e       # 35 assertions across 5 specs, against a real Drupal
+bun run test:e2e:clone # the clone lane alone; no Docker, about ten seconds
+bun run e2e:down       # remove the containers and their volumes
 ```
 
-**531 passing** in the gate at **98% statements**, with every external effect behind an injected
+**532 passing** in the gate at **98% statements**, with every external effect behind an injected
 seam: the terminal, the filesystem, subprocesses, `fetch`, and the environment. No gate test opens a
 socket, reaches a VPS, contacts Cloudflare, or clones a repository. The workspace commands are
 covered against a scripted runner whose build steps land the files they really produce, so the gate
 scores itself against a tree the build made rather than against an empty directory.
 
-**30 passing** in the integration lane, which boots MariaDB and a real Drupal 11 in Docker, runs the
+**35 passing** in the integration lane, which boots MariaDB and a real Drupal 11 in Docker, runs the
 survey over a real SSH connection, and drives a real Durable Object under `wrangler dev`. Both
 migration directions are asserted byte for byte, and the comparator reads hex through a different
-path from the one that moved the data. `tests/e2e/README.md` covers the topology, the seed corpus and
-its gaps, and the planted defects that prove the lane can fail.
+path from the one that moved the data. Alongside it, the clone lane builds a workspace out of the
+published `drupflare/worker` with the real runner and the real filesystem, which is the only place
+`git clone`, `bun install` and the interpreter alias are read from the thing that ships rather than
+from a fixture. Three more assertions cover hydrating a release payload and wait on the first tag.
+`tests/e2e/README.md` covers the topology, the seed corpus and its gaps, and the planted defects
+that prove the lane can fail.
 
-The lane skips without Docker and fails when `REQUIRE_DOCKER=1` is set. It never runs on push,
-because installing Drupal takes minutes; `.github/workflows/e2e.yml` is dispatch plus nightly.
+Two requirements, two gates, two jobs in `.github/workflows/e2e.yml`. Each skips when what it needs
+is absent and fails when the lane declares it: `REQUIRE_DOCKER=1` for the Drupal half,
+`REQUIRE_CLONE=1` for the clone half.
 
 ---
 

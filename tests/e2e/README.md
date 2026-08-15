@@ -1,13 +1,21 @@
 # e2e specs
 
-**e2e means "needs Docker and a real database".** That is the only thing that distinguishes this
-lane. The unit lane proves the code agrees with its fixtures; this one proves the fixtures resemble
-MySQL, SQLite, ssh and workerd.
+**e2e means "needs something this machine cannot fake".** The unit lane proves the code agrees with
+its fixtures; this one proves the fixtures resemble MySQL, SQLite, ssh, workerd and the published
+`drupflare/worker`.
+
+Two requirements, two gates, two CI jobs:
+
+| specs                     | needs                         | gate             |
+| ------------------------- | ----------------------------- | ---------------- |
+| `workspace-clone.spec.ts` | the network and a public repo | `REQUIRE_CLONE`  |
+| everything else           | a Docker daemon               | `REQUIRE_DOCKER` |
 
 ```sh
 bun run e2e:up # boots MariaDB and a real Drupal 11; the first run installs the site
 bun run test:e2e
-bun run e2e:down # removes the containers and their volumes
+bun run test:e2e:clone # the clone lane alone; no Docker, about 10 seconds
+bun run e2e:down       # removes the containers and their volumes
 ```
 
 `test:e2e` brings the stack up itself, so `e2e:up` is only for keeping it warm between runs.
@@ -93,18 +101,51 @@ not that the checker notices.
 | a row count disagreeing with the rows  | the reported-versus-actual check                   |
 | a multi-byte value mangled by latin1   | a lossy conversion that still looks like a string  |
 
+## The Clone Lane
+
+`workspace-clone.spec.ts` builds a workspace out of the published `drupflare/worker` with the real
+runner and the real filesystem: `git clone`, `bun install`, then `bun run hydrate`. The gate lane
+drives the same functions against a scripted runner whose steps land the files they really produce,
+which proves the step order, the resume decision and every verdict. Three things only exist off this
+machine:
+
+- a `git clone` of the repository lands a tree whose `package.json` names `@drupflare/worker`
+- `bun install` resolves the worker's dependencies from npm
+- `interpreterFiles()` reads the alias the worker actually ships, and the seam it points at
+
+A clean checkout is asserted **before** it is hydrated, because the window between `git clone` and
+`bun run hydrate` is where a user reads drangler's report. There is no `--no-hydrate` flag and there
+should not be; the spec filters the plan it would have run instead of adding a flag to the product.
+
+**The hydrate half needs a payload**, which is a separate question from whether the clone works:
+
+| resolved from                      | how                                         | what the lane then asserts                         |
+| ---------------------------------- | ------------------------------------------- | -------------------------------------------------- |
+| `DRANGLER_E2E_PAYLOAD`             | a tarball from `bun run release:payload`    | every check reaches a verdict; `scrub` is reported |
+| a release on the cloned repository | probed by tag, then downloaded by `hydrate` | the same, **and** every check passes               |
+
+The two are not equivalent, so which one it was is carried rather than flattened. A hand-built
+tarball proves the hydrate path and nothing about what is published; a release has passed
+`release-payload.ts`'s credential gate and, in the Release workflow, `pack-secrets.spec.ts` over the
+attached bytes. Asserting green on someone's local tarball would test the tarball.
+
+No release exists yet, so the payload tests skip and say so. They start running on their own the
+first time a release is cut -- no workflow edit. `REQUIRE_PAYLOAD=1` turns the absence into a
+failure, which is what to set once a release is expected to always be there.
+
 ## Skip Locally, Fail When the Lane Declares It
 
-`helpers/docker.ts` probes the daemon. No Docker and no `REQUIRE_DOCKER`, it skips; no Docker
-**with** `REQUIRE_DOCKER=1`, it throws and names what is missing.
+`helpers/docker.ts` probes the daemon and `helpers/clone.ts` probes the remote with
+`git ls-remote`. Missing and unset, they skip; missing **with** `REQUIRE_DOCKER=1` or
+`REQUIRE_CLONE=1`, they throw and name what is missing.
 
-Gated on `REQUIRE_DOCKER` rather than on `CI`, which is the correction `drupflare/worker`'s
-`artifact-gate.ts` had to make: gating on `CI` puts the requirement into every lane including the
-push gate, and this one installs Drupal. **It never runs on push.** `.github/workflows/e2e.yml` is
-`workflow_dispatch` plus a nightly schedule, and it sets `REQUIRE_DOCKER=1`.
+Gated on those rather than on `CI`, which is the correction `drupflare/worker`'s `artifact-gate.ts`
+had to make: gating on `CI` puts every requirement into every lane at once. `.github/workflows/e2e.yml`
+runs the two as separate jobs, so a red one names which requirement failed -- the clone job takes
+about a minute, the Docker job installs Drupal and takes tens of them.
 
 ## Why It Is Its Own Vitest Project
 
-`bun run test` is the commit gate and must be hermetic. These specs need a daemon, so
+`bun run test` is the commit gate and must be hermetic. These specs need a daemon or a network, so
 `vitest.config.ts` declares a second project and `bun run test` runs `--project=unit` only. A gate
 that can be unavailable is not a gate.
