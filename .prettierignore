@@ -3,4 +3,3 @@ dist/
 coverage/
 bun.lock
 .husky/
-tests/fixtures/
