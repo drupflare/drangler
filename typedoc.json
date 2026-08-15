@@ -1,0 +1,17 @@
+{
+	"$schema": "https://typedoc.org/schema.json",
+	"entryPointStrategy": "expand",
+	"entryPoints": ["src"],
+	"out": "typedoc",
+	"name": "drupflare/drangler",
+	"readme": "README.md",
+	"includeVersion": true,
+	"excludeInternal": true,
+	"excludePrivate": true,
+	"validation": {
+		"notExported": true,
+		"invalidLink": true,
+		"notDocumented": true
+	},
+	"treatWarningsAsErrors": false
+}
