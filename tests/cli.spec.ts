@@ -10,6 +10,10 @@ const HELP_PATHS = [
 	[],
 	['status'],
 	['doctor'],
+	['build'],
+	['validate'],
+	['dev'],
+	['deploy'],
 	['health'],
 	['config'],
 	['config', 'check'],
@@ -23,7 +27,9 @@ const HELP_PATHS = [
 	['migrate', 'survey'],
 	['migrate', 'plan'],
 	['migrate', 'export'],
-	['migrate', 'convert']
+	['migrate', 'convert'],
+	['migrate', 'install'],
+	['migrate', 'restore']
 ];
 
 describe('help', () => {
@@ -39,8 +45,12 @@ describe('help', () => {
 		expect(ctx.io.text()).toBe(VERSION);
 	});
 
-	it('describes itself as read-only by default', () => {
-		expect(buildProgram(testContext()).description()).toContain('Read-only by default');
+	it('names every command that writes, rather than claiming to be read-only', () => {
+		const description = buildProgram(testContext()).description();
+		expect(description).toContain('Read-only apart from');
+		for (const writer of ['build', 'dev', 'deploy', 'migrate install']) {
+			expect(description).toContain(writer);
+		}
 	});
 });
 
