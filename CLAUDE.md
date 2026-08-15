@@ -32,22 +32,75 @@ never a failure.
 
 Before adding a command, ask what it does on a machine that has only ever run `bun add -g`.
 
-## Never copy code out of `../worker`
+**`build`, `validate`, `dev` and `deploy` pass that test by building the checkout themselves.** They
+are the only commands that need one, and none of them assumes the user has one: `build` clones it,
+and the other three build first when the workspace is not there. A workspace is resolved as the
+flag, then `DRANGLER_WORKSPACE`, then the working directory when it IS a `@drupflare/worker`
+checkout, then `.drupflare/worker` under the working directory. The environment sits above the
+working directory on purpose -- an explicit setting outranks an inference from where the shell is.
+
+## Never COPY code out of `../worker`; MOVE it or invoke it
 
 `drupflare/worker` is the deployable product and this CLI reads its behaviour, never its source.
 Most of `worker/scripts/*` is build pipeline the worker itself imports -- `scrub-pack-secrets.ts`
 alone has four referencing files, including the release credential gate -- and a second copy of the
 pack format here is exactly the drift that workspace has already spent a session deleting.
 
-Two specifics, both settled:
+The rule bans a second COPY. It does not ban a single implementation living here, and there are now
+three dispositions rather than one. Each piece of `worker/scripts/*` gets exactly one:
+
+| disposition | when                                                              | example                                 |
+| ----------- | ----------------------------------------------------------------- | --------------------------------------- |
+| **move**    | it is validation, it is pure, and a user needs it before a deploy | the size ceiling, the interpreter files |
+| **invoke**  | it needs a format or a tree only the worker owns                  | `bun run assets:scrub:check`            |
+| **leave**   | it is a maintainer step, or it needs bytes a user does not have   | `backup:verify`, `release:payload`      |
+
+**What moved**, and it is the whole of what moved:
+
+- `FREE_CEILING` / `PAID_CEILING`, `parseWranglerGzipBytes()` and `ceilingVerdict()` into
+  `src/workspace/bundle.ts`, out of `release-payload.ts` and `measure/bundle-size.ts`.
+- `interpreterFiles()` into `src/workspace/artifacts.ts`, out of `release-payload.ts`. It is the
+  check that catches the alias resolving to the fallback seam at 710,410 bytes over the ceiling.
+- `PAYLOAD_ASSETS` + `PAYLOAD_RECORDS` + `PRODUCED_BY`, folded into one `REQUIRED_ARTIFACTS` table.
+  "What is missing and what do I run" is a deployer's question, not a release engineer's.
+
+The worker is **proposed** to import those back rather than keep a copy. Until it does, two files
+exist, so `tests/workspace-artifacts.spec.ts` reads the sibling's source and fails when the two
+disagree -- the same skip-without / fail-under-`REQUIRE_SIBLINGS=1` shape as
+`tests/target-runtime.spec.ts`.
+
+**The clone is the compromise, and it was chosen over three alternatives.** `drangler build` clones
+the worker and runs that checkout's own `bun install` and `bun run hydrate`; `validate` runs its
+`assets:scrub:check`; `dev` and `deploy` wrap its wrangler. The trade-off, stated rather than
+implied:
+
+- **What it costs.** A network and a `git` on first run, a second copy of the tree on disk, and a
+  version skew surface -- a drangler that is newer than the checkout it drives. `--source` takes a
+  local path so the skew is inspectable, and every step names the command it ran.
+- **What it buys.** One implementation of the pack format, the payload manifest, the asset plan and
+  the sqlite chunker, in the repository that owns the artifacts they describe.
+- **Rejected: vendoring the pipeline.** It is the drift this section exists to prevent, at
+  4 scripts and ~1,400 lines.
+- **Rejected: a published npm package of the pipeline.** The worker publishes no package on purpose
+  (`PUBLISHING.md`: "This repository publishes a deployable application, not a package") and the
+  pipeline's inputs are 3.9 GB of untracked tree.
+- **Rejected: reading the release payload directly.** drangler would then own the manifest format
+  and the tarball layout, which is the same drift with an extra network hop.
+
+Two specifics, both still settled:
 
 - **`src/secrets/patterns.ts` stays drangler's own list.** It is a superset: it scans VPS
   filesystems and config, which the worker never does. Three entries overlap
   `worker/scripts/release-payload.ts`'s `CREDENTIAL_PATTERNS` and are duplicated **on purpose** --
   see the docblock there for what drift would cost. Not a TODO, and not a package.
 - **The per-file pack format** (`{p, o, c, l, m, s}` into one blob) is NOT reimplemented here and
-  must not be. It has one implementation, in the worker. If drangler ever needs to read a pack that
-  is a conversation to have then, not something to pre-build.
+  must not be. It has one implementation, in the worker; `validate` runs `assets:scrub:check` in the
+  checkout rather than opening `core.pf.bin`, which is what "invoke" means in the table above.
+
+**`backup:verify` was considered for `validate` and rejected.** It checks that 35 hand-built php-wasm
+binaries and `site.sqlite` are intact in the `drupflare-cdn` R2 bucket. A user has no `vendor/`, no
+bucket, and no way to act on a failure; it is the definition of a maintainer step wearing a user
+command's name, which is the mistake `status` already made once.
 
 ## Every external effect goes through a seam
 
@@ -57,9 +110,22 @@ Commands take a context and nothing else.
 - **No test contacts a network, a VPS or Cloudflare.** `tests/helpers.ts` substitutes all five.
 - SSH is `Transport` in `src/migrate/transport.ts`, with three implementations: real `ssh` through
   the runner, a recorded transcript, and one that refuses everything for `--dry-run`.
-- Subprocesses are `CommandRunner` in `src/host/exec.ts`. `git`, `ssh` and `wrangler` all use it.
+- Subprocesses are `CommandRunner` in `src/host/exec.ts`. `git`, `ssh`, `bun` and `wrangler` all use
+  it.
 - `execFile`, never a shell, so no argument is word-split. `parseTarget()` and `normaliseRoot()`
   validate anything that becomes argv or remote command text.
+
+**`run` captures, `spawn` inherits, and which one a call takes is decided by what the OUTPUT is
+for.** `run` when the caller parses it: `git status --porcelain`, wrangler's `gzip:` line, the
+scrubber's exit code. `spawn` when the user needs to watch it: a clone, a `bun install`, a hydrate
+downloading 15 MB, and `wrangler dev`, which never exits on its own and would deadlock filling a
+64 MB buffer behind a 60-second timeout. Both land in one ordered `calls` ledger on
+`scriptedRunner`, tagged `mode`, so a spec asserts step order across the two.
+
+**`FileHost` holds BYTES.** `readBytes`/`writeBytes` exist because a site database and a per-file
+pack are not text, and `memoryFiles` stores `Uint8Array` rather than encoding on read -- so
+`size()` and `readBytes().length` agree for the same reason they agree on a real disk. A fixture
+that stored the string and encoded per call would read a binary member back as something else.
 
 ## The e2e lane is where the converter is actually tested
 
@@ -102,9 +168,13 @@ absent and fails under `REQUIRE_SIBLINGS=1`**, so on drangler-only CI it is wort
 its place on the machine where a version bump is actually made. A test comparing the constant to a
 literal would pass forever; that is what let the drupal.org path rot twice.
 
-## Read-only by default
+## Read-only apart from four commands that say so, and nothing anywhere deletes
 
-Nothing in the default paths deploys, deletes or writes to a remote host.
+The blanket "nothing here deploys" is gone: `deploy` deploys, because a one-line path to a live
+Drupal on the user's own account is the product. What replaces it is narrower and stricter.
+
+**Four commands write, and the description names all four.** `build` and `migrate install` write to
+a local workspace; `dev` and `deploy` hand the terminal to wrangler. Everything else is unchanged:
 
 - `cf workers` lists and compares; it does not create or delete.
 - `migrate export` reads `/export`; there is no `migrate import` writing to `/restore`.
@@ -112,6 +182,24 @@ Nothing in the default paths deploys, deletes or writes to a remote host.
   `tests/migrate-survey.spec.ts` asserts that no step matches a mutating verb.
 - Any future teardown must refuse without `--yes` and must verify the worker list returns to its
   prior baseline -- which is what `cf workers --save` / `--compare` exists for.
+
+**There is no delete seam on `FileHost` and there must not be one.** Three consequences, all of them
+deliberate: `build --force` re-runs install and hydrate and never re-clones, a workspace holding
+something other than a `@drupflare/worker` checkout is refused rather than cleared, and `--refresh`
+is `merge --ff-only` after a `status --porcelain` check rather than `reset --hard`. The honest answer
+to "I want a fresh tree" is a different `--workspace`.
+
+**Deploying goes through the user's wrangler, never through drangler's HTTP client.** The credential
+is wrangler's own and is never read here. A REST deploy would need a token with write scope, which is
+a strictly worse thing to ask for than the login they already have.
+
+**Backups are taken before the first write, not before each one.** `src/workspace/copy.ts` snapshots
+every destination it would overwrite, verifies each snapshot by digest, and only then writes
+anything. Interleaving them leaves a failure part-way with half a tree replaced and half of it
+unbacked, which is worse than either finishing or refusing. `migrate restore` verifies the whole set
+before it writes, for the same reason. An identical file is a third verdict and gets neither a backup
+nor a write -- a backup directory full of files that never changed is one nobody reads when it
+matters.
 
 ## Measurement discipline, inherited from `../worker`
 
@@ -147,8 +235,29 @@ Platform figures the migration rules score against live in one table, `LIMITS` i
 
 ```sh
 bun run typecheck
-bun run test # 310 assertions across 11 specs
+bun run test # 531 assertions across 18 specs
 bun run test:coverage
 bunx prettier --check .
 bun run build:binary # bun build --compile into dist/drangler
 ```
+
+**Re-measure that count before quoting it.** It has been stale once already, and a number copied
+forward from a previous session is not a measurement.
+
+## What the workspace lane cannot test yet
+
+`drupflare/worker` is not published, so **no gate test clones it and nothing exercises
+`bun run hydrate` against a real release payload.** That is a real gap and it is named rather than
+papered over:
+
+- The gate covers argument parsing, workspace resolution, step ordering, the resume decision, the
+  gate sets, and every check's verdict, all against a scripted runner and a memory filesystem.
+- The clone, install, hydrate and resume path was verified by hand against a throwaway git
+  repository shaped like a worker checkout -- a `package.json` naming the package, a `hydrate`
+  script, a config and a binary seam. That proves everything except the payload download.
+- `--source` takes a local path precisely so this stays exercisable: `git clone /path/to/worker` is
+  an ordinary clone of a repository that happens to be on this disk.
+
+When the repository is published, the missing lane is one e2e spec that clones the real thing at a
+tag, hydrates, and asserts `validate` comes back green. It belongs in `tests/e2e/`, not the gate:
+it needs a network and a release.
