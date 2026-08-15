@@ -43,6 +43,15 @@ describe('memoryFiles', () => {
 	it('reports a size in bytes, not characters', () => {
 		const fs = memoryFiles({ '/a': 'é' });
 		expect(fs.size('/a')).toBe(3);
+		expect(fs.size('/a')).toBe(fs.readBytes('/a').length);
+	});
+
+	it('round-trips bytes that are not text, which a database fixture is', () => {
+		const fs = files();
+		const raw = new Uint8Array([0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x00, 0xff, 0xfe]);
+		fs.writeBytes('/db/site.sqlite', raw);
+		expect([...fs.readBytes('/db/site.sqlite')]).toEqual([...raw]);
+		expect(fs.size('/db/site.sqlite')).toBe(raw.length);
 	});
 });
 
@@ -69,7 +78,19 @@ describe('scriptedRunner', () => {
 			stdout: 'git 2.0',
 			stderr: ''
 		});
-		expect(runner.calls).toEqual([{ file: 'git', args: ['--version'] }]);
+		expect(runner.calls).toEqual([{ file: 'git', args: ['--version'], mode: 'run' }]);
+	});
+
+	it('records a spawn in the same ledger, so step order is assertable across both', async () => {
+		const runner = scriptedRunner({ 'bun install': { code: 0, stdout: '', stderr: '' } });
+		expect(await runner.spawn('bun', ['install'], { cwd: '/ws' })).toBe(0);
+		expect(runner.calls).toEqual([
+			{ file: 'bun', args: ['install'], mode: 'spawn', cwd: '/ws' }
+		]);
+	});
+
+	it('answers 127 from spawn for an unscripted command', async () => {
+		expect(await scriptedRunner({}).spawn('wrangler', ['dev'])).toBe(127);
 	});
 
 	it('answers 127 for an unscripted command', async () => {
@@ -103,9 +124,40 @@ describe('nodeRunner', () => {
 		const result = await nodeRunner().run('drangler-not-a-real-binary', []);
 		expect(result.code).toBe(127);
 	});
+
+	it('spawns a real process and returns its exit code', async () => {
+		expect(await nodeRunner().spawn('node', ['-e', ''])).toBe(0);
+		expect(await nodeRunner().spawn('node', ['-e', 'process.exit(3)'])).toBe(3);
+	});
+
+	it('reports a missing binary as 127 from spawn too', async () => {
+		expect(await nodeRunner().spawn('drangler-not-a-real-binary', [])).toBe(127);
+	});
+
+	it('reports a signalled child as 143 rather than as a clean exit', async () => {
+		const code = await nodeRunner().spawn('node', [
+			'-e',
+			'process.kill(process.pid, "SIGTERM")'
+		]);
+		expect(code).toBe(143);
+	});
 });
 
 describe('nodeFiles', () => {
+	it('round-trips bytes through a real file, creating the parent directory', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'drangler-files-'));
+		try {
+			const fs = nodeFiles();
+			const raw = new Uint8Array([0x53, 0x51, 0x4c, 0x00, 0xff, 0xfe]);
+			const path = join(dir, 'nested', 'site.sqlite');
+			fs.writeBytes(path, raw);
+			expect([...fs.readBytes(path)]).toEqual([...raw]);
+			expect(fs.size(path)).toBe(raw.length);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it('reads this repository back off disk', () => {
 		const fs = nodeFiles();
 		expect(fs.exists(`${process.cwd()}/package.json`)).toBe(true);
