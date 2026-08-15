@@ -45,7 +45,7 @@
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^5.20260815.1",
-		"@types/node": "^24.10.1",
+		"@types/node": "^26.0.0",
 		"@vitest/coverage-v8": "^4.1.0",
 		"husky": "^9.1.7",
 		"lint-staged": "^17.3.0",
