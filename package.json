@@ -31,6 +31,7 @@
 		"test:coverage": "vitest run --project=unit --coverage",
 		"test:e2e": "vitest run --project=e2e",
 		"test:e2e:coverage": "vitest run --project=e2e --coverage",
+		"test:e2e:clone": "vitest run --project=e2e tests/e2e/workspace-clone.spec.ts",
 		"e2e:up": "bun tests/e2e/stack.ts up",
 		"e2e:down": "bun tests/e2e/stack.ts down",
 		"build:binary": "bun build --compile --minify --outfile dist/drangler src/cli.ts",
