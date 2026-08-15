@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn as spawnProcess } from 'node:child_process';
 
 /** What a subprocess produced. A non-zero `code` is data, not an exception. */
 export interface CommandResult {
@@ -21,11 +21,32 @@ export interface RunOptions {
  */
 export interface CommandRunner {
 	run(file: string, args: readonly string[], opts?: RunOptions): Promise<CommandResult>;
+	/**
+	 * Hands the terminal over to a subprocess and waits for its exit code.
+	 *
+	 * The split from `run` is about what the OUTPUT is for. `run` captures because the caller parses
+	 * it -- `git status --porcelain`, wrangler's gzip line. `spawn` inherits because the caller wants
+	 * the user to watch it: `wrangler dev` never exits on its own and `bun run hydrate` downloads
+	 * 15 MB, so both would sit silent behind a buffer and a timeout.
+	 */
+	spawn(file: string, args: readonly string[], opts?: RunOptions): Promise<number>;
 }
 
 /** Real subprocesses. `execFile`, never a shell, so no argument is ever word-split. */
 export function nodeRunner(): CommandRunner {
 	return {
+		spawn(file, args, opts = {}) {
+			return new Promise((resolve) => {
+				const child = spawnProcess(file, [...args], {
+					cwd: opts.cwd,
+					env: opts.env ?? process.env,
+					stdio: 'inherit'
+				});
+				// a signalled child reports code null; 128+SIGTERM is what a shell would report
+				child.on('close', (code, signal) => resolve(code ?? (signal === null ? 1 : 143)));
+				child.on('error', () => resolve(127));
+			});
+		},
 		run(file, args, opts = {}) {
 			return new Promise((resolve) => {
 				execFile(
@@ -57,6 +78,8 @@ export function nodeRunner(): CommandRunner {
 export interface RecordedCall {
 	file: string;
 	args: string[];
+	/** which seam it came through, so a spec can assert step ORDER across both */
+	mode: 'run' | 'spawn';
 	cwd?: string;
 }
 
@@ -74,20 +97,27 @@ export function scriptedRunner(
 	script: Record<string, CommandResult | ((args: readonly string[]) => CommandResult)>
 ): ScriptedRunner {
 	const calls: RecordedCall[] = [];
+	const lookup = (
+		mode: 'run' | 'spawn',
+		file: string,
+		args: readonly string[],
+		cwd?: string
+	): CommandResult => {
+		calls.push({ file, args: [...args], mode, ...(cwd === undefined ? {} : { cwd }) });
+		const key = [file, ...args].join(' ');
+		const hit = script[key];
+		if (hit === undefined) {
+			return { code: 127, stdout: '', stderr: `scripted runner has no entry for: ${key}` };
+		}
+		return typeof hit === 'function' ? hit(args) : hit;
+	};
 	return {
 		calls,
 		async run(file, args, opts = {}) {
-			calls.push({ file, args: [...args], ...(opts.cwd ? { cwd: opts.cwd } : {}) });
-			const key = [file, ...args].join(' ');
-			const hit = script[key];
-			if (hit === undefined) {
-				return {
-					code: 127,
-					stdout: '',
-					stderr: `scripted runner has no entry for: ${key}`
-				};
-			}
-			return typeof hit === 'function' ? hit(args) : hit;
+			return lookup('run', file, args, opts.cwd);
+		},
+		async spawn(file, args, opts = {}) {
+			return lookup('spawn', file, args, opts.cwd).code;
 		}
 	};
 }
