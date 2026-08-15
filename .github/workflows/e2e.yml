@@ -1,0 +1,64 @@
+name: Integration (E2E)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  integration:
+    name: Docker E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    permissions:
+      contents: read
+
+    env:
+      REQUIRE_DOCKER: '1'
+
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+      - name: Cache Docker Images
+        if: ${{ !cancelled() }}
+        uses: actions/cache@v6
+        with:
+          path: /tmp/docker-images
+          key: docker-${{ runner.os }}-${{ hashFiles('docker/compose.yml') }}
+      - name: Load or Pull Docker Images
+        run: |
+          if [ -f /tmp/docker-images/images.tar ]; then
+            docker load -i /tmp/docker-images/images.tar
+          else
+            docker compose -f docker/compose.yml pull
+            mkdir -p /tmp/docker-images
+            docker compose -f docker/compose.yml config --images | sort -u | xargs docker save -o /tmp/docker-images/images.tar
+          fi
+      - name: Run Integration Suite with Coverage
+        run: bun run test:e2e:coverage
+      - name: Upload Coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: drupflare/drangler
+          fail_ci_if_error: false
+          report_type: coverage
+          flags: integration
+          files: coverage/clover.xml
+      - name: Dump Container Logs on Failure
+        if: ${{ failure() }}
+        run: docker compose -f docker/compose.yml logs --no-color --tail=400
+      - name: Teardown Containers
+        if: ${{ always() }}
+        run: docker compose -f docker/compose.yml down -v --remove-orphans

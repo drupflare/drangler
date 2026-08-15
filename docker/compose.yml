@@ -1,0 +1,44 @@
+services:
+  db:
+    image: mariadb@sha256:67873d30a17f6a9c331f06363b2fa15f38abca415529966d67c84f87f82439fe
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_DATABASE: drupal
+      MARIADB_USER: drupal
+      MARIADB_PASSWORD: drupalpass
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --sql-mode=STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 3s
+      timeout: 5s
+      retries: 40
+    ports:
+      - '127.0.0.1:33306:3306'
+
+  drupal:
+    image: drupal@sha256:369ec2a0bb23e1d6b4a378fbe15e36b52def0bb145c1821b8b33e28c3ec1b490
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DRUPAL_DB_HOST: db
+      DRUPAL_DB_NAME: drupal
+      DRUPAL_DB_USER: drupal
+      DRUPAL_DB_PASSWORD: drupalpass
+      DRUPAL_SITE_MAIL: e2e@example.com
+      SSH_USER: tester
+      SSH_PUBLIC_KEY: ${DRANGLER_E2E_SSH_PUBKEY:-}
+    entrypoint: ['/bin/bash', '/opt/drangler/entrypoint.sh']
+    volumes:
+      - ./drupal:/opt/drangler:ro
+    healthcheck:
+      test: ['CMD', 'test', '-f', '/opt/drangler-ready']
+      interval: 5s
+      timeout: 5s
+      retries: 180
+    ports:
+      - '127.0.0.1:8180:80'
+      - '127.0.0.1:2222:22'
