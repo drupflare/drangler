@@ -1,0 +1,22 @@
+# bun
+node_modules/
+package-lock.json
+
+# build output, including the compiled single-file binary
+dist/
+
+# test and coverage output
+coverage/
+*.lcov
+.vitest-cache/
+
+# logs and scratch
+*.log
+/tmp-*
+
+# editor and OS
+.idea/
+.DS_Store
+
+# docs
+typedoc/
