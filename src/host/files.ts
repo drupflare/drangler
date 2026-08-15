@@ -16,6 +16,9 @@ export interface FileHost {
 	exists(path: string): boolean;
 	readText(path: string): string;
 	writeText(path: string, text: string): void;
+	/** raw bytes, because a database and a files tree are not text and a decode would corrupt them */
+	readBytes(path: string): Uint8Array;
+	writeBytes(path: string, bytes: Uint8Array): void;
 	readDir(path: string): DirEntry[];
 	size(path: string): number;
 }
@@ -28,6 +31,11 @@ export function nodeFiles(): FileHost {
 		writeText: (path, text) => {
 			mkdirSync(dirname(path), { recursive: true });
 			writeFileSync(path, text, 'utf8');
+		},
+		readBytes: (path) => new Uint8Array(readFileSync(path)),
+		writeBytes: (path, bytes) => {
+			mkdirSync(dirname(path), { recursive: true });
+			writeFileSync(path, bytes);
 		},
 		readDir: (path) =>
 			readdirSync(path, { withFileTypes: true }).map((e) => ({
@@ -48,9 +56,19 @@ export interface MemoryFiles extends FileHost {
  *
  * Directory listings are derived from the keys, so a fixture declares files only and the tree falls
  * out; a fixture that had to declare its directories too would drift from the files in it.
+ *
+ * IT HOLDS BYTES, not strings, and a seeded string is UTF-8 encoded on the way in. That is what
+ * `nodeFiles` does, so `size()` and `readBytes().length` agree here for the same reason they agree
+ * on a real disk. Storing the string and encoding on read would make a binary fixture -- a database,
+ * a pack -- read back as something other than what was written.
  */
 export function memoryFiles(seed: Record<string, string> = {}): MemoryFiles {
-	const files = new Map<string, string>(Object.entries(seed));
+	const files = new Map<string, Uint8Array>(
+		Object.entries(seed).map(([path, text]) => [
+			path,
+			new Uint8Array(Buffer.from(text, 'utf8'))
+		])
+	);
 	const written = new Map<string, string>();
 
 	const isDir = (path: string): boolean => {
@@ -59,17 +77,24 @@ export function memoryFiles(seed: Record<string, string> = {}): MemoryFiles {
 		return false;
 	};
 
+	const read = (path: string): Uint8Array => {
+		const hit = files.get(path);
+		if (hit === undefined) throw new Error(`ENOENT: ${path}`);
+		return hit;
+	};
+
 	return {
 		written,
 		exists: (path) => files.has(path) || isDir(path),
-		readText: (path) => {
-			const hit = files.get(path);
-			if (hit === undefined) throw new Error(`ENOENT: ${path}`);
-			return hit;
-		},
+		readText: (path) => Buffer.from(read(path)).toString('utf8'),
 		writeText: (path, text) => {
-			files.set(path, text);
+			files.set(path, new Uint8Array(Buffer.from(text, 'utf8')));
 			written.set(path, text);
+		},
+		readBytes: (path) => read(path),
+		writeBytes: (path, bytes) => {
+			files.set(path, new Uint8Array(bytes));
+			written.set(path, Buffer.from(bytes).toString('utf8'));
 		},
 		readDir: (path) => {
 			const prefix = path.endsWith('/') ? path : `${path}/`;
@@ -84,11 +109,7 @@ export function memoryFiles(seed: Record<string, string> = {}): MemoryFiles {
 			if (seen.size === 0 && !files.has(path)) throw new Error(`ENOENT: ${path}`);
 			return [...seen].map(([name, directory]) => ({ name, directory }));
 		},
-		size: (path) => {
-			const hit = files.get(path);
-			if (hit === undefined) throw new Error(`ENOENT: ${path}`);
-			return Buffer.byteLength(hit, 'utf8');
-		}
+		size: (path) => read(path).length
 	};
 }
 
