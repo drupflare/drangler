@@ -39,7 +39,9 @@ function ctxFor(
 	const runner = scriptedRunner({
 		[CLONE]: produce((p) => CHECKOUT.includes(p)),
 		'bun install': produce((p) => p.startsWith('node_modules/')),
-		'bun run hydrate': produce((p) => p.startsWith('assets/') || p.startsWith('.interp/')),
+		'bun run hydrate --payload-only': produce(
+			(p) => p.startsWith('assets/') || p.startsWith('.interp/')
+		),
 		[SCRUB]: ok('clean'),
 		[DRY_RUN]: ok('gzip: 2818.80 KiB'),
 		'bunx wrangler dev -c wrangler.jsonc': ok(''),
@@ -57,7 +59,7 @@ describe('drangler build', () => {
 	it('clones, installs and hydrates an empty workspace, in that order', async () => {
 		const ctx = ctxFor({});
 		expect(await run(ctx, ['build'])).toBe(EXIT.OK);
-		expect(lines(ctx.runner)).toEqual([CLONE, 'bun install', 'bun run hydrate']);
+		expect(lines(ctx.runner)).toEqual([CLONE, 'bun install', 'bun run hydrate --payload-only']);
 	});
 
 	it('is resumable: a second build on a finished workspace runs no subprocess', async () => {
@@ -193,7 +195,7 @@ describe('drangler dev', () => {
 		expect(lines(ctx.runner)).toEqual([
 			CLONE,
 			'bun install',
-			'bun run hydrate',
+			'bun run hydrate --payload-only',
 			'bunx wrangler dev -c wrangler.jsonc'
 		]);
 	});
@@ -214,7 +216,7 @@ describe('drangler dev', () => {
 	it('stops before wrangler when the gate fails', async () => {
 		const tree = workerTree();
 		delete tree[`${WORKSPACE}/assets/driver.json`];
-		const ctx = ctxFor(tree, { 'bun run hydrate': fail(0, '') });
+		const ctx = ctxFor(tree, { 'bun run hydrate --payload-only': fail(0, '') });
 		expect(await run(ctx, ['dev', '--no-build'])).toBe(EXIT.FINDING);
 		expect(lines(ctx.runner)).toEqual([]);
 		expect(ctx.io.stderr.join('\n')).toContain('assets/driver.json');
