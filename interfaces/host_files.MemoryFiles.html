@@ -17,14 +17,14 @@
 or a dump go through this, so a spec builds a tree in a plain object.</p>
 </div></section>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">MemoryFiles</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#written">written</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Map</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#exists-1">exists</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#readbytes-1">readBytes</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Uint8Array</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#readdir-1">readDir</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="host_files.DirEntry.html" class="tsd-signature-type tsd-kind-interface">DirEntry</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#readtext-1">readText</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#size-1">size</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#writebytes-1">writeBytes</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">bytes</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Uint8Array</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#writetext-1">writeText</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">text</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div>
-<section class="tsd-panel tsd-hierarchy" data-refl="746">
+<section class="tsd-panel tsd-hierarchy" data-refl="750">
 <h4>Hierarchy (<a href="../hierarchy.html#host/files.MemoryFiles">View Summary</a>)</h4>
 <ul class="tsd-hierarchy">
 <li class="tsd-hierarchy-item"><a href="host_files.FileHost.html" class="tsd-signature-type tsd-kind-interface">FileHost</a>
 <ul class="tsd-hierarchy">
 <li class="tsd-hierarchy-item"><span class="tsd-hierarchy-target">MemoryFiles</span></li></ul></li></ul></section><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/host/files.ts#L49">src/host/files.ts:49</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/host/files.ts#L49">src/host/files.ts:49</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -53,7 +53,7 @@ or a dump go through this, so a spec builds a tree in a plain object.</p>
 <div class="tsd-comment tsd-typography"><p>every path written, so a spec can assert on output without a temp directory</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/host/files.ts#L51">src/host/files.ts:51</a></li></ul></aside></section></section></details>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/host/files.ts#L51">src/host/files.ts:51</a></li></ul></aside></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="methods-1">Methods<a href="#methods-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
@@ -70,7 +70,7 @@ or a dump go through this, so a spec builds a tree in a plain object.</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">boolean</span></h4><aside class="tsd-sources">
 <p>Inherited from <a href="host_files.FileHost.html">FileHost</a>.<a href="host_files.FileHost.html#exists">exists</a></p>
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/host/files.ts#L16">src/host/files.ts:16</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/host/files.ts#L16">src/host/files.ts:16</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member tsd-is-inherited">
 <h3 class="tsd-anchor-link" id="readbytes"><span>read<wbr/>Bytes</span><a href="#readbytes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-is-inherited">
@@ -86,7 +86,7 @@ or a dump go through this, so a spec builds a tree in a plain object.</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Uint8Array</span></h4><aside class="tsd-sources">
 <p>Inherited from <a href="host_files.FileHost.html">FileHost</a>.<a href="host_files.FileHost.html#readbytes">readBytes</a></p>
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/host/files.ts#L20">src/host/files.ts:20</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/host/files.ts#L20">src/host/files.ts:20</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member tsd-is-inherited">
 <h3 class="tsd-anchor-link" id="readdir"><span>read<wbr/>Dir</span><a href="#readdir" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-is-inherited">
@@ -100,7 +100,7 @@ or a dump go through this, so a spec builds a tree in a plain object.</p>
 <h4 class="tsd-returns-title">Returns <a href="host_files.DirEntry.html" class="tsd-signature-type tsd-kind-interface">DirEntry</a><span class="tsd-signature-symbol">[]</span></h4><aside class="tsd-sources">
 <p>Inherited from <a href="host_files.FileHost.html">FileHost</a>.<a href="host_files.FileHost.html#readdir">readDir</a></p>
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/host/files.ts#L22">src/host/files.ts:22</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/host/files.ts#L22">src/host/files.ts:22</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member tsd-is-inherited">
 <h3 class="tsd-anchor-link" id="readtext"><span>read<wbr/>Text</span><a href="#readtext" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-is-inherited">
@@ -114,7 +114,7 @@ or a dump go through this, so a spec builds a tree in a plain object.</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">string</span></h4><aside class="tsd-sources">
 <p>Inherited from <a href="host_files.FileHost.html">FileHost</a>.<a href="host_files.FileHost.html#readtext">readText</a></p>
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/host/files.ts#L17">src/host/files.ts:17</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/host/files.ts#L17">src/host/files.ts:17</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member tsd-is-inherited">
 <h3 class="tsd-anchor-link" id="size"><span>size</span><a href="#size" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-is-inherited">
@@ -128,7 +128,7 @@ or a dump go through this, so a spec builds a tree in a plain object.</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span></h4><aside class="tsd-sources">
 <p>Inherited from <a href="host_files.FileHost.html">FileHost</a>.<a href="host_files.FileHost.html#size">size</a></p>
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/host/files.ts#L23">src/host/files.ts:23</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/host/files.ts#L23">src/host/files.ts:23</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member tsd-is-inherited">
 <h3 class="tsd-anchor-link" id="writebytes"><span>write<wbr/>Bytes</span><a href="#writebytes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-is-inherited">
@@ -143,7 +143,7 @@ or a dump go through this, so a spec builds a tree in a plain object.</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <p>Inherited from <a href="host_files.FileHost.html">FileHost</a>.<a href="host_files.FileHost.html#writebytes">writeBytes</a></p>
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/host/files.ts#L21">src/host/files.ts:21</a></li></ul></aside></div></li></ul></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/host/files.ts#L21">src/host/files.ts:21</a></li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member tsd-is-inherited">
 <h3 class="tsd-anchor-link" id="writetext"><span>write<wbr/>Text</span><a href="#writetext" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures tsd-is-inherited">
@@ -158,7 +158,7 @@ or a dump go through this, so a spec builds a tree in a plain object.</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <p>Inherited from <a href="host_files.FileHost.html">FileHost</a>.<a href="host_files.FileHost.html#writetext">writeText</a></p>
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/4789eeb06bd1daad004fdcbf4478bca10745da66/src/host/files.ts#L18">src/host/files.ts:18</a></li></ul></aside></div></li></ul></section></section></details></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/host/files.ts#L18">src/host/files.ts:18</a></li></ul></aside></div></li></ul></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
