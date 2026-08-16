@@ -183,8 +183,10 @@ export interface RunCommandOptions extends WorkspaceOptions {
 	source?: string;
 	ref?: string;
 	from?: string;
-	/** rebuild the artifacts in the checkout rather than downloading a payload */
+	/** rebuild the artifacts in the checkout rather than letting hydrate decide */
 	fromSource?: boolean;
+	/** fail when no payload exists, rather than building from source */
+	payloadOnly?: boolean;
 	json?: boolean;
 }
 
@@ -235,7 +237,8 @@ async function runWrangler(
 	if (opts.build !== false) {
 		const steps = planBuild(state, source, {
 			...(opts.from === undefined ? {} : { from: opts.from }),
-			...(opts.fromSource === true ? { fromSource: true } : {})
+			...(opts.fromSource === true ? { fromSource: true } : {}),
+			...(opts.payloadOnly === true ? { payloadOnly: true } : {})
 		});
 		if (steps.some((s) => s.run)) await runPlan(ctx, steps, location.path, source);
 	}

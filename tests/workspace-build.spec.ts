@@ -85,16 +85,12 @@ describe('planBuild', () => {
 		]);
 	});
 
-	it('forbids the checkout its own source-build fallback unless asked', () => {
-		// worker's `hydrate` builds from source on its own when no payload exists, and that build
-		// wants PHP, composer, node 24+, zstd and a running Docker. A user who ran `bun add -g` has
-		// none of them and would find out minutes in, so the default turns it into a named failure
-		expect(planBuild(stateOf(), SOURCE)[3]?.command).toEqual([
-			'bun',
-			'run',
-			'hydrate',
-			'--payload-only'
-		]);
+	it('names no route by default, so `drangler dev` works with no flags', () => {
+		// the checkout's `hydrate` resolves a payload and falls back to a source build when there is
+		// none, and only it can see which happened. Before the first release the fallback IS the
+		// path, so forcing `--payload-only` here would break the one command that has to work
+		expect(planBuild(stateOf(), SOURCE)[3]?.command).toEqual(['bun', 'run', 'hydrate']);
+		expect(hydrateArgs({})).toEqual([]);
 	});
 
 	it('asks for the source build when --from-source says to', () => {
@@ -109,6 +105,15 @@ describe('planBuild', () => {
 		);
 	});
 
+	it('forbids the source build when --payload-only says to', () => {
+		expect(planBuild(stateOf(), SOURCE, { payloadOnly: true })[3]?.command).toEqual([
+			'bun',
+			'run',
+			'hydrate',
+			'--payload-only'
+		]);
+	});
+
 	it('lets a named payload win over --from-source, because a tarball IS a payload', () => {
 		expect(hydrateArgs({ from: '/tmp/p.tar.gz', fromSource: true })).toEqual([
 			'--from=/tmp/p.tar.gz'
@@ -116,7 +121,12 @@ describe('planBuild', () => {
 	});
 
 	it('never passes two routes at once', () => {
-		for (const opts of [{}, { fromSource: true }, { from: '/tmp/p.tar.gz' }]) {
+		for (const opts of [
+			{ fromSource: true },
+			{ payloadOnly: true },
+			{ from: '/tmp/p.tar.gz' },
+			{ fromSource: true, payloadOnly: true }
+		]) {
 			expect(hydrateArgs(opts)).toHaveLength(1);
 		}
 	});
@@ -167,7 +177,7 @@ describe('runPlan', () => {
 		return scriptedRunner({
 			[cloneLine]: ok(''),
 			'bun install': ok(''),
-			'bun run hydrate --payload-only': ok('hydrated 87 files'),
+			'bun run hydrate': ok('hydrated 87 files'),
 			...over
 		});
 	}
@@ -180,7 +190,7 @@ describe('runPlan', () => {
 		expect(runner.calls.map((c) => [c.file, ...c.args].join(' '))).toEqual([
 			cloneLine,
 			'bun install',
-			'bun run hydrate --payload-only'
+			'bun run hydrate'
 		]);
 		expect(runner.calls.every((c) => c.mode === 'spawn')).toBe(true);
 		// the clone runs from the working directory, because its target does not exist yet

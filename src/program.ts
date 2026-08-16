@@ -90,6 +90,10 @@ export function buildProgram(ctx: Context): Command {
 			'--from-source',
 			'rebuild the artifacts in the checkout; needs PHP, composer, node 24+, zstd and Docker'
 		)
+		.option(
+			'--payload-only',
+			'fail when no release payload exists, rather than building the artifacts from source'
+		)
 		.option('--refresh', 'fetch and fast-forward an existing checkout; refuses on a dirty tree')
 		.option('--force', 'redo the install and hydrate steps even when their output is present')
 		.option('--dry-run', 'print the step plan and run nothing')
@@ -128,6 +132,10 @@ export function buildProgram(ctx: Context): Command {
 			'--from-source',
 			'rebuild the artifacts in the checkout; needs PHP, composer, node 24+, zstd and Docker'
 		)
+		.option(
+			'--payload-only',
+			'fail when no release payload exists, rather than building the artifacts from source'
+		)
 		.option('--no-build', 'fail rather than building a workspace that is not ready')
 		.option('--skip-validate', 'run wrangler without the gate')
 		.action(
@@ -149,6 +157,10 @@ export function buildProgram(ctx: Context): Command {
 		.option(
 			'--from-source',
 			'rebuild the artifacts in the checkout; needs PHP, composer, node 24+, zstd and Docker'
+		)
+		.option(
+			'--payload-only',
+			'fail when no release payload exists, rather than building the artifacts from source'
 		)
 		.option('--no-build', 'fail rather than building a workspace that is not ready')
 		.option('--skip-validate', 'deploy without the gate')

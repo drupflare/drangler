@@ -160,18 +160,43 @@ describe.skipIf(skip)('a live clone of drupflare/worker', () => {
 	});
 
 	/**
-	 * The state a user is in before the first release, and the one that has to fail LEGIBLY.
+	 * `drangler dev` has to work with no flags, so the default hands the decision to the checkout.
 	 *
-	 * The checkout's own `hydrate` falls back to regenerating every artifact from source when there
-	 * is no payload, and that build wants PHP, composer, node 24+, zstd and a running Docker. A user
-	 * who ran `bun add -g` has none of them and would discover that minutes in, so drangler passes
-	 * `--payload-only` and the checkout is expected to refuse by name.
+	 * Only `hydrate` can see whether a payload answered, and before the first release none does --
+	 * so a default of `--payload-only` here would make the one command that has to work on a clean
+	 * machine be the one command that cannot. The overrides still have to be flags the checkout
+	 * accepts, and THAT is the cross-repo half: drangler chooses the string, the worker decides what
+	 * it means, and a fixture on either side would agree with itself forever.
 	 *
-	 * This is a CROSS-REPO contract -- drangler chooses the flag, the worker decides what it means --
-	 * and a fixture on either side would agree with itself forever. It only holds against a clone.
+	 * The plan is asserted rather than run. A real source build is ~15 minutes, a 180 MB download and
+	 * a Docker image, none of which belongs in a lane that already clones and installs.
+	 */
+	it('names no route by default, and every override it can name is one the checkout reads', () => {
+		const source = resolveSource({}, WORKER_SOURCE, WORKER_REF);
+		const state = readState(nodeFiles(), workspace);
+		const hydrateStep = (opts = {}) =>
+			planBuild(state, source, opts).find((s) => s.id === 'hydrate')?.command ?? [];
+
+		expect(hydrateStep()).toEqual(['bun', 'run', 'hydrate']);
+		expect(hydrateStep({ fromSource: true })).toContain('--from-source');
+		expect(hydrateStep({ payloadOnly: true })).toContain('--payload-only');
+
+		const hydrate = readFileSync(join(workspace, 'scripts/hydrate.ts'), 'utf8');
+		for (const flag of ['--payload-only', '--from-source']) {
+			expect(hydrate, `the checkout's hydrate.ts never reads ${flag}`).toContain(flag);
+		}
+	});
+
+	/**
+	 * With no payload the DEFAULT route is the source build, and the checkout has to say so.
+	 *
+	 * Asserted through `--payload-only`, which is the same resolution with the fallback turned off:
+	 * it proves the checkout looked, found nothing, and named both the absence and the way forward.
+	 * Letting the real default run here would spend fifteen minutes and a Docker image inside a lane
+	 * whose subject is the handover, not the build.
 	 */
 	it.skipIf(payload !== null)(
-		'refuses by name when there is no payload, rather than building from source unasked',
+		'reports the missing payload by name, and points at the route that needs none',
 		async () => {
 			const io = bufferIo();
 			await expect(
@@ -179,6 +204,7 @@ describe.skipIf(skip)('a live clone of drupflare/worker', () => {
 					workspace,
 					source: WORKER_SOURCE,
 					ref: WORKER_REF,
+					payloadOnly: true,
 					json: true
 				})
 			).rejects.toThrow(/hydrate failed/);
@@ -187,36 +213,13 @@ describe.skipIf(skip)('a live clone of drupflare/worker', () => {
 			expect(said, 'the checkout must name the missing payload').toMatch(
 				/no payload to hydrate from/
 			);
-			expect(said, 'and must name the way out').toContain('--payload-only');
+			expect(said, 'and must name the route that needs no payload').toContain(
+				'bun run build:local'
+			);
 			expect(readState(nodeFiles(), workspace).hydrated).toBe(false);
 		},
 		900_000
 	);
-
-	/**
-	 * `--from-source` reaches the checkout, which is the half a unit test cannot prove.
-	 *
-	 * The plan is asserted rather than run: a real source build is ~15 minutes, a 180 MB download and
-	 * a Docker image, none of which belongs in a lane that already clones and installs. What has to
-	 * be true here is that the flag drangler emits is one the checkout's `hydrate` accepts, and that
-	 * is read off the checkout's own script rather than off a constant.
-	 */
-	it('emits a hydrate flag the cloned checkout actually understands', () => {
-		const source = resolveSource({}, WORKER_SOURCE, WORKER_REF);
-		const state = readState(nodeFiles(), workspace);
-
-		const defaulted = planBuild(state, source).find((s) => s.id === 'hydrate');
-		const asked = planBuild(state, source, { fromSource: true }).find(
-			(s) => s.id === 'hydrate'
-		);
-		expect(defaulted?.command).toContain('--payload-only');
-		expect(asked?.command).toContain('--from-source');
-
-		const hydrate = readFileSync(join(workspace, 'scripts/hydrate.ts'), 'utf8');
-		for (const flag of ['--payload-only', '--from-source']) {
-			expect(hydrate, `the checkout's hydrate.ts never reads ${flag}`).toContain(flag);
-		}
-	});
 
 	it.skipIf(payload === null)(
 		`hydrates from the ${payload?.detail ?? 'payload'}`,

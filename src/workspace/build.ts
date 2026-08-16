@@ -22,16 +22,17 @@ export interface BuildOptions {
 	refresh?: boolean;
 	/** a local payload tarball, passed through to `bun run hydrate --from=` */
 	from?: string;
-	/**
-	 * Regenerate the artifacts in the checkout instead of downloading a release payload.
-	 *
-	 * OFF BY DEFAULT, and the default is the point. The checkout's `hydrate` falls back to a source
-	 * build on its own when no payload exists, and that build wants PHP, composer, node 24+, zstd and
-	 * a running Docker -- none of which a user who ran `bun add -g` has, and all of which take minutes
-	 * to discover they are missing. So drangler passes `--payload-only` unless asked, turning "no
-	 * release yet" into an immediate named failure rather than a surprise toolchain build.
-	 */
+	/** regenerate the artifacts in the checkout rather than letting `hydrate` decide */
 	fromSource?: boolean;
+	/**
+	 * Refuse to build from source; fail instead when there is no payload.
+	 *
+	 * For a lane that must not spend minutes on a toolchain build it did not ask for -- CI, a
+	 * scripted provision. NOT the default: `drangler dev` has to work on a clean machine with no
+	 * flags, and before the first release there is no payload to work from, so a default of
+	 * `--payload-only` would make the one command that has to work be the one command that cannot.
+	 */
+	payloadOnly?: boolean;
 }
 
 /**
@@ -101,21 +102,30 @@ export function planBuild(
 					? 'every generated artifact is already on disk'
 					: opts.fromSource === true
 						? 'generated artifacts are missing; rebuilding them from source'
-						: 'generated artifacts are missing'
+						: opts.payloadOnly === true
+							? 'generated artifacts are missing; a payload is required'
+							: 'generated artifacts are missing'
 	});
 
 	return steps;
 }
 
 /**
- * Which route the checkout's `hydrate` is told to take.
+ * Which route the checkout's `hydrate` is told to take, if any.
  *
- * The three are mutually exclusive and `--from` wins: a tarball that was handed over is a payload,
- * so asking for a source build alongside it is a contradiction rather than a refinement.
+ * NOTHING BY DEFAULT, which is the whole design. `hydrate` already resolves a payload and falls back
+ * to a source build when there is none, and that fallback is what makes `drangler dev` work on a
+ * clean machine before any release has been cut -- the state this project is in today. Passing a
+ * route here would override a decision the checkout is better placed to make, since only it can see
+ * whether a payload answered.
+ *
+ * The three overrides are mutually exclusive and `--from` wins: a tarball that was handed over is a
+ * payload, so asking for a source build alongside it is a contradiction rather than a refinement.
  */
 export function hydrateArgs(opts: BuildOptions): string[] {
 	if (opts.from !== undefined) return [`--from=${opts.from}`];
-	return opts.fromSource === true ? ['--from-source'] : ['--payload-only'];
+	if (opts.fromSource === true) return ['--from-source'];
+	return opts.payloadOnly === true ? ['--payload-only'] : [];
 }
 
 /** what a build did, and what it left behind */
