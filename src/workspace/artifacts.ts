@@ -47,6 +47,15 @@ export const REQUIRED_ARTIFACTS: readonly RequiredArtifact[] = [
 /** the one command that produces all of {@link REQUIRED_ARTIFACTS}, from a published release */
 export const HYDRATE_COMMAND = 'bun run hydrate';
 
+/**
+ * The same set, regenerated in the checkout instead of downloaded.
+ *
+ * Named beside {@link HYDRATE_COMMAND} because "there is no release yet" is a state a user can hit
+ * and must be able to act on. It is not the default: it wants PHP, composer, node 24+, zstd and a
+ * running Docker, so `drangler build` asks for it explicitly via `--from-source`.
+ */
+export const BUILD_LOCAL_COMMAND = 'bun run build:local';
+
 /** a path that is not a workspace-relative file, so it cannot name something outside the checkout */
 function isSafeRelative(path: string): boolean {
 	return path !== '' && !path.startsWith('/') && !path.split('/').includes('..');

@@ -183,6 +183,8 @@ export interface RunCommandOptions extends WorkspaceOptions {
 	source?: string;
 	ref?: string;
 	from?: string;
+	/** rebuild the artifacts in the checkout rather than downloading a payload */
+	fromSource?: boolean;
 	json?: boolean;
 }
 
@@ -231,7 +233,10 @@ async function runWrangler(
 	assertUsable(state);
 
 	if (opts.build !== false) {
-		const steps = planBuild(state, source, opts.from === undefined ? {} : { from: opts.from });
+		const steps = planBuild(state, source, {
+			...(opts.from === undefined ? {} : { from: opts.from }),
+			...(opts.fromSource === true ? { fromSource: true } : {})
+		});
 		if (steps.some((s) => s.run)) await runPlan(ctx, steps, location.path, source);
 	}
 

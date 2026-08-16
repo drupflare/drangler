@@ -22,6 +22,16 @@ export interface BuildOptions {
 	refresh?: boolean;
 	/** a local payload tarball, passed through to `bun run hydrate --from=` */
 	from?: string;
+	/**
+	 * Regenerate the artifacts in the checkout instead of downloading a release payload.
+	 *
+	 * OFF BY DEFAULT, and the default is the point. The checkout's `hydrate` falls back to a source
+	 * build on its own when no payload exists, and that build wants PHP, composer, node 24+, zstd and
+	 * a running Docker -- none of which a user who ran `bun add -g` has, and all of which take minutes
+	 * to discover they are missing. So drangler passes `--payload-only` unless asked, turning "no
+	 * release yet" into an immediate named failure rather than a surprise toolchain build.
+	 */
+	fromSource?: boolean;
 }
 
 /**
@@ -81,7 +91,7 @@ export function planBuild(
 	const from = opts.from;
 	steps.push({
 		id: 'hydrate',
-		command: ['bun', 'run', 'hydrate', ...(from === undefined ? [] : [`--from=${from}`])],
+		command: ['bun', 'run', 'hydrate', ...hydrateArgs(opts)],
 		run: force || from !== undefined || !state.hydrated,
 		reason: force
 			? 'forced'
@@ -89,10 +99,23 @@ export function planBuild(
 				? `landing the payload at ${from}`
 				: state.hydrated
 					? 'every generated artifact is already on disk'
-					: 'generated artifacts are missing'
+					: opts.fromSource === true
+						? 'generated artifacts are missing; rebuilding them from source'
+						: 'generated artifacts are missing'
 	});
 
 	return steps;
+}
+
+/**
+ * Which route the checkout's `hydrate` is told to take.
+ *
+ * The three are mutually exclusive and `--from` wins: a tarball that was handed over is a payload,
+ * so asking for a source build alongside it is a contradiction rather than a refinement.
+ */
+export function hydrateArgs(opts: BuildOptions): string[] {
+	if (opts.from !== undefined) return [`--from=${opts.from}`];
+	return opts.fromSource === true ? ['--from-source'] : ['--payload-only'];
 }
 
 /** what a build did, and what it left behind */
