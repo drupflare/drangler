@@ -21,13 +21,25 @@ const identity = {
 	'x-cfw-php-booted': '1'
 };
 
-/** `/serve` answers with the identity headers; `/stats` 404s, which is a correctly closed site */
-const deployed = (headers: Record<string, string> = identity, statsStatus = 404) =>
-	fakeFetch((url) =>
-		url.includes('/stats')
-			? new Response('not found', { status: statsStatus })
-			: new Response('<html></html>', { status: 200, headers })
-	);
+/**
+ * `/serve` answers with the identity headers; `/stats` 404s, which is a correctly closed site;
+ * `/firstrun` reports a claimed one, which is the state a site spends its life in.
+ */
+const deployed = (headers: Record<string, string> = identity, statsStatus = 404, claimed = true) =>
+	fakeFetch((url) => {
+		if (url.includes('/stats')) return new Response('not found', { status: statsStatus });
+		if (url.includes('/firstrun')) {
+			return new Response(
+				JSON.stringify({
+					ok: true,
+					configured: claimed,
+					firstRunAt: claimed ? 1755000000000 : null
+				}),
+				{ status: 200 }
+			);
+		}
+		return new Response('<html></html>', { status: 200, headers });
+	});
 
 describe('status', () => {
 	it('reports the deployed identity from one public request', async () => {
@@ -96,6 +108,39 @@ describe('status', () => {
 		const ctx = testContext({ fetch: deployed(identity, 200) });
 		await expect(runStatus(ctx, 'site.example', {})).rejects.toThrow(FindingError);
 		expect(ctx.io.text()).toContain('should be closed');
+	});
+
+	it('reports a claimed site and the timestamp it carries', async () => {
+		const ctx = testContext({ fetch: deployed() });
+		await runStatus(ctx, 'site.example', { json: true });
+		const status = ctx.io.json<{ claimed: string; firstRunAt: number | null }>();
+		expect(status.claimed).toBe('claimed');
+		expect(status.firstRunAt).toBe(1755000000000);
+	});
+
+	// the state a site is in for the minutes between a deploy and its owner arriving, and the one
+	// state where somebody else can take it
+	it('exits with a finding on an unclaimed site and says how to close the window', async () => {
+		const ctx = testContext({ fetch: deployed(identity, 404, false) });
+		await expect(runStatus(ctx, 'site.example', {})).rejects.toThrow(FindingError);
+		const text = ctx.io.text();
+		expect(text).toContain('claimed');
+		expect(text).toContain('unclaimed');
+		expect(text).toContain('POST /firstrun');
+	});
+
+	it('separates a site it could not ask from one nobody has claimed', async () => {
+		const ctx = testContext({
+			fetch: fakeFetch((url) =>
+				url.includes('/serve')
+					? new Response('<html></html>', { status: 200, headers: identity })
+					: new Response('not found', { status: 404 })
+			)
+		});
+		await runStatus(ctx, 'site.example', { json: true });
+		const status = ctx.io.json<{ claimed: string; notes: string[] }>();
+		expect(status.claimed).toBe('unknown');
+		expect(status.notes.join(' ')).toContain('predate the route');
 	});
 
 	it('exits with a finding when the site does not answer', async () => {

@@ -57,7 +57,9 @@ export function buildProgram(ctx: Context): Command {
 	program
 		.command('status')
 		.argument('<target>', 'the deployed site origin, with or without a scheme')
-		.description('Report what is deployed: plan, generation, header contract, diagnostics')
+		.description(
+			'Report what is deployed: plan, generation, header contract, claim state, diagnostics'
+		)
 		.option('--path <path>', 'the Drupal path to read the identity from', '/')
 		.option('--site <name>', 'worker site identity, which selects the Durable Object', 'site')
 		.option('--config <file>', 'a wrangler config to read the deploy name from')

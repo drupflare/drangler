@@ -2,7 +2,7 @@ import { parseWranglerConfig, type WranglerConfig } from '../cloudflare/config';
 import type { Context } from '../context';
 import { FindingError } from '../errors';
 import { emit, kv } from '../format';
-import { probeSite } from '../health/probe';
+import { probeClaim, probeSite, type ClaimState } from '../health/probe';
 
 export interface StatusOptions {
 	path?: string;
@@ -22,6 +22,10 @@ export interface SiteStatus {
 	plan: string | null;
 	headerVersion: number | null;
 	phpBooted: boolean | null;
+	/** whether anyone has set the administrator password; `unclaimed` means anyone still can */
+	claimed: ClaimState;
+	/** when the claim happened, as the site reports it */
+	firstRunAt: number | null;
 	/** whether the diagnostic routes are open, which they should not be on a deployed site */
 	diagnostics: 'off' | 'gated' | 'open';
 	/** read from a local wrangler config when one was given or found; absent otherwise */
@@ -72,14 +76,20 @@ function readConfig(ctx: Context, explicit?: string): SiteStatus['config'] {
  * A local wrangler config is reported when one happens to be in the working directory -- a user who
  * deployed from the template may have kept the checkout -- and its absence is not a failure. That is
  * the only local file this command looks at.
+ *
+ * The claim state is read here rather than in `health` because it is a deployment fact rather than an
+ * availability one: an unclaimed site serves perfectly and has no administrator, so a monitor should
+ * not page on it while the command that reports what is deployed absolutely should say so.
  */
 export async function runStatus(ctx: Context, target: string, opts: StatusOptions): Promise<void> {
+	const site = opts.site ?? 'site';
+	const timeoutMs = opts.timeoutMs ?? 15_000;
 	const result = await probeSite(
 		{ fetch: ctx.fetch },
 		{
 			target,
 			path: opts.path ?? '/',
-			site: opts.site ?? 'site',
+			site,
 			kind: 'worker',
 			// the object sets `x-cfw-plan` on a MISS, and a cache tier answers without it, so the
 			// edge is bypassed to give the identity fields a chance to be populated
@@ -88,6 +98,7 @@ export async function runStatus(ctx: Context, target: string, opts: StatusOption
 			...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs })
 		}
 	);
+	const claim = await probeClaim({ fetch: ctx.fetch }, result.target, site, timeoutMs);
 
 	const status: SiteStatus = {
 		target: result.target,
@@ -97,11 +108,23 @@ export async function runStatus(ctx: Context, target: string, opts: StatusOption
 		plan: result.plan,
 		headerVersion: result.headerVersion,
 		phpBooted: result.phpBooted,
+		claimed: claim.state,
+		firstRunAt: claim.firstRunAt,
 		diagnostics: result.diagnostics,
 		config: readConfig(ctx, opts.config),
 		notes: [...result.notes]
 	};
 
+	if (status.claimed === 'unclaimed') {
+		status.notes.push(
+			'nobody has claimed this site: uid 1 has no usable password and whoever reaches the URL first can set one. POST /firstrun to claim it, and store the adminPass and ownerToken it returns'
+		);
+	}
+	if (status.claimed === 'unknown') {
+		status.notes.push(
+			'/firstrun did not report a claim state; this worker may predate the route, so the site is neither confirmed claimed nor confirmed open'
+		);
+	}
 	if (status.diagnostics === 'open') {
 		status.notes.push(
 			'the diagnostic routes answer on this deployment; /sql and /restore are reachable and should be closed'
@@ -125,6 +148,7 @@ export async function runStatus(ctx: Context, target: string, opts: StatusOption
 				status.headerVersion === null ? 'unversioned' : `v${status.headerVersion}`
 			],
 			['interpreter', status.phpBooted === null ? '-' : status.phpBooted ? 'booted' : 'cold'],
+			['claimed', status.claimed],
 			['diagnostics', status.diagnostics]
 		];
 		if (status.config !== null) {
@@ -150,5 +174,10 @@ export async function runStatus(ctx: Context, target: string, opts: StatusOption
 			'diagnostics-open',
 			`${status.target} exposes its diagnostic routes`
 		);
+	}
+	// a finding rather than a note, for the same reason an open diagnostic route is: the site is
+	// serving and the exposure is still real, and exit 3 is what a deploy script can read
+	if (status.claimed === 'unclaimed') {
+		throw new FindingError('unclaimed', `${status.target} has not been claimed yet`);
 	}
 }
