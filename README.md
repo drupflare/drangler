@@ -17,6 +17,7 @@ reads.
 
 - [Install](#-install)
 - [Quick Start](#-quick-start)
+- [Site Lifecycle](#-site-lifecycle)
 - [Commands](#-commands)
 - [Workspaces](#-workspaces)
 - [Validation](#-validation)
@@ -86,6 +87,105 @@ put in a monitor.
 
 ---
 
+## 🧭 Site Lifecycle
+
+What happens between a `deploy` and a site you can log in to. The same sequence runs for
+`drangler dev`, the one-click Deploy to Cloudflare button, and `wrangler deploy` in a checkout.
+
+### First Boot
+
+A fresh site has an empty Durable Object, and the first request is what starts it. Until the packed
+database has finished replaying, every request gets a **503** carrying `x-cfw-migrate` and
+`x-cfw-migrate-state`; a browser sees a self-refreshing page and lands on the site by itself.
+
+**Measured on a deployed worker: 4 to 7 polls at 2 s, so 8 to 14 seconds from the first request to
+the first 200.** `health` calls that `warming` and exits `0`, and names the chunk it is on:
+
+```sh
+drangler health my-site.example --skip-edge
+# verdict  warming
+# notes
+#   - replaying the database, chunk 31/62 (running); a fresh site does this once, and a 503
+#     until it finishes is expected
+```
+
+### Claiming
+
+The pack ships an **installed** database, so Drupal's `install.php` never runs and uid 1 carries a
+hash no password matches. `/firstrun` is what sets the administrator password, and until it does,
+whoever reaches the URL first can claim the site. A browser navigating to an unclaimed site gets a
+one-click claim page instead of the front page.
+
+`status` reports the claim state and exits `3` while the window is open:
+
+```sh
+drangler status my-site.example
+# claimed  unclaimed
+# notes
+#   - nobody has claimed this site: uid 1 has no usable password and whoever reaches the URL
+#     first can set one. POST /firstrun to claim it, and store the adminPass and ownerToken
+#     it returns
+```
+
+Claim it in the browser, or from a terminal:
+
+```sh
+curl -X POST "https://my-site.example/firstrun" \
+  -H 'content-type: application/json' \
+  -d '{"siteName":"My Site","adminMail":"you@example.com"}'
+```
+
+The response carries **`adminPass` and `ownerToken`, each shown once and stored nowhere.** Save both.
+A site that answered `/firstrun` before this drangler could ask reports `unknown` rather than
+`unclaimed`, because "I could not tell" and "nobody has claimed it" are different answers.
+
+### Logging In and the Owner Token
+
+Log in at `/user/login` as `admin` with the `adminPass`. That is the Drupal account.
+
+**The `ownerToken` is a separate credential and is not a login.** It goes in an `Authorization:
+Bearer` header and reaches `/export`, `/health`, `/setup/cf` and `/setup/mail` without exposing the
+diagnostic routes. drangler reads it from `--token` or `DRUPFLARE_OWNER_TOKEN`:
+
+```sh
+export DRUPFLARE_OWNER_TOKEN=...
+drangler migrate export --url my-site.example --out worker.sql
+```
+
+`secrets scan` knows the shape of both that token and a pasted `CF_EMAIL_TOKEN`, so a dump or a
+`.env` carrying either is a finding rather than a surprise.
+
+### Running Day to Day
+
+| Question                                   | Command                             |
+| ------------------------------------------ | ----------------------------------- |
+| What is deployed, and has it been claimed? | `drangler status <target>`          |
+| Is it up, and which tier answered?         | `drangler health <target>`          |
+| Is my machine set up to work on it?        | `drangler doctor`                   |
+| Will this config deploy?                   | `drangler config check <file>`      |
+| Which Cloudflare credential am I using?    | `drangler cf whoami`                |
+| Did a throwaway deploy leave anything?     | `drangler cf workers --compare <f>` |
+| Is there a credential in this artifact?    | `drangler secrets scan <paths...>`  |
+| Get my data out                            | `drangler migrate export`           |
+
+### Connecting Cloudflare and Sending Mail
+
+Both are HTTP flows on the site itself rather than drangler commands, because both are
+owner-authenticated and one of them is an OAuth consent screen that has to complete in a browser:
+
+- **`GET /setup/cf?action=connect&client_id=<id>`** returns an authorize URL; `?action=status` and
+  `?action=disconnect` are the other two actions. Pasting `CF_EMAIL_ACCOUNT_ID` and `CF_EMAIL_TOKEN`
+  is the alternative and needs no OAuth client.
+- **`GET /setup/mail?zone=<zone-id>`** reports which of five stages the sending domain is waiting on;
+  `?action=apply` creates the subdomain and writes the DNS.
+
+The contracts live in
+[`worker/docs/configuration.md`](https://github.com/drupflare/worker/blob/master/docs/configuration.md)
+under **Connecting a Cloudflare Account** and **Onboarding a Sending Domain**. drangler does not
+restate the stage vocabulary; that has one implementation, in the worker.
+
+---
+
 ## 🔧 Commands
 
 | Command                   | What it does                                                       |
@@ -94,7 +194,7 @@ put in a monitor.
 | `validate`                | Everything that has to hold before `dev` or `deploy` will work     |
 | `dev`                     | Build if needed, check, then run a local Drupal                    |
 | `deploy`                  | Build if needed, check, then deploy to your Cloudflare account     |
-| `status <target>`         | What is deployed: plan, generation, header contract, diagnostics   |
+| `status <target>`         | What is deployed: plan, generation, claim state, diagnostics       |
 | `doctor`                  | Preflight the toolchain and the Cloudflare credential              |
 | `health <target>`         | Probe a deployed worker or a VPS Drupal and report what answered   |
 | `config check <file>`     | Score a wrangler config against known-bad deployments              |
@@ -376,7 +476,7 @@ Two lanes. The gate is hermetic; the integration lane needs Docker.
 
 ```sh
 bun run typecheck
-bun run test # 532 assertions across 18 specs, no network, no daemon
+bun run test # 547 assertions across 18 specs, no network, no daemon
 bun run test:coverage
 
 bun run test:e2e       # 35 assertions across 5 specs, against a real Drupal
@@ -384,7 +484,7 @@ bun run test:e2e:clone # the clone lane alone; no Docker, about ten seconds
 bun run e2e:down       # remove the containers and their volumes
 ```
 
-**532 passing** in the gate at **98% statements**, with every external effect behind an injected
+**547 passing** in the gate at **98.33% statements**, with every external effect behind an injected
 seam: the terminal, the filesystem, subprocesses, `fetch`, and the environment. No gate test opens a
 socket, reaches a VPS, contacts Cloudflare, or clones a repository. The workspace commands are
 covered against a scripted runner whose build steps land the files they really produce, so the gate

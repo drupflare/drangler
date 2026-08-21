@@ -240,7 +240,7 @@ Platform figures the migration rules score against live in one table, `LIMITS` i
 
 ```sh
 bun run typecheck
-bun run test # 531 assertions across 18 specs
+bun run test # 547 assertions across 18 specs
 bun run test:coverage
 bunx prettier --check .
 bun run build:binary # bun build --compile into dist/drangler
@@ -259,7 +259,7 @@ with the real runner and the real filesystem. What each lane is worth:
 - **The clone lane** covers what only exists off this machine: that a `git clone` lands a tree whose
   `package.json` names `@drupflare/worker`, that `bun install` resolves it from npm, that
   `interpreterFiles()` reads the alias the worker ships rather than the one in a fixture, that
-  `validate` names all nine missing artifacts on a clean checkout and exits 3, and that a second
+  `validate` names all eleven missing artifacts on a clean checkout and exits 3, and that a second
   plan re-clones and re-installs nothing.
 - **The payload half waits on a release**, because no tag exists yet. It runs against a tarball
   named by `DRANGLER_E2E_PAYLOAD`, and it starts running against the real thing on its own the
