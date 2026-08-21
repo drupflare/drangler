@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DranglerError } from '../src/errors';
 import { scriptedRunner } from '../src/host/exec';
 import { memoryFiles } from '../src/host/files';
+import { bufferIo } from '../src/io';
 import { hydrateArgs, planBuild, runPlan, type BuildStepId } from '../src/workspace/build';
 import { readState, type WorkspaceState } from '../src/workspace/layout';
 import { resolveSource } from '../src/workspace/source';
@@ -217,6 +218,36 @@ describe('runPlan', () => {
 			/install failed: `bun install` exited 1/
 		);
 		expect(runner.calls.map((c) => c.args[0])).not.toContain('run');
+	});
+
+	/**
+	 * THE FIRST THING A NEW USER HITS, and the exit code alone is a dead end.
+	 *
+	 * `bun run hydrate` needs a published release payload. Until one exists there is nothing to
+	 * fetch, so a fresh checkout fails here -- and the route that needs no payload is
+	 * `build:local`. The e2e clone lane asserted this diagnostic and it had never been written, so
+	 * that spec had been red since the day it landed.
+	 */
+	it('names the missing payload and the route that needs none when hydrate fails', async () => {
+		const runner = scripted({ 'bun run hydrate': { code: 1, stdout: '', stderr: '' } });
+		const ctx = testContext({ runner });
+		await expect(runPlan(ctx, planBuild(stateOf(), SOURCE), WORKSPACE, SOURCE)).rejects.toThrow(
+			/hydrate failed/
+		);
+		const said = (ctx.io as ReturnType<typeof bufferIo>).text();
+		expect(said).toMatch(/no payload to hydrate from/);
+		expect(said).toContain('bun run build:local');
+	});
+
+	it('says nothing about payloads when a DIFFERENT step fails', async () => {
+		// the guidance is specific to hydrate; printing it for a failed `bun install` would send
+		// the reader after the wrong problem
+		const runner = scripted({ 'bun install': { code: 1, stdout: '', stderr: '' } });
+		const ctx = testContext({ runner });
+		await expect(
+			runPlan(ctx, planBuild(stateOf(), SOURCE), WORKSPACE, SOURCE)
+		).rejects.toThrow();
+		expect((ctx.io as ReturnType<typeof bufferIo>).text()).not.toMatch(/no payload/);
 	});
 
 	it('refuses to refresh a checkout with uncommitted work in it', async () => {

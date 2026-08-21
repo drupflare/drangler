@@ -179,6 +179,23 @@ export async function runPlan(
 		});
 		done.push({ id: step.id, command: rendered, run: true, reason: step.reason, code });
 		if (code !== 0) {
+			// A FAILED HYDRATE IS THE FIRST THING A NEW USER HITS, and the exit code alone tells
+			// them nothing. `bun run hydrate` needs a published release payload; until one exists
+			// there is no payload to fetch, and the route that needs none is `build:local`. Saying
+			// so here is the difference between a dead end and a next step.
+			if (step.id === 'hydrate') {
+				// stdout, not stderr: the progress line above uses `err` to keep `build --json`'s
+				// one object alone on stdout, and that reasoning does not apply here -- this path
+				// throws, so there is no object to protect and this IS the report
+				ctx.io.out(
+					'no payload to hydrate from: `bun run hydrate` needs a published release ' +
+						'payload, and this checkout found none.'
+				);
+				ctx.io.out(
+					'Build the artifacts locally instead with `bun run build:local`, which needs ' +
+						'no payload.'
+				);
+			}
 			throw new DranglerError(
 				'build-step',
 				`${step.id} failed: \`${rendered}\` exited ${code}`
