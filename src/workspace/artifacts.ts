@@ -28,6 +28,10 @@ export const REQUIRED_ARTIFACTS: readonly RequiredArtifact[] = [
 		path: 'assets/prefill.json',
 		produces: 'bun scripts/lift-prefill.ts (needs a running worker)'
 	},
+	// the Workers Assets tree, which answers /core/** without the Worker running. Absent, a site
+	// deploys and serves Drupal with no stylesheets, scripts or fonts
+	{ path: 'assets/core', dir: true, produces: 'bun run assets:static (needs drupal-src)' },
+	{ path: 'assets/modules', dir: true, produces: 'bun run assets:static (needs drupal-src)' },
 	{
 		path: 'assets/drupal-pf/core.pf.json',
 		produces: 'bun run assets:twig && bun run assets:core && bun run assets:pack'

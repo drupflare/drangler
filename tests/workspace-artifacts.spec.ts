@@ -103,16 +103,16 @@ describe('missingArtifacts', () => {
 		]);
 	});
 
-	it('treats a chunk directory it cannot list as missing rather than as present', () => {
+	it('treats a directory artifact it cannot list as missing rather than as present', () => {
 		const files = {
 			...memoryFiles(workerTree()),
 			readDir: () => {
 				throw new Error('ENOTDIR');
 			}
 		};
-		expect(missingArtifacts(files, WORKSPACE).map((m) => m.path)).toEqual([
-			'assets/drupal-sql'
-		]);
+		expect(missingArtifacts(files, WORKSPACE).map((m) => m.path)).toEqual(
+			REQUIRED_ARTIFACTS.filter((a) => a.dir === true).map((a) => a.path)
+		);
 	});
 
 	it('names a missing interpreter file, derived from the seam rather than listed', () => {

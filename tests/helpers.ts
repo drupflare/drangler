@@ -79,6 +79,8 @@ export function workerTree(over: Record<string, string> = {}): Record<string, st
 		[`${WORKSPACE}/src/runtime/php-binary-85.ts`]: WORKER_SEAM,
 		[`${WORKSPACE}/assets/driver.json`]: '{}',
 		[`${WORKSPACE}/assets/prefill.json`]: '{}',
+		[`${WORKSPACE}/assets/core/misc/drupal.js`]: 'asset',
+		[`${WORKSPACE}/assets/modules/system/system.css`]: 'asset',
 		[`${WORKSPACE}/assets/drupal-pf/core.pf.json`]: '{}',
 		[`${WORKSPACE}/assets/drupal-pf/core.pf.bin`]: 'packed',
 		[`${WORKSPACE}/assets/drupal-sql/manifest.json`]: '{"chunks":79}',
