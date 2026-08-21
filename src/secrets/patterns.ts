@@ -61,7 +61,15 @@ export const CREDENTIAL_PATTERNS: readonly CredentialPattern[] = [
 	{
 		id: 'cf-token',
 		kind: 'Cloudflare API token',
-		re: /\bCLOUDFLARE_API_TOKEN\s*[=:]\s*['"]?[A-Za-z0-9_-]{30,}/,
-		risk: 'deploys and deletes workers on the account it belongs to'
+		// CF_EMAIL_TOKEN is the same shape and the same account: it is what a site pastes to send
+		// mail without the OAuth grant, so it turns up in a wrangler config or a .env
+		re: /\b(?:CLOUDFLARE_API_TOKEN|CF_EMAIL_TOKEN)\s*[=:]\s*['"]?[A-Za-z0-9_-]{30,}/,
+		risk: 'acts on the Cloudflare account it belongs to; a deploy token also deletes workers'
+	},
+	{
+		id: 'owner-token',
+		kind: 'drupflare site owner token',
+		re: /\bDRUPFLARE_OWNER_TOKEN\s*[=:]\s*['"]?[A-Za-z0-9_-]{30,}/,
+		risk: 'exports the whole site database and resets the administrator password'
 	}
 ];

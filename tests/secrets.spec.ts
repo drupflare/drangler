@@ -67,6 +67,20 @@ describe('scanText', () => {
 		).toEqual(['aws-key', 'cf-token', 'database-url', 'pem']);
 	});
 
+	// the two credentials the setup routes hand out or replace; both end up in a .env or a wrangler
+	// config, which is exactly what a migration artifact carries off the machine
+	it('finds a pasted mail token and a site owner token', () => {
+		const body = [
+			'CF_EMAIL_TOKEN=' + 'k'.repeat(40),
+			'DRUPFLARE_OWNER_TOKEN="' + 'q'.repeat(74) + '"'
+		].join('\n');
+		expect(
+			scanText('/.env', body)
+				.map((h) => h.id)
+				.sort()
+		).toEqual(['cf-token', 'owner-token']);
+	});
+
 	it('finds the private_key state row', () => {
 		expect(
 			scanText(
