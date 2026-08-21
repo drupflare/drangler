@@ -13,7 +13,7 @@
 <h1>Interface MigrationPlan</h1></div>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">MigrationPlan</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#counts">counts</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/migrate_rules.Severity.html" class="tsd-signature-type tsd-kind-type-alias">Severity</a><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#direction">direction</a><span class="tsd-signature-symbol">:</span> <a href="../types/migrate_rules.Direction.html" class="tsd-signature-type tsd-kind-type-alias">Direction</a><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#findings">findings</a><span class="tsd-signature-symbol">:</span> <a href="migrate_rules.Finding.html" class="tsd-signature-type tsd-kind-interface">Finding</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#root">root</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#source">source</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#steps">steps</a><span class="tsd-signature-symbol">:</span> <a href="migrate_plan.PlanStep.html" class="tsd-signature-type tsd-kind-interface">PlanStep</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#target">target</a><span class="tsd-signature-symbol">:</span> <a href="migrate_target-runtime.TargetRuntime.html" class="tsd-signature-type tsd-kind-interface">TargetRuntime</a><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#unknowns">unknowns</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/migrate/plan.ts#L13">src/migrate/plan.ts:13</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/33597c9b22e78fe18a21f7aedd60eec26b370fad/src/migrate/plan.ts#L13">src/migrate/plan.ts:13</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -37,46 +37,46 @@
 <h3 class="tsd-anchor-link" id="counts"><span>counts</span><a href="#counts" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">counts</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/migrate_rules.Severity.html" class="tsd-signature-type tsd-kind-type-alias">Severity</a><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/migrate/plan.ts#L18">src/migrate/plan.ts:18</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/33597c9b22e78fe18a21f7aedd60eec26b370fad/src/migrate/plan.ts#L18">src/migrate/plan.ts:18</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="direction"><span>direction</span><a href="#direction" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">direction</span><span class="tsd-signature-symbol">:</span> <a href="../types/migrate_rules.Direction.html" class="tsd-signature-type tsd-kind-type-alias">Direction</a></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/migrate/plan.ts#L14">src/migrate/plan.ts:14</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/33597c9b22e78fe18a21f7aedd60eec26b370fad/src/migrate/plan.ts#L14">src/migrate/plan.ts:14</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="findings"><span>findings</span><a href="#findings" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">findings</span><span class="tsd-signature-symbol">:</span> <a href="migrate_rules.Finding.html" class="tsd-signature-type tsd-kind-interface">Finding</a><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/migrate/plan.ts#L17">src/migrate/plan.ts:17</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/33597c9b22e78fe18a21f7aedd60eec26b370fad/src/migrate/plan.ts#L17">src/migrate/plan.ts:17</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="root"><span>root</span><a href="#root" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">root</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/migrate/plan.ts#L16">src/migrate/plan.ts:16</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/33597c9b22e78fe18a21f7aedd60eec26b370fad/src/migrate/plan.ts#L16">src/migrate/plan.ts:16</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="source"><span>source</span><a href="#source" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">source</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/migrate/plan.ts#L15">src/migrate/plan.ts:15</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/33597c9b22e78fe18a21f7aedd60eec26b370fad/src/migrate/plan.ts#L15">src/migrate/plan.ts:15</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="steps"><span>steps</span><a href="#steps" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">steps</span><span class="tsd-signature-symbol">:</span> <a href="migrate_plan.PlanStep.html" class="tsd-signature-type tsd-kind-interface">PlanStep</a><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/migrate/plan.ts#L23">src/migrate/plan.ts:23</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/33597c9b22e78fe18a21f7aedd60eec26b370fad/src/migrate/plan.ts#L23">src/migrate/plan.ts:23</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="target"><span>target</span><a href="#target" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">target</span><span class="tsd-signature-symbol">:</span> <a href="migrate_target-runtime.TargetRuntime.html" class="tsd-signature-type tsd-kind-interface">TargetRuntime</a></div>
 <div class="tsd-comment tsd-typography"><p>what the destination is taken to run, and whether that was measured</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/migrate/plan.ts#L20">src/migrate/plan.ts:20</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/33597c9b22e78fe18a21f7aedd60eec26b370fad/src/migrate/plan.ts#L20">src/migrate/plan.ts:20</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="unknowns"><span>unknowns</span><a href="#unknowns" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">unknowns</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div>
 <div class="tsd-comment tsd-typography"><p>survey fields a rule wanted and did not get; an unknown is never scored as a pass</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/migrate/plan.ts#L22">src/migrate/plan.ts:22</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/33597c9b22e78fe18a21f7aedd60eec26b370fad/src/migrate/plan.ts#L22">src/migrate/plan.ts:22</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
