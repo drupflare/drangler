@@ -8,7 +8,7 @@ import { EXIT } from '../../src/errors';
 import { nodeFiles } from '../../src/host/files';
 import { bufferIo, type BufferIo } from '../../src/io';
 import { run } from '../../src/run';
-import { interpreterFiles, REQUIRED_ARTIFACTS } from '../../src/workspace/artifacts';
+import { interpreterFiles, inWorkspace, REQUIRED_ARTIFACTS } from '../../src/workspace/artifacts';
 import { planBuild, runPlan, type BuildReport } from '../../src/workspace/build';
 import { isWorkerCheckout, readState, WORKER_PACKAGE } from '../../src/workspace/layout';
 import { resolveSource } from '../../src/workspace/source';
@@ -130,10 +130,23 @@ describe.skipIf(skip)('a live clone of drupflare/worker', () => {
 		expect(interpreter.length, 'the shipped config aliases no php-binary seam').toBeGreaterThan(
 			0
 		);
+		// REPORTED IF ABSENT, not unconditionally absent. The worker's `bun install` runs
+		// `scripts/restore-artifacts.ts`, which fetches the interpreter from its public CDN and
+		// verifies it against a manifest -- so after the install step above, these files are often
+		// already on disk. Asserting they are missing tested the CDN's downtime, not the reader.
 		for (const path of interpreter) {
 			expect(path).toMatch(/^\.interp\//);
-			expect(missing).toContain(path);
+			const onDisk = ctx.files.exists(inWorkspace(workspace, path));
+			if (!onDisk) expect(missing, `${path} is absent and unreported`).toContain(path);
 		}
+		// the reader still has to be exercised: at least one interpreter path must be accounted for
+		// either way, or a seam that resolved to nothing would pass silently
+		expect(
+			interpreter.every(
+				(p) => ctx.files.exists(inWorkspace(workspace, p)) || missing.includes(p)
+			),
+			'every derived interpreter path must be on disk or in the report'
+		).toBe(true);
 	});
 
 	it('exits 3 from the command surface: the check ran and found something', async () => {
