@@ -26,6 +26,9 @@ monitor. This asks &quot;what is deployed here&quot;, which is the thing to read
 <p>A local wrangler config is reported when one happens to be in the working directory -- a user who
 deployed from the template may have kept the checkout -- and its absence is not a failure. That is
 the only local file this command looks at.</p>
+<p>The claim state is read here rather than in <code>health</code> because it is a deployment fact rather than an
+availability one: an unclaimed site serves perfectly and has no administrator, so a monitor should
+not page on it while the command that reports what is deployed absolutely should say so.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -35,7 +38,7 @@ the only local file this command looks at.</p>
 <li><span><span class="tsd-kind-parameter">opts</span>: <a href="../interfaces/commands_status.StatusOptions.html" class="tsd-signature-type tsd-kind-interface">StatusOptions</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/commands/status.ts#L76">src/commands/status.ts:76</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/commands/status.ts#L84">src/commands/status.ts:84</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

@@ -21,6 +21,11 @@
 the request and refused to gamble a visitor on a cold render, which is the designed behaviour and
 not an outage. Reporting it as <code>degraded</code> would train a user to ignore the one verdict that means
 the site is actually broken.</p>
+<p><code>x-cfw-migrate</code> is the same verdict for a different reason and was MISSING, which made the first
+command a user runs after a deploy report a healthy site as broken. A fresh Durable Object replays
+its database in chunks and answers 503 with that header until the cursor is done; the response
+carries neither <code>x-cfw-queued</code> nor <code>x-cfw-cache</code>, so it fell through to the 5xx branch for the
+whole of the normal first-deploy window.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -30,7 +35,7 @@ the site is actually broken.</p>
 <li><span><span class="tsd-kind-parameter">kind</span>: <a href="../types/health_probe.SiteKind.html" class="tsd-signature-type tsd-kind-type-alias">SiteKind</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="../types/health_probe.Verdict.html" class="tsd-signature-type tsd-kind-type-alias">Verdict</a></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/a9bce69f98f64e5377ec70c2e2085e603b451507/src/health/probe.ts#L119">src/health/probe.ts:119</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7d93376915d0042a18d52f1faea434fb6a15c057/src/health/probe.ts#L125">src/health/probe.ts:125</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

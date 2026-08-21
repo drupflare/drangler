@@ -24,6 +24,7 @@ reads.</p>
 <ul>
 <li><a href="#-install">Install</a></li>
 <li><a href="#-quick-start">Quick Start</a></li>
+<li><a href="#-site-lifecycle">Site Lifecycle</a></li>
 <li><a href="#-commands">Commands</a></li>
 <li><a href="#-workspaces">Workspaces</a></li>
 <li><a href="#-validation">Validation</a></li>
@@ -73,6 +74,101 @@ over. When you like what you see:</p>
 route, and nothing on disk. <code>health</code> answers &quot;is it up and which tier answered&quot;, which is the one to
 put in a monitor.</p>
 <hr>
+<h2 id="🧭-site-lifecycle" class="tsd-anchor-link">🧭 Site Lifecycle<a href="#🧭-site-lifecycle" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>What happens between a <code>deploy</code> and a site you can log in to. The same sequence runs for
+<code>drangler dev</code>, the one-click Deploy to Cloudflare button, and <code>wrangler deploy</code> in a checkout.</p>
+<h3 id="first-boot" class="tsd-anchor-link">First Boot<a href="#first-boot" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>A fresh site has an empty Durable Object, and the first request is what starts it. Until the packed
+database has finished replaying, every request gets a <strong>503</strong> carrying <code>x-cfw-migrate</code> and
+<code>x-cfw-migrate-state</code>; a browser sees a self-refreshing page and lands on the site by itself.</p>
+<p><strong>Measured on a deployed worker: 4 to 7 polls at 2 s, so 8 to 14 seconds from the first request to
+the first 200.</strong> <code>health</code> calls that <code>warming</code> and exits <code>0</code>, and names the chunk it is on:</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">health</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--skip-edge</span><br/><span class="hl-4"># verdict  warming</span><br/><span class="hl-4"># notes</span><br/><span class="hl-4">#   - replaying the database, chunk 31/62 (running); a fresh site does this once, and a 503</span><br/><span class="hl-4">#     until it finishes is expected</span>
+</code><button type="button">Copy</button></pre>
+
+<h3 id="claiming" class="tsd-anchor-link">Claiming<a href="#claiming" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>The pack ships an <strong>installed</strong> database, so Drupal's <code>install.php</code> never runs and uid 1 carries a
+hash no password matches. <code>/firstrun</code> is what sets the administrator password, and until it does,
+whoever reaches the URL first can claim the site. A browser navigating to an unclaimed site gets a
+one-click claim page instead of the front page.</p>
+<p><code>status</code> reports the claim state and exits <code>3</code> while the window is open:</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">status</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><br/><span class="hl-4"># claimed  unclaimed</span><br/><span class="hl-4"># notes</span><br/><span class="hl-4">#   - nobody has claimed this site: uid 1 has no usable password and whoever reaches the URL</span><br/><span class="hl-4">#     first can set one. POST /firstrun to claim it, and store the adminPass and ownerToken</span><br/><span class="hl-4">#     it returns</span>
+</code><button type="button">Copy</button></pre>
+
+<p>Claim it in the browser, or from a terminal:</p>
+<pre><code class="sh"><span class="hl-0">curl</span><span class="hl-1"> </span><span class="hl-3">-X</span><span class="hl-1"> </span><span class="hl-2">POST</span><span class="hl-1"> </span><span class="hl-2">&quot;https://my-site.example/firstrun&quot;</span><span class="hl-1"> </span><span class="hl-5">\</span><br/><span class="hl-1">  </span><span class="hl-3">-H</span><span class="hl-1"> </span><span class="hl-2">&#39;content-type: application/json&#39;</span><span class="hl-1"> </span><span class="hl-5">\</span><br/><span class="hl-1">  </span><span class="hl-3">-d</span><span class="hl-1"> </span><span class="hl-2">&#39;{&quot;siteName&quot;:&quot;My Site&quot;,&quot;adminMail&quot;:&quot;you@example.com&quot;}&#39;</span>
+</code><button type="button">Copy</button></pre>
+
+<p>The response carries <strong><code>adminPass</code> and <code>ownerToken</code>, each shown once and stored nowhere.</strong> Save both.
+A site that answered <code>/firstrun</code> before this drangler could ask reports <code>unknown</code> rather than
+<code>unclaimed</code>, because &quot;I could not tell&quot; and &quot;nobody has claimed it&quot; are different answers.</p>
+<h3 id="logging-in-and-the-owner-token" class="tsd-anchor-link">Logging In and the Owner Token<a href="#logging-in-and-the-owner-token" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>Log in at <code>/user/login</code> as <code>admin</code> with the <code>adminPass</code>. That is the Drupal account.</p>
+<p><strong>The <code>ownerToken</code> is a separate credential and is not a login.</strong> It goes in an <code>Authorization: Bearer</code> header and reaches <code>/export</code>, <code>/health</code>, <code>/setup/cf</code> and <code>/setup/mail</code> without exposing the
+diagnostic routes. drangler reads it from <code>--token</code> or <code>DRUPFLARE_OWNER_TOKEN</code>:</p>
+<pre><code class="sh"><span class="hl-3">export</span><span class="hl-1"> </span><span class="hl-6">DRUPFLARE_OWNER_TOKEN</span><span class="hl-1">=...</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">export</span><span class="hl-1"> </span><span class="hl-3">--url</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--out</span><span class="hl-1"> </span><span class="hl-2">worker.sql</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>secrets scan</code> knows the shape of both that token and a pasted <code>CF_EMAIL_TOKEN</code>, so a dump or a
+<code>.env</code> carrying either is a finding rather than a surprise.</p>
+<h3 id="running-day-to-day" class="tsd-anchor-link">Running Day to Day<a href="#running-day-to-day" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Command</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>What is deployed, and has it been claimed?</td>
+<td><code>drangler status &lt;target&gt;</code></td>
+</tr>
+<tr>
+<td>Is it up, and which tier answered?</td>
+<td><code>drangler health &lt;target&gt;</code></td>
+</tr>
+<tr>
+<td>Is my machine set up to work on it?</td>
+<td><code>drangler doctor</code></td>
+</tr>
+<tr>
+<td>Will this config deploy?</td>
+<td><code>drangler config check &lt;file&gt;</code></td>
+</tr>
+<tr>
+<td>Which Cloudflare credential am I using?</td>
+<td><code>drangler cf whoami</code></td>
+</tr>
+<tr>
+<td>Did a throwaway deploy leave anything?</td>
+<td><code>drangler cf workers --compare &lt;f&gt;</code></td>
+</tr>
+<tr>
+<td>Is there a credential in this artifact?</td>
+<td><code>drangler secrets scan &lt;paths...&gt;</code></td>
+</tr>
+<tr>
+<td>Get my data out</td>
+<td><code>drangler migrate export</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="connecting-cloudflare-and-sending-mail" class="tsd-anchor-link">Connecting Cloudflare and Sending Mail<a href="#connecting-cloudflare-and-sending-mail" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>Both are HTTP flows on the site itself rather than drangler commands, because both are
+owner-authenticated and one of them is an OAuth consent screen that has to complete in a browser:</p>
+<ul>
+<li><strong><code>GET /setup/cf?action=connect&amp;client_id=&lt;id&gt;</code></strong> returns an authorize URL; <code>?action=status</code> and
+<code>?action=disconnect</code> are the other two actions. Pasting <code>CF_EMAIL_ACCOUNT_ID</code> and <code>CF_EMAIL_TOKEN</code>
+is the alternative and needs no OAuth client.</li>
+<li><strong><code>GET /setup/mail?zone=&lt;zone-id&gt;</code></strong> reports which of five stages the sending domain is waiting on;
+<code>?action=apply</code> creates the subdomain and writes the DNS.</li>
+</ul>
+<p>The contracts live in
+<a href="https://github.com/drupflare/worker/blob/master/docs/configuration.md"><code>worker/docs/configuration.md</code></a>
+under <strong>Connecting a Cloudflare Account</strong> and <strong>Onboarding a Sending Domain</strong>. drangler does not
+restate the stage vocabulary; that has one implementation, in the worker.</p>
+<hr>
 <h2 id="🔧-commands" class="tsd-anchor-link">🔧 Commands<a href="#🔧-commands" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <table>
 <thead>
@@ -100,7 +196,7 @@ put in a monitor.</p>
 </tr>
 <tr>
 <td><code>status &lt;target&gt;</code></td>
-<td>What is deployed: plan, generation, header contract, diagnostics</td>
+<td>What is deployed: plan, generation, claim state, diagnostics</td>
 </tr>
 <tr>
 <td><code>doctor</code></td>
@@ -554,10 +650,10 @@ and a second copy would drift from it. The pack check runs that repository's own
 <hr>
 <h2 id="🧪-testing" class="tsd-anchor-link">🧪 Testing<a href="#🧪-testing" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p>Two lanes. The gate is hermetic; the integration lane needs Docker.</p>
-<pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">typecheck</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test</span><span class="hl-1"> </span><span class="hl-4"># 532 assertions across 18 specs, no network, no daemon</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:coverage</span><br/><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e</span><span class="hl-1">       </span><span class="hl-4"># 35 assertions across 5 specs, against a real Drupal</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e:clone</span><span class="hl-1"> </span><span class="hl-4"># the clone lane alone; no Docker, about ten seconds</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">e2e:down</span><span class="hl-1">       </span><span class="hl-4"># remove the containers and their volumes</span>
+<pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">typecheck</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test</span><span class="hl-1"> </span><span class="hl-4"># 547 assertions across 18 specs, no network, no daemon</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:coverage</span><br/><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e</span><span class="hl-1">       </span><span class="hl-4"># 35 assertions across 5 specs, against a real Drupal</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e:clone</span><span class="hl-1"> </span><span class="hl-4"># the clone lane alone; no Docker, about ten seconds</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">e2e:down</span><span class="hl-1">       </span><span class="hl-4"># remove the containers and their volumes</span>
 </code><button type="button">Copy</button></pre>
 
-<p><strong>532 passing</strong> in the gate at <strong>98% statements</strong>, with every external effect behind an injected
+<p><strong>547 passing</strong> in the gate at <strong>98.33% statements</strong>, with every external effect behind an injected
 seam: the terminal, the filesystem, subprocesses, <code>fetch</code>, and the environment. No gate test opens a
 socket, reaches a VPS, contacts Cloudflare, or clones a repository. The workspace commands are
 covered against a scripted runner whose build steps land the files they really produce, so the gate
@@ -629,6 +725,14 @@ is absent and fails when the lane declares it: <code>REQUIRE_DOCKER=1</code> for
 <li><a href="#📋-table-of-contents"><span>📋 <wbr/>Table of <wbr/>Contents</span></a></li>
 <li><a href="#📥-install"><span>📥 <wbr/>Install</span></a></li>
 <li><a href="#🚀-quick-start"><span>🚀 <wbr/>Quick <wbr/>Start</span></a></li>
+<li><a href="#🧭-site-lifecycle"><span>🧭 <wbr/>Site <wbr/>Lifecycle</span></a></li>
+<li>
+<ul>
+<li><a href="#first-boot"><span>First <wbr/>Boot</span></a></li>
+<li><a href="#claiming"><span>Claiming</span></a></li>
+<li><a href="#logging-in-and-the-owner-token"><span>Logging <wbr/>In and the <wbr/>Owner <wbr/>Token</span></a></li>
+<li><a href="#running-day-to-day"><span>Running <wbr/>Day to <wbr/>Day</span></a></li>
+<li><a href="#connecting-cloudflare-and-sending-mail"><span>Connecting <wbr/>Cloudflare and <wbr/>Sending <wbr/>Mail</span></a></li></ul></li>
 <li><a href="#🔧-commands"><span>🔧 <wbr/>Commands</span></a></li>
 <li><a href="#📁-workspaces"><span>📁 <wbr/>Workspaces</span></a></li>
 <li><a href="#✅-validation"><span>✅ <wbr/>Validation</span></a></li>
