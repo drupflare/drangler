@@ -42,7 +42,7 @@
 		"docs:serve": "typedoc --watch"
 	},
 	"dependencies": {
-		"commander": "^14.0.2"
+		"commander": "^15.0.0"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^5.20260815.1",
