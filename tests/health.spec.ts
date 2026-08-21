@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { runHealth } from '../src/commands/health';
 import { FindingError, ProbeError, UsageError } from '../src/errors';
-import { classify, normaliseTarget, probeSite, serveUrl } from '../src/health/probe';
+import { classify, normaliseTarget, probeClaim, probeSite, serveUrl } from '../src/health/probe';
 import { fakeFetch, testContext } from './helpers';
 
 const workerHeaders = {
@@ -51,6 +51,22 @@ describe('classify', () => {
 	it('calls a queued 503 warming rather than degraded', () => {
 		expect(classify(503, { 'x-cfw-queued': '1' }, 'worker')).toBe('warming');
 		expect(classify(503, { 'x-cfw-cache': 'MISS' }, 'worker')).toBe('warming');
+	});
+
+	// the first command a user runs after a deploy met exactly this response and called it degraded:
+	// a fresh object replays its database in chunks and its 503 carries neither of the two headers
+	// above, only x-cfw-migrate
+	it('calls a migrating 503 warming, with neither queued nor a cache tier on it', () => {
+		expect(
+			classify(
+				503,
+				{ 'x-cfw-migrate': 'starting', 'x-cfw-migrate-state': 'queued' },
+				'worker'
+			)
+		).toBe('warming');
+		expect(
+			classify(503, { 'x-cfw-migrate': '31/62', 'x-cfw-migrate-state': 'running' }, 'worker')
+		).toBe('warming');
 	});
 
 	it('calls an unqueued 5xx degraded', () => {
@@ -169,6 +185,70 @@ describe('probeSite', () => {
 		});
 		await expect(probeSite({ fetch }, { target: 'x.dev' })).rejects.toThrow(ProbeError);
 	});
+
+	it('names the migration chunk instead of reporting an outage', async () => {
+		const result = await probeSite(
+			{
+				fetch: workerFetch(503, {
+					'x-cfw-migrate': '31/62',
+					'x-cfw-migrate-state': 'running'
+				})
+			},
+			{ target: 'x.dev' }
+		);
+		expect(result.verdict).toBe('warming');
+		expect(result.notes.join(' ')).toContain('chunk 31/62 (running)');
+	});
+});
+
+describe('probeClaim', () => {
+	const firstrun = (body: unknown, status = 200) =>
+		fakeFetch(() => new Response(JSON.stringify(body), { status }));
+
+	it('reads an unclaimed site off the public /firstrun report', async () => {
+		const fetch = firstrun({ ok: true, configured: false, firstRunAt: null });
+		expect(await probeClaim({ fetch }, 'https://x.dev', 'site', 1000)).toEqual({
+			state: 'unclaimed',
+			firstRunAt: null
+		});
+		expect(fetch.urls[0]).toBe('https://x.dev/firstrun?site=site');
+	});
+
+	it('reads a claimed site and the timestamp it reports', async () => {
+		const fetch = firstrun({ ok: true, configured: true, firstRunAt: 1755000000000 });
+		expect(await probeClaim({ fetch }, 'https://x.dev', 'blog', 1000)).toEqual({
+			state: 'claimed',
+			firstRunAt: 1755000000000
+		});
+		expect(fetch.urls[0]).toContain('site=blog');
+	});
+
+	// unknown and unclaimed must not collapse: telling an owner their site is open when the route
+	// simply did not answer sends them to reclaim something they already hold
+	it('reports unknown for a non-200, a body that is not the report, and a dead network', async () => {
+		const notFound = firstrun({}, 404);
+		expect(await probeClaim({ fetch: notFound }, 'https://x.dev', 'site', 1000)).toEqual({
+			state: 'unknown',
+			firstRunAt: null
+		});
+
+		const wrongShape = fakeFetch(() => new Response('<html>hello</html>', { status: 200 }));
+		expect((await probeClaim({ fetch: wrongShape }, 'https://x.dev', 'site', 1000)).state).toBe(
+			'unknown'
+		);
+
+		const refused = firstrun({ ok: false, error: 'nope' });
+		expect((await probeClaim({ fetch: refused }, 'https://x.dev', 'site', 1000)).state).toBe(
+			'unknown'
+		);
+
+		const dead = fakeFetch(() => {
+			throw new Error('ECONNREFUSED');
+		});
+		expect((await probeClaim({ fetch: dead }, 'https://x.dev', 'site', 1000)).state).toBe(
+			'unknown'
+		);
+	});
 });
 
 describe('health command', () => {
@@ -246,5 +326,18 @@ describe('health command', () => {
 		});
 		await expect(runHealth(ctx, 'x.dev', {})).resolves.toBeUndefined();
 		expect(ctx.io.text()).toContain('warming');
+	});
+
+	it('does not fail on a site that is still replaying its database', async () => {
+		const ctx = testContext({
+			fetch: workerFetch(503, {
+				'x-cfw-migrate': 'starting',
+				'x-cfw-migrate-state': 'queued',
+				'x-cfw-edge': 'MISS'
+			})
+		});
+		await expect(runHealth(ctx, 'x.dev', {})).resolves.toBeUndefined();
+		expect(ctx.io.text()).toContain('warming');
+		expect(ctx.io.text()).toContain('replaying the database');
 	});
 });

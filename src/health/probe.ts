@@ -115,10 +115,21 @@ export function collectCfw(headers: Headers): Record<string, string> {
  * the request and refused to gamble a visitor on a cold render, which is the designed behaviour and
  * not an outage. Reporting it as `degraded` would train a user to ignore the one verdict that means
  * the site is actually broken.
+ *
+ * `x-cfw-migrate` is the same verdict for a different reason and was MISSING, which made the first
+ * command a user runs after a deploy report a healthy site as broken. A fresh Durable Object replays
+ * its database in chunks and answers 503 with that header until the cursor is done; the response
+ * carries neither `x-cfw-queued` nor `x-cfw-cache`, so it fell through to the 5xx branch for the
+ * whole of the normal first-deploy window.
  */
 export function classify(status: number, cfw: Record<string, string>, kind: SiteKind): Verdict {
 	if (kind === 'worker' && Object.keys(cfw).length === 0) return 'not-drupflare';
-	if (status === 503 && (cfw['x-cfw-queued'] === '1' || cfw['x-cfw-cache'] === 'MISS')) {
+	if (
+		status === 503 &&
+		(cfw['x-cfw-queued'] === '1' ||
+			cfw['x-cfw-cache'] === 'MISS' ||
+			cfw['x-cfw-migrate'] !== undefined)
+	) {
 		return 'warming';
 	}
 	if (status >= 500) return 'degraded';
@@ -240,6 +251,13 @@ export async function probeSite(deps: ProbeDeps, opts: ProbeOptions): Promise<Pr
 	if (result.phpBooted === false && result.tier !== 'EDGE') {
 		result.notes.push('the object has no interpreter booted; a MISS here pays a cold boot');
 	}
+	if (cfw['x-cfw-migrate'] !== undefined) {
+		// the header's own value, never a duration: how long a replay takes is measured in the
+		// worker repository and would be a figure this CLI could only copy and let rot
+		result.notes.push(
+			`replaying the database, chunk ${cfw['x-cfw-migrate']} (${cfw['x-cfw-migrate-state'] ?? 'unknown'}); a fresh site does this once, and a 503 until it finishes is expected`
+		);
+	}
 	if (result.headerVersion === null) {
 		result.notes.push(
 			'no x-cfw-v: this worker predates the header contract marker, so a field reported as `-` may be a rename rather than an absence'
@@ -264,6 +282,55 @@ export async function probeSite(deps: ProbeDeps, opts: ProbeOptions): Promise<Pr
 		}
 	}
 	return result;
+}
+
+/** Whether the site has an administrator password yet, and therefore whether anyone else can set one. */
+export type ClaimState = 'claimed' | 'unclaimed' | 'unknown';
+
+export interface ClaimReport {
+	state: ClaimState;
+	/** when the claim happened, as the site reports it; null on an unclaimed or older site */
+	firstRunAt: number | null;
+}
+
+/**
+ * Asks whether anybody has claimed this site.
+ *
+ * The pack ships an INSTALLED database, so Drupal's `install.php` never runs and uid 1 carries an
+ * empty hash that no password matches until `/firstrun` mints one. The claim window is exactly that
+ * state, and it is open to whoever reaches the URL first -- which makes "has this been claimed" a
+ * question worth one extra request on the command whose job is reporting what is deployed.
+ *
+ * A bare `GET /firstrun` reports without configuring and is public, so no credential is spent.
+ *
+ * **Never throws.** A worker predating the route, an origin that is not drupflare and a network
+ * failure are all `unknown`: "I could not tell" is a different report from "nobody has claimed it",
+ * and reporting the second for the first would send a user to reclaim a site they already own.
+ */
+export async function probeClaim(
+	deps: ProbeDeps,
+	origin: string,
+	site: string,
+	timeoutMs: number
+): Promise<ClaimReport> {
+	const url = new URL(`${origin}/firstrun`);
+	url.searchParams.set('site', site);
+	let body: unknown;
+	try {
+		const { response } = await get(deps, url.toString(), timeoutMs);
+		if (!response.ok) return { state: 'unknown', firstRunAt: null };
+		body = await response.json();
+	} catch {
+		return { state: 'unknown', firstRunAt: null };
+	}
+	const parsed = body as { ok?: unknown; configured?: unknown; firstRunAt?: unknown };
+	if (parsed?.ok !== true || typeof parsed.configured !== 'boolean') {
+		return { state: 'unknown', firstRunAt: null };
+	}
+	return {
+		state: parsed.configured ? 'claimed' : 'unclaimed',
+		firstRunAt: typeof parsed.firstRunAt === 'number' ? parsed.firstRunAt : null
+	};
 }
 
 /**
