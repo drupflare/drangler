@@ -13,7 +13,7 @@
 <h1>Interface ConvertResult</h1></div>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">ConvertResult</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#indexes">indexes</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#lossy">lossy</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#maxstatementchars">maxStatementChars</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#overlimit">overLimit</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">rows</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">table</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">widest</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#rows">rows</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#skipped">skipped</a><span class="tsd-signature-symbol">:</span> <a href="migrate_convert.SkippedStatement.html" class="tsd-signature-type tsd-kind-interface">SkippedStatement</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#sql">sql</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#statements">statements</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#tables">tables</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L44">src/migrate/convert.ts:44</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L44">src/migrate/convert.ts:44</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -38,53 +38,53 @@
 <h3 class="tsd-anchor-link" id="indexes"><span>indexes</span><a href="#indexes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">indexes</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L48">src/migrate/convert.ts:48</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L48">src/migrate/convert.ts:48</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="lossy"><span>lossy</span><a href="#lossy" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">lossy</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div>
 <div class="tsd-comment tsd-typography"><p>conversions that succeeded but do not round-trip; each says what changed</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L52">src/migrate/convert.ts:52</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L52">src/migrate/convert.ts:52</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="maxstatementchars"><span>max<wbr/>Statement<wbr/>Chars</span><a href="#maxstatementchars" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">maxStatementChars</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div>
 <div class="tsd-comment tsd-typography"><p>the widest statement emitted, so a caller can see how close the dump came to the ceiling</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L54">src/migrate/convert.ts:54</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L54">src/migrate/convert.ts:54</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="overlimit"><span>over<wbr/>Limit</span><a href="#overlimit" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">overLimit</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">rows</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">table</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">widest</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">[]</span></div>
 <div class="tsd-comment tsd-typography"><p>rows refused for width, by table, with the widest one measured</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L56">src/migrate/convert.ts:56</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L56">src/migrate/convert.ts:56</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="rows"><span>rows</span><a href="#rows" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">rows</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L49">src/migrate/convert.ts:49</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L49">src/migrate/convert.ts:49</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="skipped"><span>skipped</span><a href="#skipped" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">skipped</span><span class="tsd-signature-symbol">:</span> <a href="migrate_convert.SkippedStatement.html" class="tsd-signature-type tsd-kind-interface">SkippedStatement</a><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L50">src/migrate/convert.ts:50</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L50">src/migrate/convert.ts:50</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="sql"><span>sql</span><a href="#sql" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">sql</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L45">src/migrate/convert.ts:45</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L45">src/migrate/convert.ts:45</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="statements"><span>statements</span><a href="#statements" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">statements</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L46">src/migrate/convert.ts:46</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L46">src/migrate/convert.ts:46</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="tables"><span>tables</span><a href="#tables" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">tables</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/342ac984149eeb45faeb64a1875023540645e268/src/migrate/convert.ts#L47">src/migrate/convert.ts:47</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/730c2c8d8fcf76b6e4b4f19db607e40e17e86a92/src/migrate/convert.ts#L47">src/migrate/convert.ts:47</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

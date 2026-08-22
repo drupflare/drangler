@@ -149,11 +149,22 @@ diagnostic routes. drangler reads it from <code>--token</code> or <code>DRUPFLAR
 <td><code>drangler secrets scan &lt;paths...&gt;</code></td>
 </tr>
 <tr>
+<td>Move to a newer Drupflare</td>
+<td><code>drangler update [worker]</code></td>
+</tr>
+<tr>
 <td>Get my data out</td>
 <td><code>drangler migrate export</code></td>
 </tr>
 </tbody>
 </table>
+<p><code>update</code> picks what it is updating from what it was given. With no argument it fast-forwards the
+local checkout and rebuilds the artifacts belonging to the version it left behind; naming a worker
+updates the checkout and deploys it there. <code>--to &lt;ref&gt;</code> moves to a named version rather than the
+latest, and a dirty tree is refused before anything is fetched.</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">update</span><span class="hl-1">             </span><span class="hl-4"># the local checkout, to the latest</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">update</span><span class="hl-1"> </span><span class="hl-3">--to</span><span class="hl-1"> </span><span class="hl-2">v0.3.0</span><span class="hl-1"> </span><span class="hl-4"># or to a named version</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">update</span><span class="hl-1"> </span><span class="hl-2">my-site</span><span class="hl-1">     </span><span class="hl-4"># and deploy it to an existing worker</span>
+</code><button type="button">Copy</button></pre>
+
 <h3 id="connecting-cloudflare-and-sending-mail" class="tsd-anchor-link">Connecting Cloudflare and Sending Mail<a href="#connecting-cloudflare-and-sending-mail" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <p>Both are HTTP flows on the site itself rather than drangler commands, because both are
 owner-authenticated and one of them is an OAuth consent screen that has to complete in a browser:</p>
@@ -193,6 +204,10 @@ restate the stage vocabulary; that has one implementation, in the worker.</p>
 <tr>
 <td><code>deploy</code></td>
 <td>Build if needed, check, then deploy to your Cloudflare account</td>
+</tr>
+<tr>
+<td><code>update [worker]</code></td>
+<td>Move a checkout to another version, and the worker running it</td>
 </tr>
 <tr>
 <td><code>status &lt;target&gt;</code></td>
@@ -253,10 +268,10 @@ restate the stage vocabulary; that has one implementation, in the worker.</p>
 </tbody>
 </table>
 <p>Every command takes <code>--json</code> and prints the same object its text render is built from.</p>
-<p><strong><code>build</code>, <code>dev</code>, <code>deploy</code> and <code>migrate install</code> are the four that write.</strong> The first three write to
-a local workspace and to your own Cloudflare account through your own <code>wrangler</code>; the fourth writes
-to a workspace and backs up anything it replaces first. Nothing in drangler deletes a file or a
-directory.</p>
+<p><strong><code>build</code>, <code>dev</code>, <code>deploy</code>, <code>update</code> and <code>migrate install</code> are the five that write.</strong> The first four
+write to a local workspace and to your own Cloudflare account through your own <code>wrangler</code>; the last
+writes to a workspace and backs up anything it replaces first. Nothing in drangler deletes a file or
+a directory.</p>
 <hr>
 <h2 id="📁-workspaces" class="tsd-anchor-link">📁 Workspaces<a href="#📁-workspaces" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p>A workspace is a checkout of <a href="https://github.com/drupflare/worker"><code>drupflare/worker</code></a> with its
