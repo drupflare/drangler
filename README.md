@@ -166,7 +166,19 @@ drangler migrate export --url my-site.example --out worker.sql
 | Which Cloudflare credential am I using?    | `drangler cf whoami`                |
 | Did a throwaway deploy leave anything?     | `drangler cf workers --compare <f>` |
 | Is there a credential in this artifact?    | `drangler secrets scan <paths...>`  |
+| Move to a newer Drupflare                  | `drangler update [worker]`          |
 | Get my data out                            | `drangler migrate export`           |
+
+`update` picks what it is updating from what it was given. With no argument it fast-forwards the
+local checkout and rebuilds the artifacts belonging to the version it left behind; naming a worker
+updates the checkout and deploys it there. `--to <ref>` moves to a named version rather than the
+latest, and a dirty tree is refused before anything is fetched.
+
+```sh
+drangler update             # the local checkout, to the latest
+drangler update --to v0.3.0 # or to a named version
+drangler update my-site     # and deploy it to an existing worker
+```
 
 ### Connecting Cloudflare and Sending Mail
 
@@ -194,6 +206,7 @@ restate the stage vocabulary; that has one implementation, in the worker.
 | `validate`                | Everything that has to hold before `dev` or `deploy` will work     |
 | `dev`                     | Build if needed, check, then run a local Drupal                    |
 | `deploy`                  | Build if needed, check, then deploy to your Cloudflare account     |
+| `update [worker]`         | Move a checkout to another version, and the worker running it      |
 | `status <target>`         | What is deployed: plan, generation, claim state, diagnostics       |
 | `doctor`                  | Preflight the toolchain and the Cloudflare credential              |
 | `health <target>`         | Probe a deployed worker or a VPS Drupal and report what answered   |
@@ -211,10 +224,10 @@ restate the stage vocabulary; that has one implementation, in the worker.
 
 Every command takes `--json` and prints the same object its text render is built from.
 
-**`build`, `dev`, `deploy` and `migrate install` are the four that write.** The first three write to
-a local workspace and to your own Cloudflare account through your own `wrangler`; the fourth writes
-to a workspace and backs up anything it replaces first. Nothing in drangler deletes a file or a
-directory.
+**`build`, `dev`, `deploy`, `update` and `migrate install` are the five that write.** The first four
+write to a local workspace and to your own Cloudflare account through your own `wrangler`; the last
+writes to a workspace and backs up anything it replaces first. Nothing in drangler deletes a file or
+a directory.
 
 ---
 
