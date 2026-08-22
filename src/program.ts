@@ -13,6 +13,7 @@ import {
 } from './commands/migrate';
 import { runSecretsScan } from './commands/secrets';
 import { runStatus } from './commands/status';
+import { runUpdateCommand } from './commands/update';
 import {
 	runBuildCommand,
 	runDeployCommand,
@@ -101,6 +102,23 @@ export function buildProgram(ctx: Context): Command {
 		.option('--dry-run', 'print the step plan and run nothing')
 		.option('--json', 'emit the report as JSON')
 		.action(async (opts) => void (await runBuildCommand(ctx, opts)));
+
+	program
+		.command('update')
+		.argument('[worker]', 'a deployed worker to update; omit to update the local checkout')
+		.description('Move a checkout to another drupflare version, and the worker running it')
+		.option('--workspace <dir>', 'the drupflare/worker checkout to work in')
+		.option('--source <path-or-url>', 'where to fetch the worker from; a local path is fine')
+		.option('--to <ref>', 'the version to move to: a tag, a branch or a sha')
+		.option('--config <file>', 'the wrangler config to deploy, workspace-relative')
+		.option('--account <id>', 'the account the named worker lives on')
+		.option('--skip-validate', 'deploy without the gate')
+		.option('--dry-run', 'print what would happen and run nothing')
+		.option('--json', 'emit the report as JSON')
+		.action(
+			async (worker: string | undefined, opts) =>
+				void (await runUpdateCommand(ctx, worker, opts))
+		);
 
 	program
 		.command('validate')
