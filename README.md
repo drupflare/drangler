@@ -95,7 +95,7 @@ What happens between a `deploy` and a site you can log in to. The same sequence 
 ### First Boot
 
 A fresh site has an empty Durable Object, and the first request is what starts it. Until the packed
-database has finished replaying, every request gets a **503** carrying `x-cfw-migrate` and
+database has finished replaying, every request gets a 503 carrying `x-cfw-migrate` and
 `x-cfw-migrate-state`; a browser sees a self-refreshing page and lands on the site by itself.
 
 **Measured on a deployed worker: 4 to 7 polls at 2 s, so 8 to 14 seconds from the first request to
@@ -489,7 +489,7 @@ Two lanes. The gate is hermetic; the integration lane needs Docker.
 
 ```sh
 bun run typecheck
-bun run test # 547 assertions across 18 specs, no network, no daemon
+bun run test # no network, no daemon
 bun run test:coverage
 
 bun run test:e2e       # 35 assertions across 5 specs, against a real Drupal
