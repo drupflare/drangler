@@ -19,7 +19,7 @@ services:
       - '127.0.0.1:33306:3306'
 
   drupal:
-    image: drupal@sha256:369ec2a0bb23e1d6b4a378fbe15e36b52def0bb145c1821b8b33e28c3ec1b490
+    image: drupal@sha256:4249d58e94b052d5601499c7d1377433b5c9a8ad7b7b2d330368ce29181aca9c
     depends_on:
       db:
         condition: service_healthy
