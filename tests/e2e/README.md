@@ -133,16 +133,60 @@ No release exists yet, so the payload tests skip and say so. They start running 
 first time a release is cut -- no workflow edit. `REQUIRE_PAYLOAD=1` turns the absence into a
 failure, which is what to set once a release is expected to always be there.
 
+## The Broken Arm
+
+`docker/compose.yml` carries a second Drupal behind `profiles: ['broken']`, on the same image digest
+and its own ports. One container covers every fault because the fault is chosen by an environment
+variable the entrypoint reads at start:
+
+| `DRANGLER_FAULT` | what it plants                                             | detector                |
+| ---------------- | ---------------------------------------------------------- | ----------------------- |
+| `db-unreachable` | rewrites `settings.php` with a password that fails         | `source.db-unreadable`  |
+| `files-missing`  | removes `sites/default/files`                              | `source.files-missing`  |
+| `php-broken`     | plants a `php.ini` naming an extension that does not exist | `source.php-dead`       |
+| `drush-absent`   | removes the drush symlink and `vendor/bin/drush`           | `source.drush-absent`   |
+| `bootstrap-fail` | truncates `settings.php` after the opening tag             | `source.bootstrap-fail` |
+
+**Every fault is planted in the container, never by patching drangler.** Making `runSurvey()` return
+an error tests that the error branch formats, not that the survey notices. Same rule
+`detector.spec.ts` already enforces for the converter.
+
+**The sshd stays healthy in every fault.** A container that refused ssh would test `TransportError`,
+which the unit lane covers with a scripted exit 255. What only this can test is a reachable host
+whose Drupal is broken, which is what a support call looks like.
+
+The profile is opt-in, so a developer who brought the stack up to run the converter does not get a
+second Drupal install:
+
+```sh
+docker compose -f docker/compose.yml --profile broken up -d --wait vps-broken
+DRANGLER_FAULT=php-broken docker compose -f docker/compose.yml --profile broken up -d --force-recreate vps-broken
+```
+
 ## Skip Locally, Fail When the Lane Declares It
 
-`helpers/docker.ts` probes the daemon and `helpers/clone.ts` probes the remote with
-`git ls-remote`. Missing and unset, they skip; missing **with** `REQUIRE_DOCKER=1` or
-`REQUIRE_CLONE=1`, they throw and name what is missing.
+Four gates now, each naming its own requirement:
 
-Gated on those rather than on `CI`, which is the correction `drupflare/worker`'s `artifact-gate.ts`
-had to make: gating on `CI` puts every requirement into every lane at once. `.github/workflows/e2e.yml`
-runs the two as separate jobs, so a red one names which requirement failed -- the clone job takes
-about a minute, the Docker job installs Drupal and takes tens of them.
+| gate             | covers                                             | specs                       |
+| ---------------- | -------------------------------------------------- | --------------------------- |
+| `REQUIRE_CLONE`  | the network and a readable `drupflare/worker`      | `workspace-clone`, `modify` |
+| `REQUIRE_DOCKER` | a Docker daemon and the healthy stack              | survey, to-worker, to-vps   |
+| `REQUIRE_BROKEN` | the `broken` profile is up                         | `doctor-source`             |
+| `REQUIRE_WORKER` | a hydrated `drupflare/worker` under `wrangler dev` | `heal-real`                 |
+
+`helpers/docker.ts` probes the daemon, `helpers/clone.ts` probes the remote with `git ls-remote`, and
+`profileGate()` probes one service inside the compose project. Missing and unset, they skip; missing
+**with** the variable set, they throw and name what is missing.
+
+`REQUIRE_BROKEN` is separate from `REQUIRE_DOCKER` because the profile is opt-in. Gated on the
+variables rather than on `CI`, which is the correction `drupflare/worker`'s `artifact-gate.ts` had to
+make: gating on `CI` puts every requirement into every lane at once.
+
+**Both directions are counted, not predicted.** A lane that can only skip is worse than no lane, so
+the pair is measured at the time: container up gives a passing count, container stopped gives the
+same number skipped. `.github/workflows/e2e.yml` runs each gate as its own job so a red one names
+which requirement failed; `broken` and `worker` are nightly and dispatch only, because one installs
+Drupal twice and the other hydrates a worker.
 
 ## Why It Is Its Own Vitest Project
 

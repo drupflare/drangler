@@ -49,6 +49,36 @@ export class FixtureSite {
 		return `owner-${this.ctx.id.toString().slice(0, 16)}`;
 	}
 
+	/** one row per knob, so a spec sets a state and the next request reports it */
+	private state(key: string, fallback: string): string {
+		try {
+			const row = this.sql
+				.exec('SELECT v FROM cfw_state WHERE k = ?', key)
+				.toArray()
+				.at(0) as { v?: string } | undefined;
+			return row?.v ?? fallback;
+		} catch {
+			return fallback;
+		}
+	}
+
+	/** the three headers a site off `normal` sets on every response it sends */
+	private degradeHeaders(): Record<string, string> {
+		const level = this.state('degrade', '');
+		if (level === '') return {};
+		return {
+			'x-cfw-degrade': level,
+			'x-cfw-degrade-driver': this.state('degradeDriver', 'rows-written'),
+			'x-cfw-degrade-at': this.state('degradeAt', '0.830')
+		};
+	}
+
+	/** a fresh object answers 503 with these until its replay cursor is done */
+	private migrateHeaders(): Record<string, string> {
+		const chunk = this.state('migrateChunk', '');
+		return chunk === '' ? {} : { 'x-cfw-migrate': chunk, 'x-cfw-migrate-state': 'running' };
+	}
+
 	private tables(): string[] {
 		return this.sql
 			.exec(
@@ -158,6 +188,8 @@ export class FixtureSite {
 		const url = new URL(request.url);
 
 		// stands in for /firstrun, which is where a real site's owner token is returned once
+		this.sql.exec('CREATE TABLE IF NOT EXISTS cfw_state (k TEXT PRIMARY KEY, v TEXT)');
+
 		if (url.pathname === '/__firstrun') {
 			return Response.json({ ok: true, ownerToken: this.ownerToken() });
 		}
@@ -253,9 +285,100 @@ export class FixtureSite {
 					'x-cfw-render-ms': '0',
 					'x-cfw-serve-ms': '0',
 					'x-cfw-php-booted': '0',
-					'x-cfw-queue-depth': '0'
+					'x-cfw-queue-depth': this.state('queueDepth', '0'),
+					'x-cfw-account-plan': 'free',
+					...this.degradeHeaders(),
+					...this.migrateHeaders()
 				}
 			});
+		}
+
+		/**
+		 * The repair surface, emitting the envelopes the real object emits.
+		 *
+		 * The states worth covering here are the ones that are HARD to produce on a real site:
+		 * quarantine needs three consecutive critical findings and a halted updb needs an
+		 * invocation to die inside a `hook_update_N`. `heal-real.spec.ts` is what stops this from
+		 * becoming a second, drifting definition of the same contract.
+		 */
+		if (url.pathname === '/__state') {
+			for (const [key, value] of url.searchParams) {
+				if (key !== 'site')
+					this.sql.exec('INSERT OR REPLACE INTO cfw_state VALUES (?, ?)', key, value);
+			}
+			return Response.json({ ok: true });
+		}
+
+		if (url.pathname === '/__health') {
+			if (url.searchParams.get('clear') === '1') {
+				this.sql.exec('INSERT OR REPLACE INTO cfw_state VALUES (?, ?)', 'quarantined', '0');
+				return Response.json({ ok: true, released: {}, was: {} });
+			}
+			const quarantined = this.state('quarantined', '0') === '1';
+			return Response.json({
+				repair: {
+					rung: quarantined ? 'quarantine' : 'observe',
+					code: quarantined ? 'bridge.asyncify_called' : null,
+					strikes: quarantined ? 3 : 0,
+					quarantinedAt: quarantined ? 1_757_000_000_000 : null,
+					lastRollbackAt: null
+				},
+				quarantined,
+				rollback: {
+					rollback: this.state('rollback', '0') === '1',
+					reason: quarantined
+						? 'quarantined 60s of 1800s for bridge.asyncify_called'
+						: 'not quarantined; the lower rungs own this'
+				},
+				advisories: { state: 'current', insecure: 0, stale: 0, at: 1, detail: '' },
+				version: { id: 'fixture', tag: null, timestamp: null },
+				lastFindings: [],
+				ledger: [],
+				ledgerRows: 0
+			});
+		}
+
+		if (url.pathname === '/__updb') {
+			const phase = this.state('updbPhase', 'complete');
+			const cursor = Number(this.state('updbCursor', '9'));
+			if (request.method === 'POST') {
+				this.sql.exec(
+					'INSERT OR REPLACE INTO cfw_state VALUES (?, ?)',
+					'updbCursor',
+					String(cursor + 1)
+				);
+			}
+			const at = request.method === 'POST' ? cursor + 1 : cursor;
+			return Response.json({
+				run: {
+					phase,
+					cursorSeq: at,
+					maxSeq: 9,
+					haltReason: phase === 'halted' ? 'update-failed' : null
+				},
+				byState: {},
+				remaining: Math.max(0, 9 - at)
+			});
+		}
+
+		/**
+		 * `unpin` releases a preview pin and reaches no network, which is the whole point of it:
+		 * `unpreview` re-syncs to the branch head, so a remote that is down holds its own pin.
+		 */
+		if (url.pathname === '/__git' && url.searchParams.get('action') === 'unpin') {
+			const was = this.state('previewOf', '') || null;
+			this.sql.exec('INSERT OR REPLACE INTO cfw_state VALUES (?, ?)', 'previewOf', '');
+			return Response.json({ ok: true, previewOf: null, was, synced: false });
+		}
+
+		if (url.pathname === '/__armfill' || url.pathname === '/__bump') {
+			this.generation++;
+			return Response.json({ ok: true, generation: this.generation });
+		}
+
+		if (url.pathname === '/__migrate') {
+			this.sql.exec('INSERT OR REPLACE INTO cfw_state VALUES (?, ?)', 'migrateChunk', '');
+			return Response.json({ ok: true, done: true });
 		}
 
 		return new Response('not found\n', { status: 404 });
@@ -264,6 +387,13 @@ export class FixtureSite {
 
 const ROUTES: Record<string, string> = {
 	'/serve': '/__serve',
+	'/health': '/__health',
+	'/updb': '/__updb',
+	'/git': '/__git',
+	'/armfill': '/__armfill',
+	'/bump': '/__bump',
+	'/migrate': '/__migrate',
+	'/state': '/__state',
 	'/export': '/__export',
 	'/rows': '/__rows',
 	'/counts': '/__counts',

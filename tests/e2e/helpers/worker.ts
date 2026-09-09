@@ -23,7 +23,25 @@ export interface RunningWorker {
  * The same guard is kept too: the scratch path is checked before anything is removed, because the
  * cost of a bug in the path construction is deleting a real directory rather than a temporary one.
  */
-export async function startFixtureWorker(port = 8899): Promise<RunningWorker> {
+export interface WorkerLaunch {
+	/** the directory wrangler runs in; the fixture worker unless a lane brings its own */
+	dir?: string;
+	/** the config, absolute or relative to `dir` */
+	config?: string;
+	port?: number;
+	/** the path a readiness probe requests; a worker with no `/serve` needs a different one */
+	probePath?: string;
+}
+
+export async function startFixtureWorker(
+	portOrLaunch: number | WorkerLaunch = 8899
+): Promise<RunningWorker> {
+	const launch: WorkerLaunch =
+		typeof portOrLaunch === 'number' ? { port: portOrLaunch } : portOrLaunch;
+	const dir = launch.dir ?? FIXTURE_DIR;
+	const config = launch.config ?? join(FIXTURE_DIR, 'wrangler.jsonc');
+	const port = launch.port ?? 8899;
+	const probePath = launch.probePath ?? '/serve?site=probe';
 	const stateDir = join(tmpdir(), `drangler-e2e-worker-${Date.now().toString(36)}`);
 	const logFile = join(stateDir, 'dev.log');
 	mkdirSync(stateDir, { recursive: true });
@@ -43,7 +61,7 @@ export async function startFixtureWorker(port = 8899): Promise<RunningWorker> {
 			'wrangler',
 			'dev',
 			'-c',
-			join(FIXTURE_DIR, 'wrangler.jsonc'),
+			config,
 			'--port',
 			String(port),
 			'--inspector-port',
@@ -52,7 +70,7 @@ export async function startFixtureWorker(port = 8899): Promise<RunningWorker> {
 			join(stateDir, 'state'),
 			'--local'
 		],
-		{ cwd: FIXTURE_DIR, stdio: ['ignore', 'pipe', 'pipe'] }
+		{ cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }
 	);
 	// stopped before the directory goes, because wrangler keeps writing for a moment after SIGTERM
 	// and an append into a deleted path is an uncaught ENOENT that fails the run from outside a test
@@ -95,7 +113,7 @@ export async function startFixtureWorker(port = 8899): Promise<RunningWorker> {
 			// wrangler prints Ready before the first request will always succeed; one probe settles it
 			for (let i = 0; i < 40; i++) {
 				try {
-					await fetch(`${origin}/serve?site=probe`, {
+					await fetch(`${origin}${probePath}`, {
 						signal: AbortSignal.timeout(3000)
 					});
 					return { origin, stop };

@@ -88,3 +88,61 @@ jobs:
       - name: Teardown Containers
         if: ${{ always() }}
         run: docker compose -f docker/compose.yml down -v --remove-orphans
+
+  broken:
+    name: Broken VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+
+    permissions:
+      contents: read
+
+    env:
+      REQUIRE_DOCKER: '1'
+      REQUIRE_BROKEN: '1'
+
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+      - name: Bring Up the Broken Arm
+        run: |
+          bun tests/e2e/stack.ts up
+          docker compose -f docker/compose.yml --profile broken up -d --wait vps-broken
+      - name: Run the Source Doctor Suite
+        run: bunx vitest run --project=e2e tests/e2e/doctor-source.spec.ts
+      - name: Dump Container Logs on Failure
+        if: ${{ failure() }}
+        run: docker compose -f docker/compose.yml --profile broken logs --no-color --tail=400
+      - name: Teardown Containers
+        if: ${{ always() }}
+        run: docker compose -f docker/compose.yml --profile broken down -v --remove-orphans
+
+  worker:
+    name: Real Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+
+    permissions:
+      contents: read
+
+    env:
+      REQUIRE_CLONE: '1'
+      REQUIRE_WORKER: '1'
+
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+      - name: Run the Repair Envelope Suite
+        run: bunx vitest run --project=e2e tests/e2e/heal-real.spec.ts tests/e2e/heal.spec.ts

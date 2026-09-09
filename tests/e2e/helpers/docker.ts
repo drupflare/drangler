@@ -114,3 +114,60 @@ export async function stackRunning(service: string): Promise<boolean> {
 	});
 	return ps.code === 0 && ps.stdout.split('\n').some((line) => line.trim() === service);
 }
+
+/**
+ * The gate for a service that is behind a compose PROFILE.
+ *
+ * Separate from `dockerGate()` because a profile is opt-in: a developer who brought the stack up to
+ * run the converter should not have a second Drupal install start. Same asymmetry as every other
+ * gate here -- skip locally, fail under the variable that says this lane has it.
+ */
+export async function profileGate(service: string, requireVar: string): Promise<boolean> {
+	if (await dockerGate()) return true;
+	if (await stackRunning(service)) return false;
+	if (process.env[requireVar]) {
+		throw new Error(
+			`e2e: ${service} is not running, and ${requireVar} says this lane has it.\n` +
+				`  docker compose --profile broken up -d --wait ${service}\n` +
+				`Bring it up, or unset ${requireVar} to narrow what this lane claims to cover.`
+		);
+	}
+	return true;
+}
+
+/** the fault a broken-arm spec plants, selected by the environment the container reads */
+export const FAULTS = [
+	'db-unreachable',
+	'files-missing',
+	'php-broken',
+	'drush-absent',
+	'bootstrap-fail'
+] as const;
+
+export type Fault = (typeof FAULTS)[number];
+
+/**
+ * Restarts the broken arm with one fault planted.
+ *
+ * Recreated rather than reconfigured, because the fault is read once at container start and a
+ * running container carrying the previous one would have every spec after the first scoring the
+ * wrong site.
+ */
+export async function plantFault(fault: Fault): Promise<void> {
+	await shOrThrow(
+		'docker',
+		[
+			'compose',
+			'-f',
+			join(E2E_DIR, '..', '..', 'docker', 'compose.yml'),
+			'--profile',
+			'broken',
+			'up',
+			'-d',
+			'--wait',
+			'--force-recreate',
+			'vps-broken'
+		],
+		{ env: { ...process.env, DRANGLER_FAULT: fault }, timeoutMs: 900_000 }
+	);
+}

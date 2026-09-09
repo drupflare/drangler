@@ -42,3 +42,29 @@ services:
     ports:
       - '127.0.0.1:8180:80'
       - '127.0.0.1:2222:22'
+
+  vps-broken:
+    profiles: ['broken']
+    image: drupal@sha256:369ec2a0bb23e1d6b4a378fbe15e36b52def0bb145c1821b8b33e28c3ec1b490
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DRUPAL_DB_HOST: db
+      DRUPAL_DB_NAME: drupal
+      DRUPAL_DB_USER: drupal
+      DRUPAL_DB_PASSWORD: drupalpass
+      SSH_USER: tester
+      SSH_PUBLIC_KEY: ${DRANGLER_E2E_SSH_PUBKEY:-}
+      DRANGLER_FAULT: ${DRANGLER_FAULT:-none}
+    entrypoint: ['/bin/bash', '/opt/drangler/broken-entrypoint.sh']
+    volumes:
+      - ./drupal:/opt/drangler:ro
+    healthcheck:
+      test: ['CMD', 'test', '-f', '/opt/drangler-broken-ready']
+      interval: 5s
+      timeout: 5s
+      retries: 180
+    ports:
+      - '127.0.0.1:8181:80'
+      - '127.0.0.1:2223:22'
