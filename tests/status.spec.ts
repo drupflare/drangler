@@ -14,10 +14,11 @@ import { fakeFetch, testContext } from './helpers';
  */
 
 const identity = {
-	'x-cfw-v': '1',
+	'x-cfw-v': '2',
 	'x-cfw-cache': 'MISS',
 	'x-cfw-generation': '42',
-	'x-cfw-plan': 'free',
+	'x-cfw-account-plan': 'free',
+	'x-cfw-plan': 'edge',
 	'x-cfw-php-booted': '1'
 };
 
@@ -46,11 +47,46 @@ describe('status', () => {
 		const ctx = testContext({ fetch: deployed() });
 		await runStatus(ctx, 'site.example', {});
 		const text = ctx.io.text();
-		expect(text).toContain('plan');
-		expect(text).toContain('free');
+		expect(text).toMatch(/account plan\s+free/);
+		expect(text).toMatch(/plan tier\s+edge/);
 		expect(text).toContain('generation');
 		expect(text).toContain('42');
-		expect(text).toContain('v1');
+		expect(text).toContain('v2');
+	});
+
+	/**
+	 * `x-cfw-plan` carried three meanings on the worker and only one of them is a billing plan.
+	 *
+	 * A compiled-plan tier such as `skip:set-cookie` was printed in a row labelled `plan`, so the
+	 * command whose job is saying what is deployed reported a cache-tier verdict as the account's
+	 * subscription. The two are separate rows and separate fields now.
+	 */
+	it('separates the account plan from the edge-plan tier', async () => {
+		const ctx = testContext({
+			fetch: deployed({ ...identity, 'x-cfw-plan': 'skip:set-cookie' })
+		});
+		await runStatus(ctx, 'site.example', { json: true });
+		const status = ctx.io.json<{ accountPlan: string; planTier: string }>();
+		expect(status.accountPlan).toBe('free');
+		expect(status.planTier).toBe('skip:set-cookie');
+	});
+
+	// v1 sent the account plan on the overloaded header, so it cannot be told from a plan tier
+	it('reads a v1 worker without failing, and calls its account plan unknown', async () => {
+		const ctx = testContext({
+			fetch: deployed({ 'x-cfw-v': '1', 'x-cfw-cache': 'MISS', 'x-cfw-plan': 'free' })
+		});
+		await runStatus(ctx, 'site.example', { json: true });
+		const status = ctx.io.json<{
+			accountPlan: string | null;
+			planTier: string;
+			headerVersion: number;
+			notes: string[];
+		}>();
+		expect(status.headerVersion).toBe(1);
+		expect(status.planTier).toBe('free');
+		expect(status.accountPlan).toBeNull();
+		expect(status.notes.join(' ')).toContain('unknown rather than free');
 	});
 
 	it('bypasses the edge, because a cache tier carries no plan header', async () => {
@@ -90,11 +126,11 @@ describe('status', () => {
 
 	it('says the plan is unknown rather than free when a cache tier answered', async () => {
 		const ctx = testContext({
-			fetch: deployed({ 'x-cfw-cache': 'EDGE', 'x-cfw-v': '1' })
+			fetch: deployed({ 'x-cfw-cache': 'EDGE', 'x-cfw-v': '2' })
 		});
 		await runStatus(ctx, 'site.example', { json: true });
-		const status = ctx.io.json<{ plan: string | null; notes: string[] }>();
-		expect(status.plan).toBeNull();
+		const status = ctx.io.json<{ accountPlan: string | null; notes: string[] }>();
+		expect(status.accountPlan).toBeNull();
 		expect(status.notes.join(' ')).toContain('unknown rather than free');
 	});
 

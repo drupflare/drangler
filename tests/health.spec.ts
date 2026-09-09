@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { runHealth } from '../src/commands/health';
-import { FindingError, ProbeError, UsageError } from '../src/errors';
-import { classify, normaliseTarget, probeClaim, probeSite, serveUrl } from '../src/health/probe';
+import { EXIT, FindingError, ProbeError, UsageError } from '../src/errors';
+import {
+	classify,
+	KNOWN_HEADER_VERSION,
+	normaliseTarget,
+	probeClaim,
+	probeSite,
+	readDegradation,
+	serveUrl
+} from '../src/health/probe';
 import { fakeFetch, testContext } from './helpers';
 
 const workerHeaders = {
@@ -291,19 +299,53 @@ describe('health command', () => {
 
 	it('reads the header contract version and stays quiet at the known one', async () => {
 		const result = await probeSite(
-			{ fetch: workerFetch(200, { ...workerHeaders, 'x-cfw-v': '1' }) },
+			{ fetch: workerFetch(200, { ...workerHeaders, 'x-cfw-v': '2' }) },
 			{ target: 'x.dev' }
 		);
-		expect(result.headerVersion).toBe(1);
+		expect(result.headerVersion).toBe(KNOWN_HEADER_VERSION);
 		expect(result.notes.join(' ')).not.toContain('x-cfw-v');
 	});
 
 	it('warns when the contract version is ahead of what this build reads', async () => {
 		const result = await probeSite(
-			{ fetch: workerFetch(200, { ...workerHeaders, 'x-cfw-v': '2' }) },
+			{ fetch: workerFetch(200, { ...workerHeaders, 'x-cfw-v': '3' }) },
 			{ target: 'x.dev' }
 		);
 		expect(result.notes.join(' ')).toContain('a header that moved');
+	});
+
+	/**
+	 * v2 is `x-cfw-plan` losing its third meaning.
+	 *
+	 * The header carried an edge-plan provenance, a compiled-plan tier and the account's Workers
+	 * plan; the account plan moves to `x-cfw-account-plan`. Both readings are asserted because W7
+	 * lands before or with the worker's rename, so a v1 worker in the wild has to keep parsing.
+	 */
+	it('reads the account plan off a v2 worker, and neither field off a v1 one', async () => {
+		expect(KNOWN_HEADER_VERSION).toBe(2);
+
+		const v2 = await probeSite(
+			{
+				fetch: workerFetch(200, {
+					...workerHeaders,
+					'x-cfw-v': '2',
+					'x-cfw-plan': 'skip:set-cookie',
+					'x-cfw-account-plan': 'paid'
+				})
+			},
+			{ target: 'x.dev' }
+		);
+		expect(v2.accountPlan).toBe('paid');
+		expect(v2.planTier).toBe('skip:set-cookie');
+
+		const v1 = await probeSite(
+			{ fetch: workerFetch(200, { ...workerHeaders, 'x-cfw-v': '1', 'x-cfw-plan': 'free' }) },
+			{ target: 'x.dev' }
+		);
+		expect(v1.headerVersion).toBe(1);
+		expect(v1.planTier).toBe('free');
+		expect(v1.accountPlan).toBeNull();
+		expect(v1.notes.join(' ')).not.toContain('a header that moved');
 	});
 
 	it('distinguishes a worker with no version marker from a renamed contract', async () => {
@@ -339,5 +381,94 @@ describe('health command', () => {
 		await expect(runHealth(ctx, 'x.dev', {})).resolves.toBeUndefined();
 		expect(ctx.io.text()).toContain('warming');
 		expect(ctx.io.text()).toContain('replaying the database');
+	});
+});
+
+/**
+ * The degradation headers, which nothing here read.
+ *
+ * `ops/degrade.ts` bands on rows-written and DO-request fractions and every response off `normal`
+ * carries the three headers. They landed in the untyped `headers` block and no verdict read them,
+ * so a site in `read-only` -- answering 503 to every non-GET by design -- classified as a plain
+ * failure with nothing said about which meter ran out.
+ */
+describe('degradation', () => {
+	const shedding = (over: Record<string, string>) =>
+		fakeFetch(
+			() =>
+				new Response('<html></html>', {
+					headers: { 'x-cfw-cache': 'MISS', 'x-cfw-v': '2', ...over }
+				})
+		);
+
+	it('reports nothing when the site is running normally', async () => {
+		const result = await probeSite(
+			{ fetch: shedding({}) },
+			{ target: 'https://x.example', kind: 'worker' }
+		);
+		expect(result.degraded).toBeNull();
+		expect(result.verdict).toBe('ok');
+	});
+
+	it('reads the level, the driver and the fraction', async () => {
+		const result = await probeSite(
+			{
+				fetch: shedding({
+					'x-cfw-degrade': 'reduced',
+					'x-cfw-degrade-driver': 'rows-written',
+					'x-cfw-degrade-at': '0.830'
+				})
+			},
+			{ target: 'https://x.example', kind: 'worker' }
+		);
+		expect(result.degraded).toEqual({
+			level: 'reduced',
+			driver: 'rows-written',
+			fraction: 0.83
+		});
+		expect(result.verdict).toBe('degraded');
+		expect(result.notes.join(' ')).toContain('rows-written');
+		expect(result.notes.join(' ')).toContain('UTC reset');
+	});
+
+	it('names an unknown driver rather than dropping the degradation', () => {
+		expect(readDegradation({ 'x-cfw-degrade': 'read-only' })).toEqual({
+			level: 'read-only',
+			driver: 'unknown',
+			fraction: null
+		});
+	});
+
+	// a 200 that carries the header is still a site refusing writes, and the status does not say so
+	it('classifies a degraded 200 as degraded', async () => {
+		const result = await probeSite(
+			{
+				fetch: shedding({
+					'x-cfw-degrade': 'read-only',
+					'x-cfw-degrade-driver': 'do-requests'
+				})
+			},
+			{ target: 'https://x.example', kind: 'worker' }
+		);
+		expect(result.status).toBe(200);
+		expect(result.verdict).toBe('degraded');
+	});
+
+	it('exits 3 from `health` with its own code and the meter named', async () => {
+		const ctx = testContext({
+			fetch: shedding({
+				'x-cfw-degrade': 'reduced',
+				'x-cfw-degrade-driver': 'rows-written',
+				'x-cfw-degrade-at': '0.830'
+			})
+		});
+		const failure = (await runHealth(ctx, 'https://x.example', { kind: 'worker' }).then(
+			() => null,
+			(e: unknown) => e as FindingError
+		)) as FindingError;
+		expect(failure.code).toBe('site-degraded');
+		expect(failure.exitCode).toBe(EXIT.FINDING);
+		expect(failure.message).toContain('rows-written');
+		expect(ctx.io.text()).toContain('reduced (rows-written at 0.83 of 1.00)');
 	});
 });

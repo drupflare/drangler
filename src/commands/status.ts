@@ -1,6 +1,6 @@
 import { parseWranglerConfig, type WranglerConfig } from '../cloudflare/config';
 import type { Context } from '../context';
-import { FindingError } from '../errors';
+import { FindingError, UsageError } from '../errors';
 import { emit, kv } from '../format';
 import { probeClaim, probeSite, type ClaimState } from '../health/probe';
 
@@ -19,7 +19,10 @@ export interface SiteStatus {
 	/** the tier that answered, which says how much of the stack the request actually touched */
 	tier: string | null;
 	generation: number | null;
-	plan: string | null;
+	/** `x-cfw-account-plan`: what the account is billed on; null on a worker at contract v1 */
+	accountPlan: string | null;
+	/** `x-cfw-plan`: which edge-plan tier answered, or the reason none did. Not a billing plan */
+	planTier: string | null;
 	headerVersion: number | null;
 	phpBooted: boolean | null;
 	/** whether anyone has set the administrator password; `unclaimed` means anyone still can */
@@ -66,9 +69,9 @@ function readConfig(ctx: Context, explicit?: string): SiteStatus['config'] {
  * What am I running?
  *
  * The first question a site owner asks, and it is about their DEPLOYED site rather than about any
- * checkout. Everything below one `/serve` request is public: the object reports its plan, its
- * generation, the header contract version and whether an interpreter is booted on the same response
- * a visitor gets, so this needs no credential and no diagnostic route.
+ * checkout. Everything below one `/serve` request is public: the object reports its account plan,
+ * its generation, the header contract version and whether an interpreter is booted on the same
+ * response a visitor gets, so this needs no credential and no diagnostic route.
  *
  * Distinct from `health`, which asks "is it up and which tier answered" and is the thing to put in a
  * monitor. This asks "what is deployed here", which is the thing to read before changing anything.
@@ -81,7 +84,16 @@ function readConfig(ctx: Context, explicit?: string): SiteStatus['config'] {
  * availability one: an unclaimed site serves perfectly and has no administrator, so a monitor should
  * not page on it while the command that reports what is deployed absolutely should say so.
  */
-export async function runStatus(ctx: Context, target: string, opts: StatusOptions): Promise<void> {
+export async function runStatus(
+	ctx: Context,
+	target: string | null | undefined,
+	opts: StatusOptions
+): Promise<void> {
+	if (target === null || target === undefined || target.trim() === '') {
+		throw new UsageError(
+			'no site to report on; pass it as an argument, as --site, or put it in a drangler.json'
+		);
+	}
 	const site = opts.site ?? 'site';
 	const timeoutMs = opts.timeoutMs ?? 15_000;
 	const result = await probeSite(
@@ -91,8 +103,8 @@ export async function runStatus(ctx: Context, target: string, opts: StatusOption
 			path: opts.path ?? '/',
 			site,
 			kind: 'worker',
-			// the object sets `x-cfw-plan` on a MISS, and a cache tier answers without it, so the
-			// edge is bypassed to give the identity fields a chance to be populated
+			// a cache tier answers with none of the identity headers, so the edge is bypassed to
+			// give them a chance to be populated
 			skipEdge: true,
 			diagnostics: true,
 			...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs })
@@ -105,7 +117,8 @@ export async function runStatus(ctx: Context, target: string, opts: StatusOption
 		reachable: result.status !== null,
 		tier: result.tier,
 		generation: result.generation,
-		plan: result.plan,
+		accountPlan: result.accountPlan,
+		planTier: result.planTier,
 		headerVersion: result.headerVersion,
 		phpBooted: result.phpBooted,
 		claimed: claim.state,
@@ -130,9 +143,11 @@ export async function runStatus(ctx: Context, target: string, opts: StatusOption
 			'the diagnostic routes answer on this deployment; /sql and /restore are reachable and should be closed'
 		);
 	}
-	if (status.plan === null && status.tier !== null) {
+	if (status.accountPlan === null) {
 		status.notes.push(
-			`answered from the ${status.tier} tier, which does not carry x-cfw-plan; the plan is unknown rather than free`
+			status.headerVersion !== null && status.headerVersion < 2
+				? `this worker reports header contract v${status.headerVersion}, which sent the account plan on x-cfw-plan alongside two other meanings; the account plan is unknown rather than free`
+				: 'no x-cfw-account-plan on the response, so the account plan is unknown rather than free'
 		);
 	}
 
@@ -142,7 +157,8 @@ export async function runStatus(ctx: Context, target: string, opts: StatusOption
 			['reachable', status.reachable ? 'yes' : 'no'],
 			['answered by', status.tier ?? '-'],
 			['generation', status.generation === null ? '-' : String(status.generation)],
-			['plan', status.plan ?? 'unknown'],
+			['account plan', status.accountPlan ?? 'unknown'],
+			['plan tier', status.planTier ?? '-'],
 			[
 				'header contract',
 				status.headerVersion === null ? 'unversioned' : `v${status.headerVersion}`

@@ -88,8 +88,8 @@ export const PHP_BINARY_ALIAS = './runtime/php-binary.js';
  *
  * Not a schema validator -- wrangler has one, and duplicating it would go stale on the next release.
  * Every rule here is a deployment that went out wrong: diagnostics public by default, a Durable Object
- * migrated without SQLite, and the interpreter alias resolving to the wrong binary at 710,410 bytes
- * over the free-plan ceiling with nothing failing but the size.
+ * migrated without SQLite, and the interpreter alias resolving to the fallback binary with nothing
+ * failing but the size.
  */
 export interface AccountFacts {
 	/**
@@ -178,7 +178,7 @@ export function checkConfig(config: WranglerConfig, facts: AccountFacts = {}): C
 			'diagnostics-public',
 			'blocker',
 			'`PW_DIAGNOSTICS` is 1 in `vars`',
-			'that opens /sql, /export, /restore, /firstrun and /php to anyone on the internet; the diagnostic routes fail closed for a reason and this reopens all of them'
+			'that opens /sql, /restore, /pitr and /php to anyone on the internet; the diagnostic routes fail closed for a reason and this reopens all of them. /firstrun is public and /export takes a per-site owner token, so neither is what the flag is for'
 		);
 	}
 
@@ -225,7 +225,7 @@ export function checkConfig(config: WranglerConfig, facts: AccountFacts = {}): C
 				'interpreter-alias',
 				'warning',
 				`no alias for \`${PHP_BINARY_ALIAS}\``,
-				'the default seam bundles the fallback interpreter, measured at 3,856,138 gzipped bytes against a 3,145,728 ceiling; nothing fails but the size'
+				'the default seam bundles the fallback interpreter rather than the one the checkout built, so the deployed site runs a PHP nothing in this tree selected; nothing fails but the size'
 			);
 		}
 		if (config.assets?.directory === undefined) {
@@ -255,4 +255,99 @@ export function checkConfig(config: WranglerConfig, facts: AccountFacts = {}): C
 
 function asStrings(value: unknown): string[] {
 	return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+/** one optional worker lever, as drangler reads it out of a config */
+export interface Lever {
+	name: string;
+	describe: string;
+	/** what the site does when nothing sets it */
+	unset: string;
+	/** what a declared value means, in the site's terms */
+	state(value: string): string;
+}
+
+/** `SWEEP_MIN_FRACTION` and `SWEEP_MAX_FRACTION` in `ops/sweep.ts`; the site clamps to this range */
+export const SWEEP_FRACTION_MIN = 0.01;
+export const SWEEP_FRACTION_MAX = 0.5;
+
+/**
+ * The levers drangler has a command or a check for.
+ *
+ * Deliberately short. `worker/docs/configuration.md` documents every var the site reads, and a
+ * second list of all of them here would be a copy that goes stale on the next one the worker adds.
+ * A lever earns a row when something in drangler acts on it: `FILES_PUBLIC_URL` has a reachability
+ * check, `SWEEP` and `SWEEP_ROWS_FRACTION` drive `drangler sweep`, and `ASSET_AGGREGATES` needs a
+ * build artifact whose absence makes the lever inert.
+ */
+export const LEVERS: readonly Lever[] = [
+	{
+		name: 'FILES_PUBLIC_URL',
+		describe: 'origin a mirrored public file is linked from',
+		unset: 'every file is served through the Worker, at one Worker request each',
+		state: (value) => `mirrored public files are linked at ${value}`
+	},
+	{
+		name: 'ASSET_AGGREGATES',
+		describe: "substitute the build's CSS and JS aggregates into a stored page",
+		unset: 'a stored page keeps the tags Drupal emitted',
+		state: (value) =>
+			value === '1'
+				? 'on; needs `bun run assets:agg` to have written assets/agg/'
+				: `off; only \`1\` turns it on, and this says \`${value}\``
+	},
+	{
+		name: 'SWEEP',
+		describe: 'enumerate the addressable space and queue what has no stored page',
+		unset: 'coverage stays demand-driven, so the first visitor to a URL waits for its render',
+		state: (value) => (value === '0' ? 'off; `0` is the one value that switches it off' : 'on')
+	},
+	{
+		name: 'SWEEP_ROWS_FRACTION',
+		describe: "share of the day's rows and DO requests one sweep may spend",
+		unset: '0.25 of each daily meter',
+		state: (value) => {
+			const n = Number(value);
+			if (!Number.isFinite(n) || n <= 0)
+				return `unreadable as a number, so the site uses 0.25`;
+			if (n < SWEEP_FRACTION_MIN) return `${value}, clamped up to ${SWEEP_FRACTION_MIN}`;
+			if (n > SWEEP_FRACTION_MAX) return `${value}, clamped down to ${SWEEP_FRACTION_MAX}`;
+			return `${n} of each daily meter`;
+		}
+	}
+];
+
+export interface LeverReading {
+	name: string;
+	/** what the config declares, or null when nothing does */
+	value: string | null;
+	/** the real state, which for an unset lever is what the site does without it */
+	state: string;
+	describe: string;
+}
+
+/** Reads each lever out of a config. An unset lever reports what the site does without it. */
+export function readLevers(config: WranglerConfig): LeverReading[] {
+	return LEVERS.map((lever) => {
+		const raw = config.vars?.[lever.name];
+		const value = raw === undefined || raw === null || String(raw) === '' ? null : String(raw);
+		return {
+			name: lever.name,
+			value,
+			state: value === null ? lever.unset : lever.state(value),
+			describe: lever.describe
+		};
+	});
+}
+
+/** every other `vars` entry, echoed as declared; a credential is reported as set and never printed */
+export function otherVars(config: WranglerConfig): { name: string; value: string }[] {
+	const named = new Set(LEVERS.map((l) => l.name));
+	return Object.entries(config.vars ?? {})
+		.filter(([name]) => !named.has(name))
+		.map(([name, value]) => ({
+			name,
+			value: /pass|secret|token|key/i.test(name) ? 'set' : String(value)
+		}))
+		.sort((a, b) => (a.name < b.name ? -1 : 1));
 }

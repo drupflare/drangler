@@ -9,13 +9,22 @@ import {
 import { parseWhoami, requireAccount, requireToken, resolveAuth } from '../src/cloudflare/auth';
 import {
 	checkConfig,
+	otherVars,
 	parseWranglerConfig,
 	PHP_BINARY_ALIAS,
-	stripJsonComments
+	readLevers,
+	stripJsonComments,
+	SWEEP_FRACTION_MAX,
+	SWEEP_FRACTION_MIN
 } from '../src/cloudflare/config';
 import { captureCommand, parseTailCapture, summariseCpu } from '../src/cloudflare/tail';
 import { runCpu, runWhoami, runWorkers } from '../src/commands/cf';
-import { resolvePlanFacts, runConfigCheck } from '../src/commands/config';
+import {
+	resolvePlanFacts,
+	runConfigCheck,
+	runConfigLevers,
+	type ConfigLeversReport
+} from '../src/commands/config';
 import { checkTools, parseVersion, runDoctor, TOOLS } from '../src/commands/doctor';
 import { AuthError, DranglerError, FindingError, UsageError } from '../src/errors';
 import { scriptedRunner } from '../src/host/exec';
@@ -298,7 +307,7 @@ describe('checkConfig', () => {
 		durable_objects: { bindings: [{ name: 'SITE', class_name: 'SitePhpDurableObject' }] },
 		migrations: [{ tag: 'v1', new_sqlite_classes: ['SitePhpDurableObject'] }],
 		assets: { directory: './assets', binding: 'ASSETS' },
-		alias: { [PHP_BINARY_ALIAS]: './src/runtime/php-binary-85.ts' },
+		alias: { [PHP_BINARY_ALIAS]: './src/runtime/php-binary-raw.ts' },
 		triggers: { crons: ['*/5 * * * *'] }
 	};
 
@@ -310,6 +319,21 @@ describe('checkConfig', () => {
 		const findings = checkConfig({ ...GOOD, vars: { PW_DIAGNOSTICS: '1' } });
 		expect(findings[0]).toMatchObject({ id: 'diagnostics-public', severity: 'blocker' });
 		expect(findings[0]?.detail).toContain('/restore');
+		expect(findings[0]?.detail).toContain('/sql');
+	});
+
+	/**
+	 * `/firstrun` is in `PUBLIC_ROUTES` and `/export` is in `OWNER_ROUTES`.
+	 *
+	 * The finding named both as things the flag exposes. It stayed a correct blocker with two stale
+	 * details, which is the shape that survives review: the verdict is right and the reason a user
+	 * acts on is wrong.
+	 */
+	it('does not name the public route or the owner route as things the flag opens', () => {
+		const detail =
+			checkConfig({ ...GOOD, vars: { PW_DIAGNOSTICS: '1' } })[0]?.detail.split(';')[0] ?? '';
+		expect(detail).not.toContain('/firstrun');
+		expect(detail).not.toContain('/export');
 	});
 
 	it('blocks a Durable Object migrated without SQLite', () => {
@@ -329,9 +353,12 @@ describe('checkConfig', () => {
 		).toContain('do-binding');
 	});
 
-	it('warns when the interpreter alias is missing, with the measured overshoot', () => {
+	// the overshoot it used to quote was against the 3 MiB gzipped ceiling Cloudflare deleted
+	it('warns when the interpreter alias is missing, without quoting a dead ceiling', () => {
 		const findings = checkConfig({ ...GOOD, alias: {} });
-		expect(findings[0]?.detail).toContain('3,856,138');
+		expect(findings[0]).toMatchObject({ id: 'interpreter-alias', severity: 'warning' });
+		expect(findings[0]?.detail).toContain('fallback interpreter');
+		expect(findings[0]?.detail).not.toMatch(/\d{1,3}(,\d{3})+/);
 	});
 
 	it('warns about missing assets, flags, date, main and cron', () => {
@@ -508,16 +535,25 @@ describe('checkTools', () => {
 		const tools = await checkTools(runner);
 		expect(tools).toHaveLength(TOOLS.length);
 		expect(tools[0]).toMatchObject({ name: 'ssh', present: true, version: '9.8p1' });
-		expect(tools[1]).toMatchObject({ name: 'wrangler', present: false, version: null });
+		expect(tools[1]).toMatchObject({ name: 'git', present: false, version: null });
 	});
 
-	it('does not demand a tool the CLI never runs', async () => {
-		// `git` went when `status` stopped scanning checkouts; nothing shells out to it now
-		expect(TOOLS.map((t) => t.name)).not.toContain('git');
+	/**
+	 * A preflight may only DEMAND what most of the surface runs.
+	 *
+	 * `git` is back and is optional: `build` clones the worker and `modify release` reads a tag and
+	 * refuses a dirty tree, so it is a real dependency of two commands and of no others. Requiring
+	 * it would fail the command someone runs when they are already confused, on a machine where
+	 * everything else works.
+	 */
+	it('requires only what half the surface needs, and marks the rest optional', async () => {
 		for (const tool of TOOLS) {
 			if (!tool.required) continue;
 			expect(['ssh', 'wrangler']).toContain(tool.name);
 		}
+		const git = TOOLS.find((t) => t.name === 'git');
+		expect(git).toMatchObject({ required: false });
+		expect(git?.usedBy).toContain('modify release');
 	});
 });
 
@@ -655,6 +691,167 @@ describe('config check command', () => {
 
 	it('refuses a file that is not there', async () => {
 		await expect(runConfigCheck(testContext(), '/none', {})).rejects.toThrow(UsageError);
+	});
+
+	/**
+	 * `FILES_PUBLIC_URL` is an option and never a requirement.
+	 *
+	 * A warning for an absent one would turn an opt-in into something a deployer has to justify not
+	 * taking; serving every file through the Worker is correct and costs one request each.
+	 */
+	it('says nothing about an unset FILES_PUBLIC_URL', async () => {
+		const ctx = testContext({
+			files: memoryFiles({
+				'/wrangler.jsonc': JSON.stringify({
+					name: 'x',
+					main: 'src/index.ts',
+					compatibility_date: '2026-08-01',
+					compatibility_flags: ['nodejs_compat'],
+					durable_objects: { bindings: [{ class_name: 'C' }] },
+					migrations: [{ new_sqlite_classes: ['C'] }],
+					triggers: { crons: ['* * * * *'] }
+				})
+			})
+		});
+		await runConfigCheck(ctx, '/wrangler.jsonc', {});
+		expect(ctx.io.text()).not.toContain('FILES_PUBLIC_URL');
+	});
+});
+
+describe('readLevers', () => {
+	const levers = (vars: Record<string, unknown>) =>
+		Object.fromEntries(readLevers({ vars }).map((l) => [l.name, l]));
+
+	it('reports what the site does without a lever, rather than a blank', () => {
+		const read = levers({});
+		expect(read['FILES_PUBLIC_URL']?.value).toBeNull();
+		expect(read['FILES_PUBLIC_URL']?.state).toContain('one Worker request each');
+		expect(read['SWEEP']?.state).toContain('demand-driven');
+	});
+
+	/**
+	 * `ASSET_AGGREGATES` shipped as a no-op and the reading has to be the real state.
+	 *
+	 * `assets/.assetsignore` never allowed `/agg/`, so the substitution rewrote every asset tag to a
+	 * URL the asset layer did not publish and the page rendered with no CSS. What decides the state
+	 * is the value and the artifact, so a value that is not `1` reads as off with its own value shown.
+	 */
+	it('reads ASSET_AGGREGATES as on only at 1, and names the build step it needs', () => {
+		expect(levers({ ASSET_AGGREGATES: '1' })['ASSET_AGGREGATES']?.state).toContain(
+			'assets:agg'
+		);
+		expect(levers({ ASSET_AGGREGATES: 'true' })['ASSET_AGGREGATES']?.state).toContain('off');
+		expect(levers({ ASSET_AGGREGATES: '0' })['ASSET_AGGREGATES']?.state).toContain('off');
+	});
+
+	it('reads SWEEP off at 0 and on at anything else', () => {
+		expect(levers({ SWEEP: '0' })['SWEEP']?.state).toContain('off');
+		expect(levers({ SWEEP: '1' })['SWEEP']?.state).toBe('on');
+	});
+
+	// the site clamps rather than refusing, so a declared 5 is not the share it will spend
+	it('says where SWEEP_ROWS_FRACTION lands after the site clamps it', () => {
+		const read = levers({ SWEEP_ROWS_FRACTION: '5' })['SWEEP_ROWS_FRACTION'];
+		expect(read?.state).toContain(`clamped down to ${SWEEP_FRACTION_MAX}`);
+		expect(levers({ SWEEP_ROWS_FRACTION: '0.001' })['SWEEP_ROWS_FRACTION']?.state).toContain(
+			`clamped up to ${SWEEP_FRACTION_MIN}`
+		);
+		expect(levers({ SWEEP_ROWS_FRACTION: '0.4' })['SWEEP_ROWS_FRACTION']?.state).toContain(
+			'0.4 of each daily meter'
+		);
+	});
+
+	it('echoes every other var and reports a credential-shaped one as set', () => {
+		const other = otherVars({ vars: { PLAN: 'free', SMTP_PASS: 'hunter2', SWEEP: '1' } });
+		expect(other).toEqual([
+			{ name: 'PLAN', value: 'free' },
+			{ name: 'SMTP_PASS', value: 'set' }
+		]);
+	});
+});
+
+describe('config levers command', () => {
+	const withVars = (vars: Record<string, unknown>) =>
+		memoryFiles({ '/wrangler.jsonc': JSON.stringify({ name: 'x', vars }) });
+
+	it('lists every lever with its state and prints no finding for an unset one', async () => {
+		const ctx = testContext({ files: withVars({}) });
+		await runConfigLevers(ctx, '/wrangler.jsonc', { json: true });
+		const report = ctx.io.json<ConfigLeversReport>();
+		expect(report.levers.map((l) => l.name)).toEqual([
+			'FILES_PUBLIC_URL',
+			'ASSET_AGGREGATES',
+			'SWEEP',
+			'SWEEP_ROWS_FRACTION'
+		]);
+		expect(report.levers.every((l) => l.value === null)).toBe(true);
+		expect(report.filesOrigin).toBeNull();
+		expect(report.notes).toEqual([]);
+	});
+
+	it('probes the configured origin under --check and counts any status as an answer', async () => {
+		const fetch = fakeFetch(() => new Response('', { status: 404 }));
+		const ctx = testContext({ files: withVars({ FILES_PUBLIC_URL: 'files.example' }), fetch });
+		await runConfigLevers(ctx, '/wrangler.jsonc', { json: true, check: true });
+
+		expect(fetch.urls).toEqual(['https://files.example']);
+		expect(ctx.io.json<ConfigLeversReport>().filesOrigin).toMatchObject({
+			answered: true,
+			status: 404
+		});
+	});
+
+	it('reports an origin that does not answer without failing the command', async () => {
+		const fetch = fakeFetch(() => {
+			throw new Error('getaddrinfo ENOTFOUND files.example');
+		});
+		const ctx = testContext({
+			files: withVars({ FILES_PUBLIC_URL: 'https://files.example' }),
+			fetch
+		});
+		await expect(
+			runConfigLevers(ctx, '/wrangler.jsonc', { json: true, check: true })
+		).resolves.toBeUndefined();
+
+		const report = ctx.io.json<ConfigLeversReport>();
+		expect(report.filesOrigin).toMatchObject({ answered: false, status: null });
+		expect(report.notes.join(' ')).toContain('keeps its Worker URL either way');
+	});
+
+	it('says there is nothing to check when no origin is configured', async () => {
+		const ctx = testContext({ files: withVars({}) });
+		await runConfigLevers(ctx, '/wrangler.jsonc', { json: true, check: true });
+		expect(ctx.io.json<ConfigLeversReport>().notes.join(' ')).toContain('no FILES_PUBLIC_URL');
+	});
+
+	// on with no manifest is inert: no library matches and the page keeps the tags Drupal emitted
+	it('notes an ASSET_AGGREGATES that is on with no aggregates built beside the assets', async () => {
+		const on = JSON.stringify({
+			name: 'x',
+			assets: { directory: './assets' },
+			vars: { ASSET_AGGREGATES: '1' }
+		});
+		const missing = testContext({ files: memoryFiles({ '/ws/wrangler.jsonc': on }) });
+		await runConfigLevers(missing, '/ws/wrangler.jsonc', { json: true });
+		expect(missing.io.json<ConfigLeversReport>().notes.join(' ')).toContain(
+			'agg/manifest.json'
+		);
+
+		const built = testContext({
+			files: memoryFiles({
+				'/ws/wrangler.jsonc': on,
+				'/ws/assets/agg/manifest.json': '{}'
+			})
+		});
+		await runConfigLevers(built, '/ws/wrangler.jsonc', { json: true });
+		expect(built.io.json<ConfigLeversReport>().notes).toEqual([]);
+	});
+
+	it('renders a table and refuses a file that is not there', async () => {
+		const ctx = testContext({ files: withVars({ SWEEP: '1' }) });
+		await runConfigLevers(ctx, '/wrangler.jsonc', {});
+		expect(ctx.io.text()).toContain('SWEEP');
+		await expect(runConfigLevers(testContext(), '/none', {})).rejects.toThrow(UsageError);
 	});
 });
 

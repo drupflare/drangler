@@ -7,14 +7,41 @@ export type SiteKind = 'worker' | 'vps' | 'unknown';
 
 export type Verdict = 'ok' | 'warming' | 'degraded' | 'unreachable' | 'not-drupflare';
 
+/** how much load a site is shedding, and on which meter; `ops/degrade.ts` bands it */
+export interface Degradation {
+	/** `reduced` at 0.8 of a daily budget, `read-only` at 0.95 */
+	level: string;
+	/** the meter that drove it: rows written or DO requests */
+	driver: string;
+	/** how far into the budget, as a fraction */
+	fraction: number | null;
+}
+
+/** `x-cfw-degrade*` off any response; absent headers mean the site is running normally */
+export function readDegradation(cfw: Record<string, string>): Degradation | null {
+	const level = cfw['x-cfw-degrade'];
+	if (level === undefined || level === '') return null;
+	const fraction = Number(cfw['x-cfw-degrade-at']);
+	return {
+		level,
+		driver: cfw['x-cfw-degrade-driver'] ?? 'unknown',
+		fraction: Number.isFinite(fraction) ? fraction : null
+	};
+}
+
 /**
  * The `x-cfw-v` contract version this build reads.
  *
  * The worker bumps it only when a header is RENAMED or REMOVED, never when one is added, so a
  * higher number is the only signal that a field read by name here may have moved. Without it a
  * renamed header is indistinguishable from a header the response did not set.
+ *
+ * **v2 is `x-cfw-plan` losing its third meaning.** It carried an edge-plan provenance, a compiled
+ * plan tier and the account's Workers plan, and the last of those moves to
+ * `x-cfw-account-plan`. A v1 worker sends neither the new header nor the new version, so
+ * {@link ProbeResult.accountPlan} reads null there and nothing else changes.
  */
-export const KNOWN_HEADER_VERSION = 1;
+export const KNOWN_HEADER_VERSION = 2;
 
 export interface ProbeOptions {
 	/** origin to probe, with or without a scheme; `https` is assumed */
@@ -55,8 +82,32 @@ export interface ProbeResult {
 	 * old enough to predate the marker, which is a different thing from a renamed contract.
 	 */
 	headerVersion: number | null;
-	/** `x-cfw-plan`, which the object sets on a MISS; null when the response came from a cache tier */
-	plan: string | null;
+	/**
+	 * `x-cfw-plan`, which is the EDGE-PLAN verdict and never the account's Workers plan.
+	 *
+	 * The worker sets it in three places with two meanings: a provenance when a compiled plan
+	 * answered, and a tier string such as `skip:set-cookie` saying why one did not. drangler used to
+	 * map it to a field called `plan` and print it in a row labelled `plan`, so a site whose plan
+	 * tier read `skip:set-cookie` reported that as its billing plan. Null when a cache tier answered,
+	 * because those responses carry no such header.
+	 */
+	planTier: string | null;
+	/**
+	 * `x-cfw-account-plan`: `free` or `paid`, read from the Worker's own `PLAN` binding.
+	 *
+	 * Null on a worker at contract v1, which sent the account plan on `x-cfw-plan` and therefore
+	 * cannot be distinguished from a plan tier. Unknown is the honest reading there, not `free`.
+	 */
+	accountPlan: string | null;
+	/**
+	 * `x-cfw-degrade`, `x-cfw-degrade-driver` and `x-cfw-degrade-at`.
+	 *
+	 * Null when the site is running normally, because the worker sets none of the three off
+	 * `normal`. A site in `read-only` answers 503 to every non-GET, so a verdict that read that as a
+	 * plain failure would report an outage where the object is deliberately shedding load; the
+	 * driver names which meter it is shedding on.
+	 */
+	degraded: Degradation | null;
 	/** whichever Drupal cache headers a plain host sets, when probing a VPS */
 	drupalCache: string | null;
 	drupalDynamicCache: string | null;
@@ -132,6 +183,10 @@ export function classify(status: number, cfw: Record<string, string>, kind: Site
 	) {
 		return 'warming';
 	}
+	// a site off `normal` is shedding load on purpose and says which meter drove it. Reading its
+	// 503 as a plain failure reports an outage where the object is refusing writes by design, and
+	// the header is on every response it sends off `normal`
+	if (cfw['x-cfw-degrade'] !== undefined && cfw['x-cfw-degrade'] !== '') return 'degraded';
 	if (status >= 500) return 'degraded';
 	if (status >= 400) return 'degraded';
 	return 'ok';
@@ -154,7 +209,9 @@ function emptyResult(target: string, requested: string, kind: SiteKind): ProbeRe
 		phpBooted: null,
 		queueDepth: null,
 		headerVersion: null,
-		plan: null,
+		planTier: null,
+		accountPlan: null,
+		degraded: null,
 		drupalCache: null,
 		drupalDynamicCache: null,
 		generator: null,
@@ -233,8 +290,10 @@ export async function probeSite(deps: ProbeDeps, opts: ProbeOptions): Promise<Pr
 				: response.headers.get('x-cfw-php-booted') === '1',
 		queueDepth: num(response.headers, 'x-cfw-queue-depth'),
 		headerVersion: num(response.headers, 'x-cfw-v'),
-		plan: response.headers.get('x-cfw-plan'),
+		planTier: response.headers.get('x-cfw-plan'),
+		accountPlan: response.headers.get('x-cfw-account-plan'),
 		generator: response.headers.get('x-generator'),
+		degraded: readDegradation(cfw),
 		verdict: classify(response.status, cfw, 'worker')
 	};
 
@@ -256,6 +315,11 @@ export async function probeSite(deps: ProbeDeps, opts: ProbeOptions): Promise<Pr
 		// worker repository and would be a figure this CLI could only copy and let rot
 		result.notes.push(
 			`replaying the database, chunk ${cfw['x-cfw-migrate']} (${cfw['x-cfw-migrate-state'] ?? 'unknown'}); a fresh site does this once, and a 503 until it finishes is expected`
+		);
+	}
+	if (result.degraded !== null) {
+		result.notes.push(
+			`shedding load at the ${result.degraded.level} level, driven by ${result.degraded.driver} at ${result.degraded.fraction ?? '?'} of its daily budget; it clears at the UTC reset`
 		);
 	}
 	if (result.headerVersion === null) {
