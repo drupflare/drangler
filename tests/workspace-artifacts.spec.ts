@@ -10,7 +10,7 @@ import {
 	interpreterFiles,
 	missingArtifacts
 } from '../src/workspace/artifacts';
-import { WORKER_SEAM, WORKSPACE, workerTree } from './helpers';
+import { WORKER_SEAM_PATH, WORKSPACE, workerTree } from './helpers';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RELEASE_PAYLOAD = resolve(HERE, '..', '..', 'worker', 'scripts', 'release-payload.ts');
@@ -30,16 +30,15 @@ describe('inWorkspace', () => {
 describe('interpreterFiles', () => {
 	it('derives the interpreter from the aliased seam, not from a hardcoded list', () => {
 		expect(interpreterFiles(memoryFiles(workerTree()), WORKSPACE)).toEqual([
-			'.interp/php8.5-worker.mjs',
-			'.interp/php8.5.wasm.zst',
-			'.interp/zstddec.wasm'
+			'.interp/php8.5-worker.tuned.mjs',
+			'.interp/php8.5.wasm'
 		]);
 	});
 
 	it('refuses a seam that imports from vendor/, which no payload can carry', () => {
 		const files = memoryFiles(
 			workerTree({
-				[`${WORKSPACE}/src/runtime/php-binary-85.ts`]:
+				[`${WORKSPACE}/${WORKER_SEAM_PATH}`]:
 					"import blob from '../../vendor/static-o2/php8.3-worker.mjs.wasm';"
 			})
 		);
@@ -57,7 +56,7 @@ describe('interpreterFiles', () => {
 	it('returns nothing when the config or the seam is not there', () => {
 		expect(interpreterFiles(memoryFiles({}), WORKSPACE)).toEqual([]);
 		const tree = workerTree();
-		delete tree[`${WORKSPACE}/src/runtime/php-binary-85.ts`];
+		delete tree[`${WORKSPACE}/${WORKER_SEAM_PATH}`];
 		expect(interpreterFiles(memoryFiles(tree), WORKSPACE)).toEqual([]);
 	});
 
@@ -65,16 +64,16 @@ describe('interpreterFiles', () => {
 		const files = memoryFiles(
 			workerTree({
 				[`${WORKSPACE}/wrangler.jsonc`]:
-					'{\n// which interpreter ships\n"alias": { "./runtime/php-binary.js": "./src/runtime/php-binary-85.ts" },\n}'
+					'{\n// which interpreter ships\n"alias": { "./runtime/php-binary.js": "./src/runtime/php-binary-raw.ts" },\n}'
 			})
 		);
-		expect(interpreterFiles(files, WORKSPACE)).toHaveLength(3);
+		expect(interpreterFiles(files, WORKSPACE)).toHaveLength(2);
 	});
 
 	it('ignores an import that is neither the interpreter nor vendor', () => {
 		const files = memoryFiles(
 			workerTree({
-				[`${WORKSPACE}/src/runtime/php-binary-85.ts`]: WORKER_SEAM.split('\n')[0]!
+				[`${WORKSPACE}/${WORKER_SEAM_PATH}`]: "import { x } from '@drupflare/cartridge';"
 			})
 		);
 		expect(interpreterFiles(files, WORKSPACE)).toEqual([]);
@@ -117,18 +116,17 @@ describe('missingArtifacts', () => {
 
 	it('names a missing interpreter file, derived from the seam rather than listed', () => {
 		const tree = workerTree();
-		delete tree[`${WORKSPACE}/.interp/zstddec.wasm`];
+		delete tree[`${WORKSPACE}/.interp/php8.5.wasm`];
 		const missing = missingArtifacts(memoryFiles(tree), WORKSPACE);
 		expect(missing).toEqual([
-			{ path: '.interp/zstddec.wasm', produces: expect.stringContaining('build:wasm') }
+			{ path: '.interp/php8.5.wasm', produces: expect.stringContaining('build:wasm') }
 		]);
 	});
 
 	it('does not fail the whole scan when the seam is unreadable; that is the config check', () => {
 		const files = memoryFiles(
 			workerTree({
-				[`${WORKSPACE}/src/runtime/php-binary-85.ts`]:
-					"import x from '../../vendor/a.wasm';"
+				[`${WORKSPACE}/${WORKER_SEAM_PATH}`]: "import x from '../../vendor/a.wasm';"
 			})
 		);
 		expect(missingArtifacts(files, WORKSPACE)).toEqual([]);
@@ -155,13 +153,21 @@ if (payloadSource === null && process.env.REQUIRE_SIBLINGS) {
 }
 
 describe.skipIf(payloadSource === null)('the required set tracks what the worker ships', () => {
-	/** every `{ path: 'x' }` literal in the sibling's payload plan */
+	/**
+	 * Every REQUIRED `{ path: 'x' }` literal in the sibling's payload plan.
+	 *
+	 * An entry marked `optional: true` is one the payload carries when it exists, so demanding it
+	 * here would fail `validate` on a checkout that simply has no custom themes. Ignoring the flag
+	 * is what turned `assets/themes` into a red gate on a tree nobody had edited.
+	 */
 	function declaredPaths(source: string): string[] {
 		const block = source.slice(
 			source.indexOf('PAYLOAD_ASSETS'),
 			source.indexOf('export type PayloadFile')
 		);
-		return [...block.matchAll(/path:\s*'([^']+)'/g)].map((m) => m[1] as string);
+		return [...block.matchAll(/\{[^{}]*path:\s*'([^']+)'[^{}]*\}/g)]
+			.filter((m) => !m[0].includes('optional: true'))
+			.map((m) => m[1] as string);
 	}
 
 	it('carries every asset and record the payload plan declares', () => {

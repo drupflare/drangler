@@ -49,7 +49,7 @@ function ctxFor(
 		'bun install': ok(''),
 		'bun run hydrate': ok(''),
 		[SCRUB]: ok('clean'),
-		[DRY_RUN]: ok('gzip: 2818.80 KiB'),
+		[DRY_RUN]: ok('Total Upload: 11000.00 KiB / gzip: 2818.80 KiB'),
 		...script
 	});
 	return testContext({ files, runner, env: ENV }) as TestContext & { runner: ScriptedRunner };

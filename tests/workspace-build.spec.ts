@@ -234,9 +234,17 @@ describe('runPlan', () => {
 		await expect(runPlan(ctx, planBuild(stateOf(), SOURCE), WORKSPACE, SOURCE)).rejects.toThrow(
 			/hydrate failed/
 		);
-		const said = (ctx.io as ReturnType<typeof bufferIo>).text();
-		expect(said).toMatch(/no payload to hydrate from/);
-		expect(said).toContain('bun run build:local');
+		// the guidance rides the error rather than stdout: `build --json` promises stdout parses,
+		// and this is the failure a new user is most likely to hit
+		const failure = (await runPlan(ctx, planBuild(stateOf(), SOURCE), WORKSPACE, SOURCE).then(
+			() => null,
+			(e: unknown) => e as DranglerError
+		)) as DranglerError;
+		expect(failure.code).toBe('build-step');
+		expect(failure.message).toContain('published release payload');
+		expect(failure.next).toContain('bun run build:local');
+		expect(failure.retryable).toBe(true);
+		expect((ctx.io as ReturnType<typeof bufferIo>).text()).toBe('');
 	});
 
 	it('says nothing about payloads when a DIFFERENT step fails', async () => {

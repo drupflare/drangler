@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runBuildCommand } from '../../src/commands/workspace';
 import { defaultContext, type Context } from '../../src/context';
-import { EXIT } from '../../src/errors';
+import { DranglerError, EXIT } from '../../src/errors';
 import { nodeFiles } from '../../src/host/files';
 import { bufferIo, type BufferIo } from '../../src/io';
 import { run } from '../../src/run';
@@ -13,6 +13,7 @@ import { planBuild, runPlan, type BuildReport } from '../../src/workspace/build'
 import { isWorkerCheckout, readState, WORKER_PACKAGE } from '../../src/workspace/layout';
 import { resolveSource } from '../../src/workspace/source';
 import { validateWorkspace } from '../../src/workspace/validate';
+import { testGlobals } from '../helpers';
 import { cloneGate, resolvePayload, WORKER_REF, WORKER_SOURCE } from './helpers/clone';
 
 const skip = await cloneGate();
@@ -58,8 +59,7 @@ describe.skipIf(skip)('a live clone of drupflare/worker', () => {
 			workspace,
 			source: WORKER_SOURCE,
 			ref: WORKER_REF,
-			dryRun: true,
-			json: true
+			globals: testGlobals({ dryRun: true, json: true })
 		});
 		const plan = io.json<{ steps: { id: string; run: boolean; command: string }[] }>();
 		expect(plan.steps.filter((s) => s.run).map((s) => s.id)).toEqual([
@@ -212,23 +212,28 @@ describe.skipIf(skip)('a live clone of drupflare/worker', () => {
 		'reports the missing payload by name, and points at the route that needs none',
 		async () => {
 			const io = bufferIo();
-			await expect(
-				runBuildCommand(ctxWith(io), {
-					workspace,
-					source: WORKER_SOURCE,
-					ref: WORKER_REF,
-					payloadOnly: true,
-					json: true
-				})
-			).rejects.toThrow(/hydrate failed/);
+			// the guidance rides the ERROR rather than stdout: `build --json` promises stdout
+			// parses, and two prose lines in front of the object broke `jq` on the one failure a
+			// new user is most likely to hit
+			const failure = (await runBuildCommand(ctxWith(io), {
+				workspace,
+				source: WORKER_SOURCE,
+				ref: WORKER_REF,
+				payloadOnly: true,
+				globals: testGlobals({ json: true })
+			}).then(
+				() => null,
+				(e: unknown) => e as DranglerError
+			)) as DranglerError;
 
-			const said = io.text();
-			expect(said, 'the checkout must name the missing payload').toMatch(
-				/no payload to hydrate from/
+			expect(failure.code).toBe('build-step');
+			expect(failure.message, 'the checkout must name the missing payload').toMatch(
+				/published release payload/
 			);
-			expect(said, 'and must name the route that needs no payload').toContain(
+			expect(failure.next, 'and must name the route that needs no payload').toContain(
 				'bun run build:local'
 			);
+			expect(io.text(), 'and stdout must stay parseable').toBe('');
 			expect(readState(nodeFiles(), workspace).hydrated).toBe(false);
 		},
 		900_000
@@ -242,7 +247,7 @@ describe.skipIf(skip)('a live clone of drupflare/worker', () => {
 				workspace,
 				source: WORKER_SOURCE,
 				ref: WORKER_REF,
-				json: true,
+				globals: testGlobals({ json: true }),
 				// a release is what `hydrate` resolves on its own; a local tarball has to be handed over
 				...(payload?.kind === 'local' ? { from: payload.from } : {})
 			});

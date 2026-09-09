@@ -1,5 +1,6 @@
 import { cloudflareApi } from '../cloudflare/api';
 import { requireAccount, requireToken, resolveAuth } from '../cloudflare/auth';
+import type { GlobalOptions } from '../config/globals';
 import type { Context } from '../context';
 import { DranglerError, UsageError } from '../errors';
 import { emit, kv, table } from '../format';
@@ -27,8 +28,7 @@ export interface UpdateCommandOptions extends WorkspaceOptions {
 	account?: string;
 	/** skip the gate before a deploy; the flag exists so nobody is stuck behind drangler's opinion */
 	skipValidate?: boolean;
-	dryRun?: boolean;
-	json?: boolean;
+	globals: GlobalOptions;
 }
 
 /**
@@ -44,7 +44,7 @@ export async function runUpdateCommand(
 	worker: string | undefined,
 	opts: UpdateCommandOptions
 ): Promise<void> {
-	const location = resolveWorkspace(ctx, opts);
+	const location = resolveWorkspace(ctx, opts, opts.globals.config);
 	const state = readState(ctx.files, location.path);
 	assertUsable(state);
 	const target = resolveUpdateTarget(state, worker);
@@ -64,10 +64,10 @@ export async function runUpdateCommand(
 
 	const before = await headSha(ctx, location.path);
 
-	if (opts.dryRun === true) {
+	if (opts.globals.dryRun) {
 		emit(
 			ctx.io,
-			opts.json === true,
+			opts.globals.json,
 			{
 				mode: target.mode,
 				worker: target.worker,
@@ -136,7 +136,7 @@ export async function runUpdateCommand(
 		moved,
 		deployed
 	};
-	emit(ctx.io, opts.json === true, { ...outcome, steps: stepsOf(refresh, rebuilt) }, () => [
+	emit(ctx.io, opts.globals.json, { ...outcome, steps: stepsOf(refresh, rebuilt) }, () => [
 		...kv([
 			['mode', `${target.mode} (${target.because})`],
 			['workspace', location.path],

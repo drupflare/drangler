@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'node:path';
+import type { ResolvedConfig } from '../config/file';
 import type { Context } from '../context';
 import { UsageError } from '../errors';
 import type { FileHost } from '../host/files';
@@ -15,7 +16,7 @@ export interface WorkspaceOptions {
 }
 
 /** where a workspace came from, so a report never presents an inference as an instruction */
-export type WorkspaceOrigin = 'flag' | 'env' | 'cwd' | 'default';
+export type WorkspaceOrigin = 'flag' | 'env' | 'project' | 'global' | 'cwd' | 'default';
 
 export interface WorkspaceLocation {
 	path: string;
@@ -40,13 +41,22 @@ export function isWorkerCheckout(files: FileHost, dir: string): boolean {
 }
 
 /**
- * Picks the workspace: the flag, then the environment, then the working directory, then the default.
+ * Picks the workspace: the flag, the environment, either config file, the working directory, the
+ * default.
+ *
+ * The first four come from `config`, which already ordered them; `--workspace` is a program-level
+ * flag, so it arrives there rather than in a command's own options. `opts.workspace` is the seam for
+ * a caller holding no resolved config, which is every spec that drives a command directly.
  *
  * The working directory is only taken when it IS a worker checkout, which is what makes
- * `drangler dev` work from inside one without any flag. It sits below the environment variable on
- * purpose -- an explicit setting outranks an inference from where the shell happens to be.
+ * `drangler dev` work from inside one without any flag. It sits below everything explicit on
+ * purpose: a setting somebody wrote down outranks an inference from where the shell happens to be.
  */
-export function resolveWorkspace(ctx: Context, opts: WorkspaceOptions = {}): WorkspaceLocation {
+export function resolveWorkspace(
+	ctx: Context,
+	opts: WorkspaceOptions = {},
+	config?: ResolvedConfig
+): WorkspaceLocation {
 	const at = (path: string, origin: WorkspaceOrigin): WorkspaceLocation => ({
 		path: isAbsolute(path) ? path : resolve(ctx.cwd, path),
 		origin
@@ -55,6 +65,10 @@ export function resolveWorkspace(ctx: Context, opts: WorkspaceOptions = {}): Wor
 		if (opts.workspace.trim() === '')
 			throw new UsageError('--workspace was given an empty value');
 		return at(opts.workspace, 'flag');
+	}
+	const settled = config?.workspace;
+	if (settled?.value != null && settled.origin !== 'default' && settled.origin !== 'unset') {
+		return at(settled.value, settled.origin);
 	}
 	const fromEnv = ctx.env.DRANGLER_WORKSPACE;
 	if (fromEnv !== undefined && fromEnv.trim() !== '') return at(fromEnv, 'env');

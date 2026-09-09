@@ -3,9 +3,9 @@ import { scriptedRunner, type CommandResult } from '../src/host/exec';
 import { memoryFiles } from '../src/host/files';
 import {
 	ceilingVerdict,
-	FREE_CEILING,
-	PAID_CEILING,
-	parseWranglerGzipBytes
+	parseWranglerGzipBytes,
+	parseWranglerTotalBytes,
+	SIZE_CEILING
 } from '../src/workspace/bundle';
 import {
 	ALL_CHECKS,
@@ -33,48 +33,43 @@ const green = (over: Record<string, string> = {}, script: Record<string, Command
 const byId = (checks: ValidationCheck[], id: CheckId): ValidationCheck =>
 	checks.find((c) => c.id === id)!;
 
-describe('parseWranglerGzipBytes', () => {
-	it('converts KiB, which is what wrangler prints and the ceiling is not', () => {
-		expect(parseWranglerGzipBytes('Total Upload: 11000.00 KiB / gzip: 2818.80 KiB')).toBe(
-			2_886_451
-		);
+describe('parsing wranglers printed figures', () => {
+	const LINE = 'Total Upload: 11000.00 KiB / gzip: 2818.80 KiB';
+
+	it('reads the two figures apart, and the ceiling is checked on the first', () => {
+		expect(parseWranglerTotalBytes(LINE)).toBe(11_264_000);
+		expect(parseWranglerGzipBytes(LINE)).toBe(2_886_451);
 	});
 
 	it('converts MiB and bare bytes too', () => {
-		expect(parseWranglerGzipBytes('gzip: 3.50 MiB')).toBe(3_670_016);
+		expect(parseWranglerTotalBytes('Total Upload: 3.50 MiB')).toBe(3_670_016);
 		expect(parseWranglerGzipBytes('gzip: 900 B')).toBe(900);
 	});
 
 	it('returns undefined when the line is absent, which means the run failed', () => {
+		expect(parseWranglerTotalBytes('Error: no such config')).toBeUndefined();
 		expect(parseWranglerGzipBytes('Error: no such config')).toBeUndefined();
 	});
 });
 
 describe('ceilingVerdict', () => {
-	it('reports headroom against both ceilings', () => {
-		expect(ceilingVerdict(2_885_427)).toEqual({
-			bytes: 2_885_427,
-			fitsFree: true,
-			fitsPaid: true,
-			freeHeadroom: 260_301,
-			paidHeadroom: PAID_CEILING - 2_885_427
+	it('is one ceiling now: 64 MiB uncompressed, the same on free and paid', () => {
+		expect(SIZE_CEILING).toBe(67_108_864);
+		expect(ceilingVerdict(13_597_829)).toEqual({
+			bytes: 13_597_829,
+			fits: true,
+			headroom: 53_511_035
 		});
 	});
 
 	it('treats the ceiling itself as fitting, and one byte over as not', () => {
-		expect(ceilingVerdict(FREE_CEILING)).toMatchObject({ fitsFree: true, freeHeadroom: 0 });
-		expect(ceilingVerdict(FREE_CEILING + 1)).toMatchObject({
-			fitsFree: false,
-			freeHeadroom: -1
-		});
+		expect(ceilingVerdict(SIZE_CEILING)).toMatchObject({ fits: true, headroom: 0 });
+		expect(ceilingVerdict(SIZE_CEILING + 1)).toMatchObject({ fits: false, headroom: -1 });
 	});
 
-	it('reports the default seam overshoot as over free and under paid', () => {
-		expect(ceilingVerdict(3_856_138)).toMatchObject({
-			fitsFree: false,
-			fitsPaid: true,
-			freeHeadroom: -710_410
-		});
+	// the regression: this gzip figure failed the old 3,145,728 ceiling and the bundle deploys
+	it('passes a bundle whose gzip figure exceeded the ceiling Cloudflare deleted', () => {
+		expect(ceilingVerdict(4_086_579).fits).toBe(true);
 	});
 });
 
@@ -116,14 +111,14 @@ describe('validateWorkspace', () => {
 	it('names each missing artifact with the command that produces it', async () => {
 		const tree = workerTree();
 		delete tree[`${WORKSPACE}/assets/driver.json`];
-		delete tree[`${WORKSPACE}/.interp/zstddec.wasm`];
+		delete tree[`${WORKSPACE}/.interp/php8.5.wasm`];
 		const ctx = testContext({ files: memoryFiles(tree), runner: runner() });
 
 		const report = await validateWorkspace(ctx, WORKSPACE, { only: ['artifacts'] });
 		const check = byId(report.checks, 'artifacts');
 		expect(check.ok).toBe(false);
 		expect(check.detail).toContain('assets/driver.json <- bun run assets:driver');
-		expect(check.detail).toContain('.interp/zstddec.wasm <- bun run build:wasm');
+		expect(check.detail).toContain('.interp/php8.5.wasm <- bun run build:wasm');
 		expect(check.fix).toBe(`cd ${WORKSPACE} && bun run hydrate`);
 	});
 
@@ -224,23 +219,39 @@ describe('validateWorkspace', () => {
 		expect(absent.skipped).toEqual(['scrub']);
 	});
 
-	it('prices the bundle from wranglers own printed figure', async () => {
+	it('prices the bundle on the uncompressed figure and prints the gzipped one', async () => {
 		const report = await validateWorkspace(green(), WORKSPACE, { only: ['bundle'] });
 		const check = byId(report.checks, 'bundle');
 		expect(check).toMatchObject({ ran: true, ok: true });
-		expect(check.detail).toContain('2,886,451 gzipped bytes against 3,145,728');
+		expect(check.detail).toContain('11,264,000 uncompressed bytes against 67,108,864');
+		expect(check.detail).toContain('2,886,451 gzipped, which no limit is checked on');
 	});
 
-	it('fails a bundle over the free ceiling and says by how much', async () => {
+	/**
+	 * The gate that failed a bundle which uploads.
+	 *
+	 * `drupflare/worker` ships 3,990.8 KiB gzipped, so scoring the gzipped figure against the old
+	 * 3,145,728 ceiling refused every deploy and every update. `GATES.dev` omits `bundle`, which is
+	 * why nothing noticed.
+	 */
+	it('passes the shipping bundle, whose gzip figure exceeds the deleted ceiling', async () => {
 		const report = await validateWorkspace(
-			green({}, { [DRY_RUN]: ok('gzip: 3765.76 KiB') }),
+			green({}, { [DRY_RUN]: ok('Total Upload: 13279.13 KiB / gzip: 3990.80 KiB') }),
+			WORKSPACE,
+			{ only: ['bundle'] }
+		);
+		expect(byId(report.checks, 'bundle')).toMatchObject({ ran: true, ok: true });
+	});
+
+	it('fails a bundle over the size limit and says by how much', async () => {
+		const report = await validateWorkspace(
+			green({}, { [DRY_RUN]: ok('Total Upload: 70.00 MiB / gzip: 20000.00 KiB') }),
 			WORKSPACE,
 			{ only: ['bundle'] }
 		);
 		const check = byId(report.checks, 'bundle');
 		expect(check).toMatchObject({ ran: true, ok: false });
-		expect(check.title).toContain('OVER the free ceiling');
-		expect(check.detail).toContain('it fits the paid ceiling');
+		expect(check.title).toContain('OVER the Worker size limit');
 	});
 
 	it('reads a dry run that printed no figure as a check that could not be made', async () => {
@@ -253,9 +264,19 @@ describe('validateWorkspace', () => {
 		expect(byId(report.checks, 'bundle').detail).toContain('php-binary');
 	});
 
-	it('reads the gzip figure off stderr as well as stdout', async () => {
+	// a gzip line on its own prices nothing now, so this must read as could-not-run
+	it('refuses to price a run that printed only the gzip figure', async () => {
 		const report = await validateWorkspace(
 			green({}, { [DRY_RUN]: { code: 0, stdout: '', stderr: 'gzip: 2818.80 KiB' } }),
+			WORKSPACE,
+			{ only: ['bundle'] }
+		);
+		expect(byId(report.checks, 'bundle')).toMatchObject({ ran: false, ok: false });
+	});
+
+	it('reads the Total Upload figure off stderr as well as stdout', async () => {
+		const report = await validateWorkspace(
+			green({}, { [DRY_RUN]: { code: 0, stdout: '', stderr: 'Total Upload: 11000.00 KiB' } }),
 			WORKSPACE,
 			{ only: ['bundle'] }
 		);

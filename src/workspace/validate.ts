@@ -1,7 +1,12 @@
 import { checkConfig, parseWranglerConfig } from '../cloudflare/config';
 import type { Context } from '../context';
 import { HYDRATE_COMMAND, inWorkspace, missingArtifacts } from './artifacts';
-import { ceilingVerdict, FREE_CEILING, parseWranglerGzipBytes } from './bundle';
+import {
+	ceilingVerdict,
+	parseWranglerGzipBytes,
+	parseWranglerTotalBytes,
+	SIZE_CEILING
+} from './bundle';
 import { isWorkerCheckout, readState, WORKER_PACKAGE } from './layout';
 
 export type CheckId = 'workspace' | 'artifacts' | 'config' | 'scrub' | 'bundle';
@@ -27,7 +32,7 @@ export interface ValidationCheck {
  * Which checks each command insists on before it will do its work.
  *
  * `dev` and `deploy` differ on two, and the difference is what each one actually risks.
- * `wrangler dev` bundles locally and never uploads, so the 3 MiB ceiling does not apply to it and a
+ * `wrangler dev` bundles locally and never uploads, so the size ceiling does not apply to it and a
  * seeded credential in the pack is not published by it. `wrangler deploy` does both.
  */
 export const GATES: Record<'dev' | 'deploy', readonly CheckId[]> = {
@@ -67,10 +72,10 @@ export const DEFAULT_CONFIG = 'wrangler.jsonc';
 /**
  * Everything that has to hold before a workspace can be run or deployed.
  *
- * The set is deliberately small and every member is a failure `drupflare/worker` has actually
- * shipped: a checkout with no generated tree, a config whose interpreter alias resolves to the
- * fallback binary at 710,410 bytes over the ceiling, and a per-file pack still carrying the
- * `hash_salt` that Workers assets serve publicly.
+ * The set is small and every member is a failure `drupflare/worker` has actually shipped: a checkout
+ * with no generated tree, a config whose interpreter alias resolves to the fallback binary instead
+ * of the one the checkout built, and a per-file pack still carrying the `hash_salt` that Workers
+ * assets serve publicly.
  */
 export async function validateWorkspace(
 	ctx: Context,
@@ -249,6 +254,12 @@ async function checkScrub(ctx: Context, workspace: string): Promise<ValidationCh
 /**
  * Prices the bundle by dry-running the real config, which needs no Cloudflare credential.
  *
+ * **Scored on wrangler's `Total Upload` line.** Cloudflare removed the compressed limit on
+ * 2026-09-04 and the limit is 64 MiB uncompressed on both plans, so scoring the gzipped figure
+ * against the old 3 MiB ceiling failed a bundle that uploads. The gzipped figure is still printed
+ * because every historical measurement in `drupflare/worker` is expressed in it; nothing compares
+ * it against anything.
+ *
  * The figure is wrangler's own printed one. A local gzip over the outdir moves with concatenation
  * order and zlib version, and `drupflare/worker` measured that instrument disagreeing with the meter
  * that binds by tens of kilobytes in both directions.
@@ -268,7 +279,9 @@ async function checkBundle(
 		['wrangler', 'deploy', '-c', config, '--dry-run', '--outdir', outdir],
 		{ cwd: workspace, timeoutMs: 15 * 60_000 }
 	);
-	const bytes = parseWranglerGzipBytes(`${result.stdout}\n${result.stderr}`);
+	const output = `${result.stdout}\n${result.stderr}`;
+	const bytes = parseWranglerTotalBytes(output);
+	const gzip = parseWranglerGzipBytes(output);
 	if (bytes === undefined) {
 		return {
 			id: 'bundle',
@@ -276,7 +289,7 @@ async function checkBundle(
 			ok: false,
 			title: 'the bundle could not be priced',
 			detail:
-				`wrangler deploy --dry-run exited ${result.code} and printed no gzip figure:\n` +
+				`wrangler deploy --dry-run exited ${result.code} and printed no Total Upload figure:\n` +
 				`${(result.stderr || result.stdout).trim().slice(0, 600)}`,
 			fix: `cd ${workspace} && bunx wrangler deploy -c ${config} --dry-run`
 		};
@@ -285,14 +298,16 @@ async function checkBundle(
 	return {
 		id: 'bundle',
 		ran: true,
-		ok: verdict.fitsFree,
-		title: verdict.fitsFree
-			? `bundle fits the free ceiling, ${verdict.freeHeadroom.toLocaleString('en-US')} bytes under`
-			: `bundle is ${(-verdict.freeHeadroom).toLocaleString('en-US')} bytes OVER the free ceiling`,
+		ok: verdict.fits,
+		title: verdict.fits
+			? `bundle fits the Worker size limit, ${verdict.headroom.toLocaleString('en-US')} bytes under`
+			: `bundle is ${(-verdict.headroom).toLocaleString('en-US')} bytes OVER the Worker size limit`,
 		detail:
-			`${bytes.toLocaleString('en-US')} gzipped bytes against ` +
-			`${FREE_CEILING.toLocaleString('en-US')}, as printed by wrangler` +
-			(verdict.fitsFree ? '' : verdict.fitsPaid ? '; it fits the paid ceiling' : ''),
-		fix: verdict.fitsFree ? null : `drangler config check ${inWorkspace(workspace, config)}`
+			`${bytes.toLocaleString('en-US')} uncompressed bytes against ` +
+			`${SIZE_CEILING.toLocaleString('en-US')}, as printed by wrangler` +
+			(gzip === undefined
+				? ''
+				: `; ${gzip.toLocaleString('en-US')} gzipped, which no limit is checked on`),
+		fix: verdict.fits ? null : `drangler config check ${inWorkspace(workspace, config)}`
 	};
 }

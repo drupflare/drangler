@@ -41,7 +41,7 @@ function ctxFor(
 		'bun install': produce((p) => p.startsWith('node_modules/')),
 		'bun run hydrate': produce((p) => p.startsWith('assets/') || p.startsWith('.interp/')),
 		[SCRUB]: ok('clean'),
-		[DRY_RUN]: ok('gzip: 2818.80 KiB'),
+		[DRY_RUN]: ok('Total Upload: 11000.00 KiB / gzip: 2818.80 KiB'),
 		'bunx wrangler dev -c wrangler.jsonc': ok(''),
 		'bunx wrangler deploy -c wrangler.jsonc': ok(''),
 		...script
@@ -265,11 +265,22 @@ describe('drangler deploy', () => {
 		expect(ctx.io.stderr.join('\n')).toContain('served publicly');
 	});
 
-	it('refuses to deploy a bundle over the free ceiling', async () => {
-		const ctx = ctxFor(workerTree(), { [DRY_RUN]: ok('gzip: 3765.76 KiB') });
+	it('refuses to deploy a bundle over the Worker size limit', async () => {
+		const ctx = ctxFor(workerTree(), {
+			[DRY_RUN]: ok('Total Upload: 70.00 MiB / gzip: 20000.00 KiB')
+		});
 		expect(await run(ctx, ['deploy'])).toBe(EXIT.FINDING);
-		expect(ctx.io.stderr.join('\n')).toContain('OVER the free ceiling');
+		expect(ctx.io.stderr.join('\n')).toContain('OVER the Worker size limit');
 		expect(lines(ctx.runner)).not.toContain('bunx wrangler deploy -c wrangler.jsonc');
+	});
+
+	// the gate that refused the shipping bundle: 3,990.8 KiB gzipped against a ceiling that is gone
+	it('deploys a bundle whose gzip figure exceeds the ceiling Cloudflare deleted', async () => {
+		const ctx = ctxFor(workerTree(), {
+			[DRY_RUN]: ok('Total Upload: 13279.13 KiB / gzip: 3990.80 KiB')
+		});
+		expect(await run(ctx, ['deploy'])).toBe(EXIT.OK);
+		expect(lines(ctx.runner)).toContain('bunx wrangler deploy -c wrangler.jsonc');
 	});
 
 	it('deploys whichever config it is pointed at', async () => {
@@ -280,7 +291,7 @@ describe('drangler deploy', () => {
 			{
 				'bun run assets:scrub:check': ok('clean'),
 				[`bunx wrangler deploy -c wrangler.paid.jsonc --dry-run --outdir ${WORKSPACE}/dist/dry-run`]:
-					ok('gzip: 2818.80 KiB'),
+					ok('Total Upload: 11000.00 KiB / gzip: 2818.80 KiB'),
 				'bunx wrangler deploy -c wrangler.paid.jsonc': ok('')
 			}
 		);
@@ -413,5 +424,126 @@ describe('drangler migrate restore', () => {
 		const ctx = ctxFor(workerTree());
 		expect(await run(ctx, ['migrate', 'restore', '--backup', WORKSPACE])).toBe(EXIT.USAGE);
 		expect(ctx.io.stderr.join('\n')).toContain(BACKUP_MANIFEST);
+	});
+});
+
+/**
+ * Mounting a local module project into the dev site.
+ *
+ * One command rather than two: `dev` already clones the worker, hydrates 22 MB of packs and hands
+ * the terminal to wrangler, and mounting a module needs all of that first. Two commands would mean
+ * two workspaces, two hydrates and two wrangler processes on one port.
+ */
+describe('drangler dev --modify', () => {
+	const MODULE = '/work/mantle2';
+
+	const moduleTree = (): Record<string, string> => ({
+		[`${MODULE}/mantle2.info.yml`]: 'name: mantle2\ntype: module\n',
+		[`${MODULE}/mantle2.module`]: '<?php\n'
+	});
+
+	/** a dev site that answers `/firstrun` and the three `/modify` actions an upload drives */
+	function devSite(): { fetch: typeof globalThis.fetch; calls: string[] } {
+		const calls: string[] = [];
+		const json = (body: unknown) =>
+			new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+		const fn = async (input: unknown, init: RequestInit = {}): Promise<Response> => {
+			const url = new URL(String(input));
+			calls.push(`${String(init.method ?? 'GET')} ${url.pathname}${url.search}`);
+			if (url.pathname === '/firstrun') {
+				return init.method === 'POST'
+					? json({ ok: true, ownerToken: 'dev-token' })
+					: json({ ok: true, configured: false });
+			}
+			const action = url.searchParams.get('action');
+			if (action === 'plan') return json({ ok: true, have: [], want: [], counts: {} });
+			if (action === 'blobs') return json({ ok: true, stored: 0, skipped: 0, bytes: 0 });
+			return json({ ok: true, rev: 'a'.repeat(64), applied: true, rolledBack: false });
+		};
+		return { fetch: fn as unknown as typeof globalThis.fetch, calls };
+	}
+
+	/**
+	 * A runner whose `spawn` stays up for a moment, the way a real `wrangler dev` does.
+	 *
+	 * The mount runs ALONGSIDE the server rather than before it, so a spawn that returns instantly
+	 * would stop the mount before it reached its first request and the spec would assert nothing.
+	 */
+	function slowSpawn(inner: ScriptedRunner): ScriptedRunner {
+		return Object.assign(Object.create(inner) as ScriptedRunner, {
+			calls: inner.calls,
+			run: inner.run,
+			spawn: async (file: string, args: readonly string[], opts?: { cwd?: string }) => {
+				const code = await inner.spawn(file, args, opts);
+				await new Promise((resolve) => setTimeout(resolve, 25));
+				return code;
+			}
+		});
+	}
+
+	it('builds, gates and runs wrangler in that order, with the mount alongside', async () => {
+		const site = devSite();
+		const ctx = ctxFor({ ...workerTree(), ...moduleTree() });
+		Object.assign(ctx, { fetch: site.fetch, runner: slowSpawn(ctx.runner) });
+		expect(await run(ctx, ['dev', '--modify', MODULE, '--interval', '0'])).toBe(EXIT.OK);
+		expect(lines(ctx.runner)).toEqual(['bunx wrangler dev -c wrangler.jsonc']);
+		expect(site.calls[0]).toBe('GET /firstrun?site=dev');
+		expect(site.calls).toContain('POST /firstrun?site=dev');
+		expect(site.calls.join(' ')).toContain('action=commit&package=mantle2');
+	});
+
+	// refused while there is still a terminal to read the refusal on
+	it('refuses a directory that is no module project before wrangler takes the terminal', async () => {
+		const ctx = ctxFor(workerTree());
+		expect(await run(ctx, ['dev', '--modify', '/work/nothing'])).toBe(EXIT.USAGE);
+		expect(lines(ctx.runner)).toEqual([]);
+	});
+
+	it('passes --port through and builds the dev origin from it', async () => {
+		const site = devSite();
+		const ctx = ctxFor(
+			{ ...workerTree(), ...moduleTree() },
+			{
+				'bunx wrangler dev -c wrangler.jsonc --port 8788': ok('')
+			}
+		);
+		Object.assign(ctx, { fetch: site.fetch, runner: slowSpawn(ctx.runner) });
+		expect(
+			await run(ctx, ['dev', '--modify', MODULE, '--port', '8788', '--interval', '0'])
+		).toBe(EXIT.OK);
+		expect(lines(ctx.runner)).toEqual(['bunx wrangler dev -c wrangler.jsonc --port 8788']);
+	});
+
+	it('`modify dev` is the same command with --modify pointed at the working directory', async () => {
+		const site = devSite();
+		const ctx = ctxFor({ ...workerTree(), ...moduleTree() });
+		Object.assign(ctx, {
+			fetch: site.fetch,
+			runner: slowSpawn(ctx.runner),
+			cwd: MODULE
+		});
+		expect(await run(ctx, ['modify', 'dev', '--interval', '0'])).toBe(EXIT.OK);
+		expect(lines(ctx.runner)).toEqual(['bunx wrangler dev -c wrangler.jsonc']);
+		expect(site.calls.join(' ')).toContain('package=mantle2');
+	});
+
+	it('says nothing was mounted when the dev site is already claimed and no token was given', async () => {
+		const site = devSite();
+		const claimed = {
+			...site,
+			fetch: (async (input: unknown, init: RequestInit = {}) => {
+				const url = new URL(String(input));
+				if (url.pathname === '/firstrun' && init.method !== 'POST') {
+					return new Response(JSON.stringify({ ok: true, configured: true }), {
+						headers: { 'content-type': 'application/json' }
+					});
+				}
+				return await site.fetch(input as string, init);
+			}) as unknown as typeof globalThis.fetch
+		};
+		const ctx = ctxFor({ ...workerTree(), ...moduleTree() });
+		Object.assign(ctx, { fetch: claimed.fetch, runner: slowSpawn(ctx.runner) });
+		expect(await run(ctx, ['dev', '--modify', MODULE, '--interval', '0'])).toBe(EXIT.OK);
+		expect(ctx.io.stderr.join('\n')).toContain('already claimed');
 	});
 });

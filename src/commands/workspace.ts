@@ -1,6 +1,10 @@
+import type { GlobalOptions } from '../config/globals';
 import type { Context } from '../context';
 import { DranglerError, FindingError, UsageError } from '../errors';
 import { emit, kv, table } from '../format';
+import { detectProject, packageOf, selectPackageFiles } from '../modify/detect';
+import { declare, manifestRev, uploadPackage } from '../modify/upload';
+import { pause, type OwnerTarget } from '../owner';
 import { planBuild, runPlan, type BuildOptions, type BuildReport } from '../workspace/build';
 import {
 	assertUsable,
@@ -20,8 +24,7 @@ import {
 export interface BuildCommandOptions extends WorkspaceOptions, BuildOptions {
 	source?: string;
 	ref?: string;
-	dryRun?: boolean;
-	json?: boolean;
+	globals: GlobalOptions;
 }
 
 /**
@@ -33,13 +36,13 @@ export interface BuildCommandOptions extends WorkspaceOptions, BuildOptions {
  * running that repository's own scripts inside a clone of it is what keeps there being one copy.
  */
 export async function runBuildCommand(ctx: Context, opts: BuildCommandOptions): Promise<void> {
-	const location = resolveWorkspace(ctx, opts);
+	const location = resolveWorkspace(ctx, opts, opts.globals.config);
 	const source = resolveSource(ctx.env, opts.source, opts.ref);
 	const state = readState(ctx.files, location.path);
 	assertUsable(state);
 
 	const steps = planBuild(state, source, opts);
-	if (opts.dryRun === true) {
+	if (opts.globals.dryRun) {
 		const report = {
 			workspace: location.path,
 			origin: location.origin,
@@ -51,7 +54,7 @@ export async function runBuildCommand(ctx: Context, opts: BuildCommandOptions): 
 				reason: s.reason
 			}))
 		};
-		emit(ctx.io, opts.json === true, report, () => [
+		emit(ctx.io, opts.globals.json, report, () => [
 			`dry run against ${location.path} (${location.origin}); nothing was executed`,
 			'',
 			...renderSteps(report.steps)
@@ -60,7 +63,7 @@ export async function runBuildCommand(ctx: Context, opts: BuildCommandOptions): 
 	}
 
 	const report = await runPlan(ctx, steps, location.path, source);
-	emit(ctx.io, opts.json === true, report, () => renderBuild(report, location.origin));
+	emit(ctx.io, opts.globals.json, report, () => renderBuild(report, location.origin));
 }
 
 function renderSteps(steps: BuildReport['steps']): string[] {
@@ -94,7 +97,7 @@ function renderBuild(report: BuildReport, origin: string): string[] {
 export interface ValidateCommandOptions extends WorkspaceOptions {
 	config?: string;
 	only?: string;
-	json?: boolean;
+	globals: GlobalOptions;
 }
 
 /** the check names `--only` accepts, so a typo is a usage error rather than a silent no-op */
@@ -120,13 +123,13 @@ export async function runValidateCommand(
 	ctx: Context,
 	opts: ValidateCommandOptions
 ): Promise<void> {
-	const location = resolveWorkspace(ctx, opts);
+	const location = resolveWorkspace(ctx, opts, opts.globals.config);
 	const only = parseChecks(opts.only);
 	const report = await validateWorkspace(ctx, location.path, {
 		...(only === undefined ? {} : { only }),
 		...(opts.config === undefined ? {} : { config: opts.config })
 	});
-	emit(ctx.io, opts.json === true, report, () => renderValidation(report));
+	emit(ctx.io, opts.globals.json, report, () => renderValidation(report));
 	throwOnFindings(report);
 }
 
@@ -187,8 +190,25 @@ export interface RunCommandOptions extends WorkspaceOptions {
 	fromSource?: boolean;
 	/** fail when no payload exists, rather than building from source */
 	payloadOnly?: boolean;
-	json?: boolean;
+	/** local module projects to mount into the dev site; repeatable */
+	modify?: string[];
+	/** re-upload on change; on by default when --modify is given */
+	watch?: boolean;
+	/** how long between change polls, in ms */
+	interval?: string | number;
+	/** passed through to wrangler, and used to build the dev site origin */
+	port?: string | number;
+	globals: GlobalOptions;
 }
+
+/** the port `wrangler dev` listens on when nothing says otherwise */
+export const DEV_PORT = 8787;
+
+/** how often a `--watch` mount re-reads the local tree */
+export const DEV_WATCH_INTERVAL_MS = 2_000;
+
+/** the Durable Object identity a local dev site uses */
+export const DEV_SITE = 'dev';
 
 /**
  * Boots a local Drupal, building the workspace first if there is not one.
@@ -229,7 +249,7 @@ async function runWrangler(
 	extra: readonly string[],
 	opts: RunCommandOptions
 ): Promise<void> {
-	const location = resolveWorkspace(ctx, opts);
+	const location = resolveWorkspace(ctx, opts, opts.globals.config);
 	const source = resolveSource(ctx.env, opts.source, opts.ref);
 	const state = readState(ctx.files, location.path);
 	assertUsable(state);
@@ -255,10 +275,159 @@ async function runWrangler(
 	}
 
 	const config = opts.config ?? DEFAULT_CONFIG;
-	const args = ['wrangler', verb, '-c', config, ...extra];
+	const port = opts.port === undefined ? DEV_PORT : Number(opts.port);
+	const args = [
+		'wrangler',
+		verb,
+		'-c',
+		config,
+		...(verb === 'dev' && opts.port !== undefined ? ['--port', String(port)] : []),
+		...extra
+	];
 	ctx.io.out(`${location.path}$ bunx ${args.join(' ')}`);
+
+	// resolved BEFORE the terminal is handed over, so a directory that is not a module project is
+	// refused while there is still something to read the refusal on
+	const projects =
+		verb === 'dev' ? (opts.modify ?? []).map((dir) => detectProject(ctx.files, dir)) : [];
+	const stop = stopper();
+	const mounting =
+		projects.length === 0
+			? null
+			: mountModules(ctx, projects, {
+					origin: `http://localhost:${port}`,
+					watch: opts.watch !== false,
+					intervalMs:
+						opts.interval === undefined ? DEV_WATCH_INTERVAL_MS : Number(opts.interval),
+					timeoutMs: opts.globals.timeoutMs,
+					token: opts.globals.config.token.value,
+					stop
+				}).catch((e: unknown) => {
+					ctx.io.err(`drangler: ${e instanceof Error ? e.message : String(e)}`);
+				});
+
 	const code = await ctx.runner.spawn('bunx', args, { cwd: location.path });
+	stop.stop();
+	if (mounting !== null) await mounting;
 	if (code !== 0) {
 		throw new DranglerError('wrangler', `wrangler ${verb} exited ${code}`);
+	}
+}
+
+interface Stopper {
+	stopped(): boolean;
+	stop(): void;
+	/** resolves the moment `stop()` is called, so a poll can wait without outliving the server */
+	promise: Promise<void>;
+}
+
+function stopper(): Stopper {
+	let stopped = false;
+	let release = (): void => {};
+	const promise = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	return {
+		stopped: () => stopped,
+		stop: () => {
+			stopped = true;
+			release();
+		},
+		promise
+	};
+}
+
+interface MountOptions {
+	origin: string;
+	watch: boolean;
+	intervalMs: number;
+	timeoutMs: number;
+	/** a token for a dev site somebody already claimed; a fresh one is claimed here instead */
+	token: string | null;
+	stop: Stopper;
+}
+
+/**
+ * Mounts local module projects into the dev site, once the server is listening.
+ *
+ * Runs alongside `wrangler dev` rather than before it, because the object it uploads into does not
+ * exist until the server is up. The dev site's owner token is minted here and held in memory for
+ * the life of the process; it is never written to disk, because a local dev credential in a config
+ * file outlives the server it belonged to.
+ *
+ * Watching POLLS the manifest rather than subscribing to the filesystem. A real watcher would be a
+ * sixth seam on `Context` and the poll answers the same question: has the revision this tree would
+ * produce changed.
+ */
+async function mountModules(
+	ctx: Context,
+	projects: readonly ReturnType<typeof detectProject>[],
+	opts: MountOptions
+): Promise<void> {
+	const token = await claimDevSite(ctx, opts);
+	if (token === null) return;
+	const owner: OwnerTarget = {
+		origin: opts.origin,
+		site: DEV_SITE,
+		token,
+		timeoutMs: opts.timeoutMs
+	};
+	const seen = new Map<string, string>();
+
+	for (;;) {
+		for (const project of projects) {
+			if (opts.stop.stopped()) return;
+			const pkg = packageOf(project);
+			const selection = selectPackageFiles(ctx.files, pkg);
+			const rev = await manifestRev(await declare(selection));
+			if (seen.get(pkg.name) === rev) continue;
+			seen.set(pkg.name, rev);
+			const result = await uploadPackage(ctx, owner, pkg, selection, {
+				label: `dev mount from ${project.dir}`,
+				origin: project.dir
+			});
+			ctx.io.err(
+				result.error === null
+					? `mounted ${pkg.name} at ${pkg.mount} (rev ${result.rev?.slice(0, 8) ?? '-'})`
+					: `${pkg.name}: ${result.error}`
+			);
+		}
+		if (!opts.watch || opts.stop.stopped()) return;
+		await Promise.race([pause(opts.intervalMs), opts.stop.promise]);
+		if (opts.stop.stopped()) return;
+	}
+}
+
+/** waits for the port, then claims the dev site, or reports why nothing could be mounted */
+async function claimDevSite(ctx: Context, opts: MountOptions): Promise<string | null> {
+	const url = `${opts.origin}/firstrun?site=${DEV_SITE}`;
+	for (;;) {
+		if (opts.stop.stopped()) return null;
+		try {
+			const reported = await ctx.fetch(url, { signal: AbortSignal.timeout(opts.timeoutMs) });
+			const body = (await reported.json()) as { configured?: boolean };
+			if (body.configured === true) {
+				if (opts.token !== null) return opts.token;
+				ctx.io.err(
+					'the dev site is already claimed and no --token was given, so nothing was mounted'
+				);
+				return null;
+			}
+			const claimed = await ctx.fetch(url, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ siteName: 'drangler dev' }),
+				signal: AbortSignal.timeout(opts.timeoutMs)
+			});
+			const minted = (await claimed.json()) as { ownerToken?: string };
+			if (typeof minted.ownerToken === 'string' && minted.ownerToken !== '') {
+				return minted.ownerToken;
+			}
+			ctx.io.err('the dev site did not return an owner token, so nothing was mounted');
+			return null;
+		} catch {
+			// the server is not listening yet, which is the normal case for the first few ticks
+			await Promise.race([pause(opts.intervalMs), opts.stop.promise]);
+		}
 	}
 }

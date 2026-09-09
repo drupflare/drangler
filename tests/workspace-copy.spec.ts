@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { runInstallCommand } from '../src/commands/migrate';
 import { DranglerError, UsageError } from '../src/errors';
+import { scriptedRunner } from '../src/host/exec';
 import { memoryFiles, type FileHost } from '../src/host/files';
 import {
 	applyCopy,
@@ -10,7 +12,7 @@ import {
 	restoreBackup,
 	type BackupManifest
 } from '../src/workspace/copy';
-import { WORKSPACE } from './helpers';
+import { testContext, testGlobals, workerTree, WORKSPACE } from './helpers';
 
 const NOW = new Date('2026-08-15T03:15:00.000Z');
 const DB = `${WORKSPACE}/assets/drupal/site.sqlite`;
@@ -255,5 +257,82 @@ describe('restoreBackup', () => {
 			[`/b/${BACKUP_MANIFEST}`]: JSON.stringify({ version: 1, takenAt: '', entries: [] })
 		});
 		expect(restoreBackup(files, '/b')).toEqual([]);
+	});
+});
+
+/**
+ * A SECOND backup over the first is the one that loses the original.
+ *
+ * A re-run after a partial install would copy what the first run already wrote, so the set that can
+ * put the site back is the one from the first run and nothing else. The checkpoint is what remembers
+ * which that was.
+ */
+describe('migrate install --resume', () => {
+	const DB = `${WORKSPACE}/assets/drupal/site.sqlite`;
+	const CHECKPOINT = '.drangler/migration.json';
+
+	const ctxWith = (files: ReturnType<typeof memoryFiles>) =>
+		testContext({ files, runner: scriptedRunner({}), cwd: WORKSPACE });
+
+	it('records the backup set it took', async () => {
+		const files = memoryFiles({ ...workerTree(), '/in/site.sqlite': 'NEW', [DB]: 'OLD' });
+		const ctx = ctxWith(files);
+		await runInstallCommand(ctx, {
+			db: '/in/site.sqlite',
+			workspace: WORKSPACE,
+			globals: testGlobals({}, ctx)
+		});
+		const phase = JSON.parse(files.readText(CHECKPOINT)).phases.install as {
+			state: string;
+			backupDir: string;
+		};
+		expect(phase.state).toBe('done');
+		expect(phase.backupDir).toContain('.drangler-backup/');
+	});
+
+	it('refuses a second install over that set, naming the restore command', async () => {
+		const files = memoryFiles({ ...workerTree(), '/in/site.sqlite': 'NEW', [DB]: 'OLD' });
+		const first = ctxWith(files);
+		await runInstallCommand(first, {
+			db: '/in/site.sqlite',
+			workspace: WORKSPACE,
+			globals: testGlobals({}, first)
+		});
+
+		files.writeText('/in/site.sqlite', 'NEWER');
+		const second = ctxWith(files);
+		const failure = (await runInstallCommand(second, {
+			db: '/in/site.sqlite',
+			workspace: WORKSPACE,
+			globals: testGlobals({}, second)
+		}).then(
+			() => null,
+			(e: unknown) => e as UsageError
+		)) as UsageError;
+		expect(failure.message).toContain('already holds a backup set');
+		expect(failure.next).toContain('migrate restore --backup');
+	});
+
+	it('reports the existing set under --resume rather than refusing', async () => {
+		const files = memoryFiles({ ...workerTree(), '/in/site.sqlite': 'NEW', [DB]: 'OLD' });
+		const first = ctxWith(files);
+		await runInstallCommand(first, {
+			db: '/in/site.sqlite',
+			workspace: WORKSPACE,
+			globals: testGlobals({}, first)
+		});
+		const taken = JSON.parse(files.readText(CHECKPOINT)).phases.install.backupDir as string;
+
+		files.writeText('/in/site.sqlite', 'NEWER');
+		const second = ctxWith(files);
+		await runInstallCommand(second, {
+			db: '/in/site.sqlite',
+			workspace: WORKSPACE,
+			resume: true,
+			globals: testGlobals({}, second)
+		});
+		expect(second.io.stderr.join('\n')).toContain(taken);
+		// the recorded set is still the FIRST one, which is the only one that can undo the install
+		expect(JSON.parse(files.readText(CHECKPOINT)).phases.install.backupDir).toBe(taken);
 	});
 });
