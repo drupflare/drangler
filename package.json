@@ -7,7 +7,7 @@
 	"main": "./src/index.ts",
 	"types": "./src/index.ts",
 	"bin": {
-		"drangler": "./src/cli.ts"
+		"drangler": "./dist/cli.js"
 	},
 	"exports": {
 		".": "./src/index.ts",
@@ -19,6 +19,7 @@
 	},
 	"sideEffects": false,
 	"files": [
+		"dist",
 		"src",
 		"LICENSE",
 		"README.md"
@@ -34,7 +35,9 @@
 		"test:e2e:clone": "vitest run --project=e2e tests/e2e/workspace-clone.spec.ts",
 		"e2e:up": "bun tests/e2e/stack.ts up",
 		"e2e:down": "bun tests/e2e/stack.ts down",
+		"build:dist": "bun build src/cli.ts --target=node --outdir dist --format=esm --packages=external",
 		"build:binary": "bun build --compile --minify --outfile dist/drangler src/cli.ts",
+		"prepublishOnly": "bun run build:dist",
 		"prettier": "prettier --write .",
 		"prettier:check": "prettier --check .",
 		"prepare": "husky",

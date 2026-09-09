@@ -1,3 +1,5 @@
+import { resolveConfig, type ConfigDiscovery } from '../src/config/file';
+import { DEFAULT_TIMEOUT_MS, type GlobalOptions } from '../src/config/globals';
 import type { Context } from '../src/context';
 import type { FetchLike } from '../src/health/probe';
 import { scriptedRunner, type CommandResult } from '../src/host/exec';
@@ -15,11 +17,36 @@ export function testContext(over: Partial<Context> = {}): TestContext {
 		files: memoryFiles(),
 		runner: scriptedRunner({}),
 		fetch: fakeFetch(() => new Response('', { status: 200 })),
+		// no terminal by default, so a spec that reaches a prompt fails the way a pipe does
+		ask: async () => null,
 		env: {},
 		cwd: '/ws/worker',
 		now: () => new Date('2026-08-14T00:00:00.000Z'),
 		...over
 	} as TestContext;
+}
+
+/**
+ * The inherited flags, resolved, so a spec calling a command directly does not assemble them.
+ *
+ * The config comes from whichever context is passed, so a spec seeding a `drangler.json` in
+ * `memoryFiles` gets it resolved here the same way the parser would.
+ */
+export function testGlobals(
+	over: Partial<GlobalOptions> = {},
+	ctx: Context = testContext(),
+	discovery: ConfigDiscovery = {}
+): GlobalOptions {
+	return {
+		json: false,
+		quiet: false,
+		verbose: false,
+		yes: false,
+		dryRun: false,
+		timeoutMs: DEFAULT_TIMEOUT_MS,
+		config: resolveConfig(ctx, discovery),
+		...over
+	};
 }
 
 /** Wraps a handler as a `fetch`, recording every URL it was asked for. */
@@ -52,15 +79,22 @@ export const WORKER_CONFIG = JSON.stringify({
 	migrations: [{ tag: 'v1', new_sqlite_classes: ['SitePhpDurableObject'] }],
 	assets: { directory: './assets', binding: 'ASSETS' },
 	triggers: { crons: ['*/5 * * * *'] },
-	alias: { './runtime/php-binary.js': './src/runtime/php-binary-85.ts' }
+	alias: { './runtime/php-binary.js': './src/runtime/php-binary-raw.ts' }
 });
 
-/** the shipping binary seam, whose `from` specifiers are what names the interpreter files */
+/** the path the alias above points at, which is what the artifact checks read the seam from */
+export const WORKER_SEAM_PATH = 'src/runtime/php-binary-raw.ts';
+
+/**
+ * The shipping binary seam, whose `from` specifiers are what names the interpreter files.
+ *
+ * A raw `CompiledWasm` import of the whole binary. The zstd frame and its decoder went when
+ * Cloudflare removed the compressed bundle limit on 2026-09-04, so a fixture carrying them models
+ * a seam nothing deploys.
+ */
 export const WORKER_SEAM = [
-	"import { wasmModuleFromZstd, zstdDecoderFromWasm } from '@drupflare/cartridge/inflate';",
-	"import PHPFactory from '../../.interp/php8.5-worker.mjs';",
-	"import blob from '../../.interp/php8.5.wasm.zst';",
-	"import decoder from '../../.interp/zstddec.wasm';"
+	"import PHPFactory from '../../.interp/php8.5-worker.tuned.mjs';",
+	"import wasmModule from '../../.interp/php8.5.wasm';"
 ].join('\n');
 
 /**
@@ -76,7 +110,7 @@ export function workerTree(over: Record<string, string> = {}): Record<string, st
 		[`${WORKSPACE}/.git/HEAD`]: 'ref: refs/heads/master',
 		[`${WORKSPACE}/node_modules/.bin/wrangler`]: '#!/bin/sh',
 		[`${WORKSPACE}/wrangler.jsonc`]: WORKER_CONFIG,
-		[`${WORKSPACE}/src/runtime/php-binary-85.ts`]: WORKER_SEAM,
+		[`${WORKSPACE}/${WORKER_SEAM_PATH}`]: WORKER_SEAM,
 		[`${WORKSPACE}/assets/driver.json`]: '{}',
 		[`${WORKSPACE}/assets/prefill.json`]: '{}',
 		[`${WORKSPACE}/assets/core/misc/drupal.js`]: 'asset',
@@ -85,9 +119,8 @@ export function workerTree(over: Record<string, string> = {}): Record<string, st
 		[`${WORKSPACE}/assets/drupal-pf/core.pf.bin`]: 'packed',
 		[`${WORKSPACE}/assets/drupal-sql/manifest.json`]: '{"chunks":79}',
 		[`${WORKSPACE}/assets/drupal/twig-bake.json`]: '{}',
-		[`${WORKSPACE}/.interp/php8.5-worker.mjs`]: 'glue',
-		[`${WORKSPACE}/.interp/php8.5.wasm.zst`]: 'frame',
-		[`${WORKSPACE}/.interp/zstddec.wasm`]: 'decoder',
+		[`${WORKSPACE}/.interp/php8.5-worker.tuned.mjs`]: 'glue',
+		[`${WORKSPACE}/.interp/php8.5.wasm`]: 'binary',
 		...over
 	};
 }

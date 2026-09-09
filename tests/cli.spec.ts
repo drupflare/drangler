@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { EXIT } from '../src/errors';
 import { scriptedRunner } from '../src/host/exec';
@@ -7,7 +10,7 @@ import { run } from '../src/run';
 import { fakeFetch, ok, testContext } from './helpers';
 
 const HELP_PATHS = [
-	[],
+	['init'],
 	['status'],
 	['doctor'],
 	['build'],
@@ -15,8 +18,12 @@ const HELP_PATHS = [
 	['dev'],
 	['deploy'],
 	['health'],
+	['reconcile'],
+	['sweep'],
 	['config'],
 	['config', 'check'],
+	['config', 'levers'],
+	['config', 'where'],
 	['cf'],
 	['cf', 'whoami'],
 	['cf', 'workers'],
@@ -45,12 +52,57 @@ describe('help', () => {
 		expect(ctx.io.text()).toBe(VERSION);
 	});
 
+	it('renders the root help too, which the bare invocation no longer reaches', async () => {
+		const ctx = testContext();
+		expect(await run(ctx, ['--help'])).toBe(EXIT.OK);
+		expect(ctx.io.text()).toContain('Usage: drangler ');
+	});
+
+	// the description undercounted: `update` writes too, and the README already said five
 	it('names every command that writes, rather than claiming to be read-only', () => {
 		const description = buildProgram(testContext()).description();
 		expect(description).toContain('Read-only apart from');
-		for (const writer of ['build', 'dev', 'deploy', 'migrate install']) {
+		for (const writer of ['build', 'dev', 'deploy', 'update', 'migrate install']) {
 			expect(description).toContain(writer);
 		}
+	});
+});
+
+/**
+ * `npm i -g @drupflare/drangler` installed a binary that could not run.
+ *
+ * `bin` pointed at `src/cli.ts` under a `#!/usr/bin/env bun` shebang, so on a machine with node and
+ * no bun the installed command was a TypeScript file node refused with a confusing error. The bin is
+ * a built `dist/cli.js` now, produced by `prepublishOnly`.
+ */
+describe('the published entrypoint', () => {
+	const pkg = JSON.parse(
+		readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')
+	) as {
+		bin: Record<string, string>;
+		files: string[];
+		scripts: Record<string, string>;
+	};
+
+	it('points bin at the built entrypoint, and ships it', () => {
+		expect(pkg.bin['drangler']).toBe('./dist/cli.js');
+		expect(pkg.files).toContain('dist');
+		// `exports` still points into src for library consumers
+		expect(pkg.files).toContain('src');
+	});
+
+	it('builds that entrypoint before publishing, targeting node', () => {
+		expect(pkg.scripts['build:dist']).toContain('--target=node');
+		expect(pkg.scripts['prepublishOnly']).toContain('build:dist');
+	});
+
+	// bun copies the entry shebang into the bundle, so the source carries the one dist needs
+	it('carries a node shebang, not a bun one', () => {
+		const source = readFileSync(
+			resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cli.ts'),
+			'utf8'
+		);
+		expect(source.split('\n')[0]).toBe('#!/usr/bin/env node');
 	});
 });
 
@@ -93,7 +145,37 @@ describe('exit codes', () => {
 		expect(ctx.io.stderr.join('\n')).toContain('ECONNREFUSED');
 	});
 
-	it('returns 1 and prints a stack for an unexpected throw', async () => {
+	/**
+	 * A stack is for whoever fixes drangler, and a user is not that person.
+	 *
+	 * Anything that is not a `DranglerError` is a bug here, so it becomes `internal` with the
+	 * message and a way to ask for the rest. Printing the stack by default was the default path for
+	 * EVERY such exception.
+	 */
+	it('returns 1 with the message and no stack for an unexpected throw', async () => {
+		const bang = () =>
+			testContext({
+				files: {
+					...memoryFiles({}),
+					exists: () => {
+						throw new TypeError('bang');
+					}
+				}
+			});
+		const ctx = bang();
+		expect(await run(ctx, ['config', 'check', '/w.jsonc'])).toBe(EXIT.FAILED);
+		const said = ctx.io.stderr.join('\n');
+		expect(said).toContain('bang');
+		expect(said).toContain('re-run with --verbose');
+		expect(said).not.toContain('at Object.exists');
+
+		const verbose = bang();
+		expect(await run(verbose, ['config', 'check', '/w.jsonc', '--verbose'])).toBe(EXIT.FAILED);
+		expect(verbose.io.stderr.join('\n')).toContain('TypeError');
+	});
+
+	// a CI step should not have to branch on the exit code before it can parse stdout
+	it('prints the error object on stdout under --json, on the failure path', async () => {
 		const ctx = testContext({
 			files: {
 				...memoryFiles({}),
@@ -102,8 +184,19 @@ describe('exit codes', () => {
 				}
 			}
 		});
-		expect(await run(ctx, ['config', 'check', '/w.jsonc'])).toBe(EXIT.FAILED);
-		expect(ctx.io.stderr.join('\n')).toContain('TypeError');
+		expect(await run(ctx, ['config', 'check', '/w.jsonc', '--json'])).toBe(EXIT.FAILED);
+		expect(ctx.io.json<{ ok: boolean; error: { code: string; retryable: boolean } }>()).toEqual(
+			{
+				ok: false,
+				error: { code: 'internal', message: 'bang', retryable: false, next: null }
+			}
+		);
+	});
+
+	it('prints the next command when the error carries one', async () => {
+		const ctx = testContext({ files: memoryFiles({}) });
+		expect(await run(ctx, ['site', 'updb', 'https://x.example'])).toBe(EXIT.USAGE);
+		expect(ctx.io.stderr.join('\n')).toContain('site claim');
 	});
 
 	it('returns 0 on a clean run', async () => {
@@ -115,12 +208,21 @@ describe('exit codes', () => {
 });
 
 describe('flag wiring', () => {
+	// `--site` is the origin now; the Durable Object identity it used to mean is `--site-name`
 	it('passes the health flags through to the probe', async () => {
 		const fetch = fakeFetch(
 			() => new Response('', { status: 200, headers: { 'x-cfw-cache': 'HIT' } })
 		);
 		const ctx = testContext({ fetch });
-		await run(ctx, ['health', 'x.dev', '--path', '/node/1', '--site', 'blog', '--skip-edge']);
+		await run(ctx, [
+			'health',
+			'x.dev',
+			'--path',
+			'/node/1',
+			'--site-name',
+			'blog',
+			'--skip-edge'
+		]);
 		expect(fetch.urls[0]).toBe('https://x.dev/serve?path=%2Fnode%2F1&site=blog&edge=0');
 	});
 
@@ -207,18 +309,190 @@ describe('flag wiring', () => {
 	});
 
 	it('runs status through the parser, against a deployed site', async () => {
-		const ctx = testContext({
-			fetch: fakeFetch((url) =>
-				url.includes('/stats')
-					? new Response('not found', { status: 404 })
-					: new Response('<html></html>', {
-							status: 200,
-							headers: { 'x-cfw-cache': 'MISS', 'x-cfw-plan': 'paid', 'x-cfw-v': '1' }
-						})
-			)
-		});
+		const ctx = testContext({ fetch: statusFetch() });
 		expect(await run(ctx, ['status', 'site.example', '--json'])).toBe(EXIT.OK);
-		expect(ctx.io.json<{ plan: string }>().plan).toBe('paid');
+		expect(ctx.io.json<{ accountPlan: string }>().accountPlan).toBe('paid');
+	});
+});
+
+const statusFetch = (headers: Record<string, string> = {}) =>
+	fakeFetch((url) => {
+		if (url.includes('/stats')) return new Response('not found', { status: 404 });
+		if (url.includes('/firstrun')) {
+			return new Response(JSON.stringify({ ok: true, configured: true, firstRunAt: null }));
+		}
+		return new Response('<html></html>', {
+			status: 200,
+			headers: {
+				'x-cfw-cache': 'MISS',
+				'x-cfw-account-plan': 'paid',
+				'x-cfw-v': '2',
+				...headers
+			}
+		});
+	});
+
+/**
+ * The flags every command inherits, declared once on the program.
+ *
+ * The one breaking change is `--site`: it was the Durable Object identity on `status`, `health` and
+ * `migrate export`, and a deployment origin on `migrate plan`. It is always an origin now and the
+ * identity is `--site-name`.
+ */
+describe('global flags', () => {
+	const home = { HOME: '/home/me' };
+
+	it('takes --json after a subcommand, from the program', async () => {
+		const ctx = testContext({ env: home, fetch: statusFetch() });
+		await run(ctx, ['status', 'site.example', '--json']);
+		expect(ctx.io.json<{ target: string }>().target).toBe('https://site.example');
+	});
+
+	it('takes --json before one too, which a per-command flag could not', async () => {
+		const ctx = testContext({ env: home, fetch: statusFetch() });
+		await run(ctx, ['--json', 'status', 'site.example']);
+		expect(ctx.io.json<{ target: string }>().target).toBe('https://site.example');
+	});
+
+	it('refuses --quiet and --verbose together', async () => {
+		const ctx = testContext({ env: home, fetch: statusFetch() });
+		expect(await run(ctx, ['status', 'site.example', '--quiet', '--verbose'])).toBe(EXIT.USAGE);
+		expect(ctx.io.stderr.join('\n')).toContain('opposite things');
+	});
+
+	it('traces every request under --verbose', async () => {
+		const ctx = testContext({ env: home, fetch: statusFetch() });
+		await run(ctx, ['status', 'site.example', '--verbose']);
+		expect(ctx.io.stderr.join('\n')).toContain('> GET https://site.example/serve');
+	});
+
+	it('refuses a --timeout that is not a positive number', async () => {
+		const ctx = testContext({ env: home, fetch: statusFetch() });
+		expect(await run(ctx, ['status', 'site.example', '--timeout', 'abc'])).toBe(EXIT.USAGE);
+	});
+
+	it('takes the target from --site when the argument is omitted', async () => {
+		const fetch = statusFetch();
+		const ctx = testContext({ env: home, fetch });
+		expect(await run(ctx, ['status', '--site', 'https://site.example', '--json'])).toBe(
+			EXIT.OK
+		);
+		expect(fetch.urls[0]).toContain('https://site.example/serve');
+	});
+
+	it('exits 2 on a bare word, naming the flag that takes an identity', async () => {
+		const ctx = testContext({ env: home, fetch: statusFetch() });
+		expect(await run(ctx, ['status', '--site', 'blog'])).toBe(EXIT.USAGE);
+		expect(ctx.io.stderr.join('\n')).toContain('--site-name');
+	});
+
+	it('sends --site-name as the Durable Object identity', async () => {
+		const fetch = statusFetch();
+		const ctx = testContext({ env: home, fetch });
+		await run(ctx, ['status', 'site.example', '--site-name', 'blog']);
+		expect(fetch.urls[0]).toContain('site=blog');
+	});
+
+	it('exits 2 when nothing names a site at all', async () => {
+		const ctx = testContext({ env: home, fetch: statusFetch() });
+		expect(await run(ctx, ['status'])).toBe(EXIT.USAGE);
+		expect(ctx.io.stderr.join('\n')).toContain('drangler.json');
+	});
+
+	it('reads the site out of a drangler.json in the working directory', async () => {
+		const fetch = statusFetch();
+		const ctx = testContext({
+			env: home,
+			cwd: '/home/me/site',
+			files: memoryFiles({
+				'/home/me/site/drangler.json': JSON.stringify({
+					site: { origin: 'https://fromfile.example', name: 'blog' }
+				})
+			}),
+			fetch
+		});
+		expect(await run(ctx, ['status', '--json'])).toBe(EXIT.OK);
+		expect(fetch.urls[0]).toContain('https://fromfile.example/serve');
+		expect(fetch.urls[0]).toContain('site=blog');
+	});
+
+	it('lets --config-file replace the search', async () => {
+		const fetch = statusFetch();
+		const ctx = testContext({
+			env: home,
+			cwd: '/home/me/site',
+			files: memoryFiles({
+				'/home/me/site/drangler.json': JSON.stringify({
+					site: { origin: 'https://ignored.example' }
+				}),
+				'/tmp/other.json': JSON.stringify({ site: { origin: 'https://other.example' } })
+			}),
+			fetch
+		});
+		await run(ctx, ['status', '--config-file', '/tmp/other.json', '--json']);
+		expect(fetch.urls[0]).toContain('https://other.example/serve');
+	});
+
+	it('selects a profile block with --profile', async () => {
+		const fetch = statusFetch();
+		const ctx = testContext({
+			env: home,
+			cwd: '/home/me/site',
+			files: memoryFiles({
+				'/home/me/site/drangler.json': JSON.stringify({
+					site: { origin: 'https://prod.example' },
+					profiles: { staging: { site: { origin: 'https://staging.example' } } }
+				})
+			}),
+			fetch
+		});
+		await run(ctx, ['status', '--profile', 'staging', '--json']);
+		expect(fetch.urls[0]).toContain('https://staging.example/serve');
+	});
+
+	it('drives config where through the parser', async () => {
+		const ctx = testContext({ env: home, cwd: '/home/me/site', files: memoryFiles({}) });
+		expect(await run(ctx, ['config', 'where', '--json'])).toBe(EXIT.OK);
+		expect(ctx.io.json<{ profile: string }>().profile).toBe('default');
+	});
+
+	it('takes --dry-run from the program on a command that used to declare it', async () => {
+		const ctx = testContext({ env: home });
+		expect(
+			await run(ctx, [
+				'migrate',
+				'survey',
+				'--host',
+				'me@old.example',
+				'--root',
+				'/var/www/html',
+				'--dry-run'
+			])
+		).toBe(EXIT.OK);
+		expect(ctx.io.text()).toContain('nothing was executed');
+	});
+
+	it('reads --token for migrate export, and --url falls back to --site', async () => {
+		let sent: string | null = null;
+		const urls: string[] = [];
+		const ctx = testContext({
+			env: home,
+			fetch: (async (url: unknown, init: { headers?: Record<string, string> } = {}) => {
+				urls.push(String(url));
+				sent = init.headers?.['authorization'] ?? null;
+				return new Response(JSON.stringify({ statements: 1, chars: 1, sql: 'SELECT 1;' }));
+			}) as never
+		});
+		await run(ctx, [
+			'migrate',
+			'export',
+			'--site',
+			'https://site.example',
+			'--token',
+			'tok-123'
+		]);
+		expect(urls[0]).toContain('https://site.example/export');
+		expect(sent).toBe('Bearer tok-123');
 	});
 });
 
