@@ -1,3 +1,6 @@
+import { sourceFindings } from '../health/source';
+import { DO_STATEMENT_CHARS } from './convert';
+import { SUBSTITUTIONS } from './substitutions';
 import type { SiteSurvey } from './survey';
 import { isOlderThan, type TargetRuntime } from './target-runtime';
 
@@ -11,6 +14,34 @@ export interface Finding {
 	title: string;
 	/** the mechanism, and where it is written down; never a bare assertion */
 	detail: string;
+	/**
+	 * The survey field, envelope key or header this verdict was read from.
+	 *
+	 * A verdict whose evidence a reader cannot follow back to a byte is the class of claim this
+	 * workspace has recorded being wrong about repeatedly, so every rule names its field and
+	 * `tests/migrate-plan.spec.ts` fails on one that does not.
+	 */
+	evidence: string;
+}
+
+/**
+ * What a real `/export` reply says about the site being left.
+ *
+ * Every `to-vps` rule used to declare `evaluate()` with no parameters and return a constant, so the
+ * off-boarding direction was five fixed paragraphs rather than a measurement. Null means the
+ * envelope was not read, which is an UNMEASURED criterion rather than a pass.
+ */
+export interface ExportEnvelope {
+	/** the status `/export` answered, which is the reachability criterion on its own */
+	status: number;
+	replayable?: boolean;
+	maxStatementChars?: number;
+	/** table name to row count */
+	tables?: Record<string, number>;
+	/** the tables the worker resolved as carrying schema and no rows */
+	structureOnly?: string[];
+	/** whether `?secrets=1` was asked for, which decides what the dump is safe to store */
+	secrets?: boolean;
 }
 
 export interface Rule {
@@ -22,8 +53,15 @@ export interface Rule {
 	 * `target` is what the DESTINATION runs, with its provenance. Passed in rather than read from a
 	 * constant so a rule cannot assert a version as fact, and so the same figure drives both the
 	 * comparison and the message a user reads.
+	 *
+	 * `envelope` is what a real `/export` said. A `to-vps` rule that ignores it is scoring a
+	 * paragraph rather than a site.
 	 */
-	evaluate(survey: SiteSurvey, target: TargetRuntime): Finding | null;
+	evaluate(
+		survey: SiteSurvey,
+		target: TargetRuntime,
+		envelope?: ExportEnvelope | null
+	): Finding | null;
 }
 
 /**
@@ -35,10 +73,31 @@ export interface Rule {
 export const LIMITS = {
 	/** Worker requests per day on the free plan; every visit costs one, cached or not */
 	visitsPerDay: 100_000,
-	/** cold regeneration ceiling, bound by rows written */
-	rendersPerDayCold: 1_052,
-	/** the same ceiling with a fill window amortising the boot */
-	rendersPerDayWindowed: 7_575,
+	/**
+	 * Rows written per day on the free plan, inside a fill window.
+	 *
+	 * This is the meter regeneration is bound by, and it replaces a `rendersPerDayCold: 1_052` and a
+	 * `rendersPerDayWindowed: 7_575` that nothing here or in `drupflare/worker` derived. Score a real
+	 * workload with `bun scripts/measure/free-envelope.ts` in that repository; the figure is its
+	 * windowed row budget.
+	 */
+	rowsPerDayWindowed: 10_869,
+	/**
+	 * The same budget on the alarm chain, which is the tighter of the two by 3.9x.
+	 *
+	 * Same source. A regeneration driven only by the cron alarm is scored against this rather than
+	 * against the windowed figure.
+	 */
+	rowsPerDayAlarmChain: 2_777,
+	/** rows one page fill writes with the bins already warm; the low end of a measured range */
+	rowsPerFillWarm: 2,
+	/**
+	 * The high end of that range, with nothing warm.
+	 *
+	 * `tests/integration/rows-per-fill-audit.spec.ts` in `drupflare/worker` pins each class between
+	 * the two. There is no flat figure to quote, so a span is what a plan can honestly print.
+	 */
+	rowsPerFillCold: 156,
 	/** unique Cloudflare Images transformations per MONTH on free; fails as a cap, not a bill */
 	imageTransformsPerMonth: 5_000,
 	/** one Durable Object SQLite record */
@@ -62,28 +121,39 @@ const CONVERTIBLE_DRIVERS = ['mysql', 'mysqli', 'mariadb', 'pdo_mysql'];
  * guess belongs in `SERVICE_MODULES` at warning severity instead.
  */
 export const INCOMPATIBLE_MODULES: Record<string, string> = {
-	redis: 'raw TCP; the interpreter has no socket extension and `drupflare/stream-http` bridges https:// streams only',
-	memcache:
-		'raw TCP; the interpreter has no socket extension and `drupflare/stream-http` bridges https:// streams only',
-	memcache_storage:
-		'raw TCP; the interpreter has no socket extension and `drupflare/stream-http` bridges https:// streams only',
-	mongodb: 'raw TCP, and the driver is a native extension the wasm build does not carry',
+	memcache: 'wants ext-memcached or ext-memcache, and the wasm build carries neither',
+	memcache_storage: 'wants ext-memcached or ext-memcache, and the wasm build carries neither',
+	mongodb: 'its driver is a native extension the wasm build does not carry',
 	imagemagick: 'shells out to `convert`; the wasm build cannot spawn a process',
 	imageapi_optimize_binaries:
 		'shells out to image binaries; the wasm build cannot spawn a process'
 };
 
-/** Modules that can run but need something the one-click deploy does not provision. */
+/**
+ * Modules that can run but need something the one-click deploy does not provision.
+ *
+ * `redis` and `search_api_solr` were both refused here as runtime impossibilities and both are
+ * `verified` in `worker/src/ops/module-table.ts`. A refusal keyed on a mechanism the runtime has
+ * since acquired still reads to a user as a platform limit, so each entry now says what the site
+ * has to supply instead.
+ */
 export const SERVICE_MODULES: Record<string, string> = {
+	redis: 'its blocking socket is answered by the Zend park -- the trapped call freezes the PHP continuation, the host performs the read in JavaScript and resumes it -- so what is missing is a reachable Redis and a `REDIS_URL`, which also arms the trap. The Durable Object own SQLite is the faster cache backend, because a parked get is a network round trip where SQLite is a local read',
 	search_api_solr:
-		'reaches Solr over HTTP, which the stream wrapper can do, but no Solr host is provisioned',
+		'installs on the long64 build, which satisfies the transitive `php-64bit` constraint that used to abort every request before Drupal booted; a Solr SERVER is still an outbound dependency and no host is provisioned',
 	backup_migrate: 'its archive writers want ext-zip or ext-phar, and the wasm build has neither',
 	clientside_validation:
 		'no runtime obstacle; listed because it pulls a large npm asset set the asset layer must carry'
 };
 
-function found(id: string, severity: Severity, title: string, detail: string): Finding {
-	return { id, severity, title, detail };
+function found(
+	id: string,
+	severity: Severity,
+	title: string,
+	detail: string,
+	evidence: string
+): Finding {
+	return { id, severity, title, detail, evidence };
 }
 
 /**
@@ -105,7 +175,8 @@ export const RULES: readonly Rule[] = [
 					'db-driver',
 					'note',
 					'SQLite source database',
-					"the worker stores the site in the Durable Object's own SQLite, so no dialect conversion is needed"
+					"the worker stores the site in the Durable Object's own SQLite, so no dialect conversion is needed",
+					'survey.database.driver'
 				);
 			}
 			if (CONVERTIBLE_DRIVERS.includes(driver)) {
@@ -113,14 +184,16 @@ export const RULES: readonly Rule[] = [
 					'db-driver',
 					'note',
 					`${driver} converts to SQLite`,
-					'`drangler migrate convert --from mysql --to sqlite` reads a `drush sql:dump`; the worker has no MySQL'
+					'`drangler migrate convert --from mysql --to sqlite` reads a `drush sql:dump`; the worker has no MySQL',
+					'survey.database.driver'
 				);
 			}
 			return found(
 				'db-driver',
 				'blocker',
 				`no converter for ${driver}`,
-				'the worker runs Durable Object SQLite only, and drangler converts the MySQL family alone; dump through an intermediate tool first'
+				'the worker runs Durable Object SQLite only, and drangler converts the MySQL family alone; dump through an intermediate tool first',
+				'survey.database.driver'
 			);
 		}
 	},
@@ -141,7 +214,8 @@ export const RULES: readonly Rule[] = [
 				'php-version',
 				'warning',
 				`the source runs PHP ${version}`,
-				`${ships}, so any code that depends on ${version} behaviour changes underneath it. ${target.note}`
+				`${ships}, so any code that depends on ${version} behaviour changes underneath it. ${target.note}`,
+				'survey.php.version against the target runtime'
 			);
 		}
 	},
@@ -155,7 +229,8 @@ export const RULES: readonly Rule[] = [
 				'ext-archive',
 				'warning',
 				`the source loads ${present.join(' and ')}`,
-				'the wasm interpreter has neither ext-zip nor ext-phar; code that opens an archive must move to a host-side path'
+				'the wasm interpreter has neither ext-zip nor ext-phar; code that opens an archive must move to a host-side path',
+				'survey.php.extensions'
 			);
 		}
 	},
@@ -169,7 +244,8 @@ export const RULES: readonly Rule[] = [
 				'incompatible-modules',
 				'blocker',
 				`${hits.length} enabled module(s) cannot run on the worker`,
-				hits.map((m) => `${m}: ${INCOMPATIBLE_MODULES[m]}`).join('; ')
+				hits.map((m) => `${m}: ${INCOMPATIBLE_MODULES[m]}`).join('; '),
+				'survey.modules against INCOMPATIBLE_MODULES'
 			);
 		}
 	},
@@ -183,7 +259,8 @@ export const RULES: readonly Rule[] = [
 				'service-modules',
 				'warning',
 				`${hits.length} enabled module(s) need something the deploy does not provision`,
-				hits.map((m) => `${m}: ${SERVICE_MODULES[m]}`).join('; ')
+				hits.map((m) => `${m}: ${SERVICE_MODULES[m]}`).join('; '),
+				'survey.modules against SERVICE_MODULES'
 			);
 		}
 	},
@@ -196,7 +273,8 @@ export const RULES: readonly Rule[] = [
 				'shellout-undetectable',
 				'note',
 				'a module calling exec() cannot be detected from a survey',
-				`${survey.modules.length} enabled modules were listed by name only; the worker cannot spawn a process, and finding the callers needs a grep of the source tree`
+				`${survey.modules.length} enabled modules were listed by name only; the worker cannot spawn a process, and finding the callers needs a grep of the source tree`,
+				'nothing; a survey cannot see an exec() call'
 			);
 		}
 	},
@@ -213,7 +291,8 @@ export const RULES: readonly Rule[] = [
 				'image-transforms',
 				'warning',
 				`up to ${worst.toLocaleString('en-US')} image transformations against a ${LIMITS.imageTransformsPerMonth.toLocaleString('en-US')}/month cap`,
-				`${styles} image styles over ${files.toLocaleString('en-US')} files; Cloudflare Images fails this as a hard cap rather than a bill, and neither the serving nor the regeneration ceiling reports it`
+				`${styles} image styles over ${files.toLocaleString('en-US')} files; Cloudflare Images fails this as a hard cap rather than a bill, and neither the serving nor the regeneration ceiling reports it`,
+				'survey.imageStyles times survey.files.count'
 			);
 		}
 	},
@@ -228,7 +307,8 @@ export const RULES: readonly Rule[] = [
 				'files-payload',
 				'warning',
 				`public files are ${Math.round((kb * 1024) / 1_048_576)} MiB`,
-				`the Drupal pack is built against a ${LIMITS.assetBytes / 1_048_576} MiB per-asset ceiling, so a files directory this size must be mirrored to R2 rather than shipped in the bundle`
+				`the Drupal pack is built against a ${LIMITS.assetBytes / 1_048_576} MiB per-asset ceiling, so a files directory this size must be mirrored to R2 rather than shipped in the bundle`,
+				'survey.files.kb and survey.files.count'
 			);
 		}
 	},
@@ -243,23 +323,59 @@ export const RULES: readonly Rule[] = [
 				'database-size',
 				'warning',
 				`the source database is ${Math.round(bytes / 1_048_576)} MiB`,
-				`a restore replays statement text, and a Durable Object refuses one over ${LIMITS.statementChars.toLocaleString('en-US')} characters or a record over ${LIMITS.recordBytes.toLocaleString('en-US')} bytes; check the widest row before converting`
+				`a restore replays statement text, and a Durable Object refuses one over ${LIMITS.statementChars.toLocaleString('en-US')} characters or a record over ${LIMITS.recordBytes.toLocaleString('en-US')} bytes; check the widest row before converting`,
+				'survey.database.bytes'
 			);
 		}
 	},
 	{
+		/**
+		 * How long a full rebuild takes, printed as a SPAN.
+		 *
+		 * A rebuild is bound by rows written and one fill writes anywhere from
+		 * {@link LIMITS.rowsPerFillWarm} to {@link LIMITS.rowsPerFillCold} rows depending on what is
+		 * already warm, so there is no single renders-per-day figure to quote. The two constants this
+		 * used to divide by had no derivation anywhere, which is how a plan a user acts on came to
+		 * carry an invented ceiling.
+		 */
 		id: 'regeneration-ceiling',
 		direction: 'to-worker',
 		evaluate(survey) {
 			const nodes = survey.nodes;
 			if (nodes === null) return null;
-			if (nodes <= LIMITS.rendersPerDayCold) return null;
-			const severity: Severity = nodes > LIMITS.rendersPerDayWindowed ? 'warning' : 'note';
+			const best = Math.ceil((nodes * LIMITS.rowsPerFillWarm) / LIMITS.rowsPerDayWindowed);
+			const worst = Math.ceil((nodes * LIMITS.rowsPerFillCold) / LIMITS.rowsPerDayWindowed);
+			if (worst <= 1) return null;
+			const severity: Severity = best > 1 ? 'warning' : 'note';
 			return found(
 				'regeneration-ceiling',
 				severity,
-				`${nodes.toLocaleString('en-US')} nodes against a ${LIMITS.rendersPerDayCold.toLocaleString('en-US')}/day cold regeneration ceiling`,
-				`regeneration is bound by rows written, not by CPU: ${LIMITS.rendersPerDayCold.toLocaleString('en-US')} renders/day cold and ${LIMITS.rendersPerDayWindowed.toLocaleString('en-US')} with a fill window, so a full rebuild of every node spans more than one day on the free plan`
+				`rebuilding ${nodes.toLocaleString('en-US')} nodes spans ${best} to ${worst} day(s) on the free plan`,
+				`regeneration is bound by rows written rather than by CPU: ${LIMITS.rowsPerDayWindowed.toLocaleString('en-US')} rows/day inside a fill window, and one page fill writes ${LIMITS.rowsPerFillWarm} to ${LIMITS.rowsPerFillCold} rows depending on what is already warm. Score the real workload with \`bun scripts/measure/free-envelope.ts\` in drupflare/worker; a rebuild driven only by the cron alarm is against ${LIMITS.rowsPerDayAlarmChain.toLocaleString('en-US')} rows/day instead`,
+				'survey.nodes against LIMITS.rowsPerDayWindowed'
+			);
+		}
+	},
+	{
+		/**
+		 * A survey error is a verdict, and it was not one.
+		 *
+		 * `runSurvey()` records a failed required step and continues, which is right. Nothing
+		 * downstream turned that into a refusal: a source whose `php -v` exited non-zero and one
+		 * that simply has no node count produced the same report, and both reached a pass.
+		 */
+		id: 'source-health',
+		direction: 'both',
+		evaluate(survey) {
+			const findings = sourceFindings(survey);
+			const blockers = findings.filter((f) => f.severity === 'blocker');
+			if (blockers.length === 0) return null;
+			return found(
+				'source-health',
+				'blocker',
+				`${blockers.length} thing(s) are wrong with the source itself`,
+				`${blockers.map((f) => `${f.id}: ${f.detail}`).join('; ')}. Nothing measured from this survey is trustworthy until they are fixed; \`drangler doctor --source\` reports the same set with its evidence`,
+				'sourceFindings(survey)'
 			);
 		}
 	},
@@ -272,7 +388,8 @@ export const RULES: readonly Rule[] = [
 				'drush-absent',
 				'warning',
 				'no drush on the source host',
-				'the survey reads the database driver, the module list and the dump through drush; without it every one of those is unknown and the plan is scoring blanks'
+				'the survey reads the database driver, the module list and the dump through drush; without it every one of those is unknown and the plan is scoring blanks',
+				'survey.drush'
 			);
 		}
 	},
@@ -284,43 +401,137 @@ export const RULES: readonly Rule[] = [
 				'cron',
 				'note',
 				'system cron becomes a Cron Trigger',
-				'the worker runs a `*/5 * * * *` trigger that drives the fill window; a crontab entry calling drush has no equivalent and its work has to move into hook_cron or a queue'
+				'the worker runs a `*/5 * * * *` trigger that drives the fill window; a crontab entry calling drush has no equivalent and its work has to move into hook_cron or a queue',
+				'nothing; the trigger is a property of the destination'
 			);
 		}
 	},
 	{
-		id: 'export-gated',
+		id: 'export-token',
 		direction: 'to-vps',
-		evaluate() {
+		evaluate(_survey, _target, envelope) {
+			if (envelope === undefined || envelope === null) return null;
+			if (envelope.status === 401) {
+				return found(
+					'export-token',
+					'blocker',
+					'/export refused the credential it was given',
+					'`/export` is in `OWNER_ROUTES` and answers 401 with a `WWW-Authenticate: Bearer` challenge when the token is absent or belongs to another site. The token is minted once by `drangler site claim`, and it is per SITE',
+					'the /export status'
+				);
+			}
+			if (envelope.status === 404) {
+				return found(
+					'export-token',
+					'blocker',
+					'/export is not on this worker',
+					'the route answered 404 with a credential attached, which is a worker too old to have the owner tier rather than one with diagnostics closed. `drangler update <worker>` moves it forward',
+					'the /export status'
+				);
+			}
 			return found(
-				'export-gated',
+				'export-token',
+				'note',
+				'the export is reachable with the owner token',
+				`\`/export\` answered ${envelope.status} on the owner tier, so leaving needs no \`PW_DIAGNOSTICS=1\` and does not expose \`/sql\` and \`/restore\` alongside it`,
+				'the /export status'
+			);
+		}
+	},
+	{
+		id: 'export-replayable',
+		direction: 'to-vps',
+		evaluate(_survey, _target, envelope) {
+			if (envelope?.replayable === undefined) return null;
+			if (envelope.replayable) {
+				return found(
+					'export-replayable',
+					'note',
+					'the dump can be replayed back',
+					`the widest statement is ${(envelope.maxStatementChars ?? 0).toLocaleString('en-US')} characters against the ${DO_STATEMENT_CHARS.toLocaleString('en-US')} a Durable Object accepts, so this dump can go back into a worker as well as onto a VPS`,
+					'the /export envelope replayable field'
+				);
+			}
+			return found(
+				'export-replayable',
 				'blocker',
-				'/export is not reachable on a normal deployment',
-				'`/export` sits in DIAGNOSTIC_ROUTES in `worker/src/site.ts` and 404s unless `PW_DIAGNOSTICS=1`; the same flag opens `/sql` and `/restore`, so off-boarding currently means opening a remote shell to get the data out'
+				'the worker refuses this dump as unreplayable',
+				`the widest statement is ${(envelope.maxStatementChars ?? 0).toLocaleString('en-US')} characters against a ${DO_STATEMENT_CHARS.toLocaleString('en-US')} ceiling. A restore point nobody can replay reads as a backup and is not one; drop \`--all\`, or narrow it with a limit`,
+				'the /export envelope replayable field'
 			);
 		}
 	},
 	{
 		id: 'export-structure-only',
 		direction: 'to-vps',
-		evaluate() {
+		evaluate(_survey, _target, envelope) {
+			if (envelope?.structureOnly === undefined) return null;
 			return found(
 				'export-structure-only',
 				'note',
-				'the export is not byte-exact by default',
-				'some tables come back as schema with no rows; the dump envelope reports exactly which in its `structureOnly` field, and `drangler migrate export` prints that list rather than restating the rule. `?all=1` includes their rows, and the worker then refuses the dump outright when a statement exceeds the 100,000-character Durable Object ceiling'
+				`${envelope.structureOnly.length} table(s) come back as schema with no rows`,
+				`the worker resolved these as regenerable and named them itself: ${envelope.structureOnly.join(', ')}. \`--all\` includes their rows, and the worker then refuses the dump outright when a statement exceeds the Durable Object ceiling`,
+				'the /export envelope structureOnly field'
 			);
 		}
 	},
 	{
 		id: 'export-files',
 		direction: 'to-vps',
-		evaluate() {
+		evaluate(_survey, _target, envelope) {
+			if (envelope?.tables === undefined) return null;
+			const chunks = envelope.tables['cfw_file_chunk'] ?? 0;
+			const files = envelope.tables['cfw_file'] ?? 0;
+			if (chunks === 0 && files === 0) {
+				return found(
+					'export-files',
+					'note',
+					'this site holds no managed files',
+					'`cfw_file` and `cfw_file_chunk` are both empty in the dump, so there are no uploads to write back to a filesystem',
+					'the /export envelope tables map'
+				);
+			}
 			return found(
 				'export-files',
 				'blocker',
-				'the export carries no managed files',
-				'`/export` dumps the database only; the Drupal tree ships as a per-file pack on the asset layer and user uploads live outside it, so a VPS restore needs the files fetched separately'
+				'the file bytes are in the dump and nothing writes them back yet',
+				`\`cfw_file\` holds ${files} row(s) and \`cfw_file_chunk\` holds ${chunks}, so the bytes ARE leaving. What does not exist is anything that turns those chunk rows back into a \`sites/default/files/\` tree: run \`drangler migrate files --from-dump\` against the dump before serving the restored site`,
+				'the /export envelope tables map'
+			);
+		}
+	},
+	{
+		id: 'export-secrets',
+		direction: 'to-vps',
+		evaluate(_survey, _target, envelope) {
+			if (envelope === undefined || envelope === null) return null;
+			return envelope.secrets === true
+				? found(
+						'export-secrets',
+						'warning',
+						'this dump carries the site credentials',
+						'`?secrets=1` includes the owner token, the Cloudflare OAuth tokens and the hash salt. A restore needs the salt and nothing else does, so this file may not be stored anywhere a backup normally goes; `drangler secrets scan` finds all four',
+						'the ?secrets=1 parameter on the export'
+					)
+				: found(
+						'export-secrets',
+						'warning',
+						'this dump withholds the hash salt a restore needs',
+						'without `?secrets=1` the dump carries no `hash_salt`, so the restored site mints its own and every one-time login link and form token minted by the worker stops validating. That is the safe default and it is a step, not an absence',
+						'the ?secrets=1 parameter on the export'
+					);
+		}
+	},
+	{
+		id: 'substitutions',
+		direction: 'to-vps',
+		evaluate() {
+			return found(
+				'substitutions',
+				'blocker',
+				`${SUBSTITUTIONS.length} services and settings have to be swapped back by hand`,
+				`the site runs on drupflare's own cache, lock, logger, mail, image toolkit and database driver, and every one of them is a class a VPS does not have. \`drangler migrate eligibility --to vps --json\` emits the whole table as \`substitutions\`; the first is \`${SUBSTITUTIONS[0]?.from}\` becoming \`${SUBSTITUTIONS[0]?.to}\``,
+				'drupflare/drupflare service classes and the shipped settings.php'
 			);
 		}
 	},
@@ -332,7 +543,8 @@ export const RULES: readonly Rule[] = [
 				'hash-salt',
 				'note',
 				'the restored site needs its own hash_salt',
-				"the shipped pack assigns an empty `$settings['hash_salt']` and the object mints one per site, so a VPS settings.php must set its own; one-time login links and form tokens minted by the worker stop validating"
+				"the shipped pack assigns an empty `$settings['hash_salt']` and the object mints one per site, so a VPS settings.php must set its own; one-time login links and form tokens minted by the worker stop validating",
+				'the shipped settings.php hash_salt'
 			);
 		}
 	},
@@ -344,7 +556,8 @@ export const RULES: readonly Rule[] = [
 				'dialect-out',
 				'note',
 				'the dump is SQLite',
-				'`drangler migrate convert --from sqlite --to mysql` rewrites it for a MySQL host; a Drupal that stays on SQLite can replay the dump unchanged'
+				'`drangler migrate convert --from sqlite --to mysql` rewrites it for a MySQL host; a Drupal that stays on SQLite can replay the dump unchanged',
+				'the dump the /export envelope describes'
 			);
 		}
 	}

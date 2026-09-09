@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runSurveyCommand, selectTransport } from '../src/commands/migrate';
-import { UsageError } from '../src/errors';
+import { TransportError, UsageError } from '../src/errors';
 import { memoryFiles } from '../src/host/files';
 import {
 	applyStep,
@@ -12,10 +12,16 @@ import {
 	parsePhpModules,
 	parsePhpVersion,
 	runSurvey,
+	settledSteps,
 	surveyPlan
 } from '../src/migrate/survey';
 import { parseTarget } from '../src/migrate/target';
-import { replayTransport, type Transcript } from '../src/migrate/transport';
+import {
+	replayTransport,
+	SSH_ATTEMPTS,
+	sshTransport,
+	type Transcript
+} from '../src/migrate/transport';
 import { fail, ok, testContext } from './helpers';
 
 const PLAN = surveyPlan('/var/www/html');
@@ -40,6 +46,8 @@ const transcript = (): Transcript => ({
 	[step('files-kb')]: ok('40960\t/var/www/html/sites/default/files'),
 	[step('files-count')]: ok('    1200\n'),
 	[step('db-bytes')]: ok('SUM(data_length + index_length)\n104857600'),
+	[step('db-alive')]: ok('1\n1'),
+	[step('file-rows')]: ok('COUNT(*)\n1200'),
 	[step('nodes')]: ok('COUNT(*)\n2000'),
 	[step('image-styles')]: ok('COUNT(*)\n6')
 });
@@ -137,6 +145,9 @@ describe('runSurvey', () => {
 		expect(survey.php).toEqual({ version: '8.2.15', extensions: ['curl', 'zip', 'pdo_mysql'] });
 		expect(survey.database).toEqual({ driver: 'mysql', name: 'drupal', bytes: 104857600 });
 		expect(survey.files).toEqual({ kb: 40960, count: 1200 });
+		// the two controls: the database answered, and the file count has something to mean
+		expect(survey.dbAlive).toBe(true);
+		expect(survey.fileRows).toBe(1200);
 		expect(survey.errors).toEqual([]);
 	});
 
@@ -235,5 +246,123 @@ describe('survey command', () => {
 			replay: '/t.json'
 		});
 		expect(ctx.io.text()).toContain('errors');
+	});
+});
+
+/**
+ * `--resume` re-runs only the steps with neither a value nor a recorded error.
+ *
+ * A step that failed the same way twice will fail the same way a third time, so re-running it is
+ * what turns a resume into a restart. The settled set is read off the SURVEY rather than off a
+ * separate list, so a field that stops being filled cannot leave the two disagreeing.
+ */
+describe('runSurvey --resume', () => {
+	it('skips every step that already produced a value', async () => {
+		const first = await runSurvey(
+			{ transport: replayTransport(transcript()), now: () => new Date(0) },
+			'me@old.example',
+			'/var/www/html'
+		);
+
+		// a transcript with only ONE entry: anything the resume re-ran would throw
+		const only: Transcript = { [step('nodes')]: ok('COUNT(*)\n2000') };
+		const resumed = await runSurvey(
+			{ transport: replayTransport(only), now: () => new Date(0) },
+			'me@old.example',
+			'/var/www/html',
+			first
+		);
+		expect(resumed.errors).toEqual([]);
+		expect(resumed.php.version).toBe('8.2.15');
+		expect(resumed.nodes).toBe(2000);
+	});
+
+	/**
+	 * An OPTIONAL step that ran and failed leaves neither, and is the case a resume exists for.
+	 *
+	 * A required step's failure is recorded in `errors[]` and is therefore settled: it answered, and
+	 * the answer was an error.
+	 */
+	it('re-runs a step that has neither a value nor an error', async () => {
+		const partial = transcript();
+		partial[step('nodes')] = fail(1, 'Lost connection to MySQL server');
+		const first = await runSurvey(
+			{ transport: replayTransport(partial), now: () => new Date(0) },
+			'me@old.example',
+			'/var/www/html'
+		);
+		expect(first.nodes).toBeNull();
+		expect(first.errors).toEqual([]);
+
+		const resumed = await runSurvey(
+			{ transport: replayTransport(transcript()), now: () => new Date(0) },
+			'me@old.example',
+			'/var/www/html',
+			first
+		);
+		expect(resumed.nodes).toBe(2000);
+	});
+
+	// a step recorded as failing is settled: it answered, and the answer was an error
+	it('does not re-run a step whose failure was recorded', () => {
+		const survey = emptySurvey('me@old.example', '/var/www/html');
+		survey.errors.push({ id: 'drush-status', detail: 'exit 127' });
+		expect(settledSteps(survey).has('drush-status')).toBe(true);
+		expect(settledSteps(survey).has('nodes')).toBe(false);
+	});
+});
+
+/**
+ * The ssh retry, which terminates on an OBSERVATION rather than on the bound.
+ *
+ * ssh exits 255 for everything from a refused connection to a dropped session, and the remote
+ * command never ran, so a retry cannot double anything. Any other exit code means the command ran
+ * and its result is the answer, whatever the answer was.
+ */
+describe('the ssh retry', () => {
+	const target = parseTarget('me@old.example', '/var/www/html');
+
+	it('retries a transport failure up to the bound and then raises one error', async () => {
+		let attempts = 0;
+		const refusing = {
+			run: async () => {
+				attempts++;
+				return { code: 255, stdout: '', stderr: 'Connection refused' };
+			},
+			spawn: async () => 0
+		};
+		await expect(sshTransport(refusing, target).exec('php -v')).rejects.toThrow(TransportError);
+		expect(attempts).toBe(SSH_ATTEMPTS);
+	});
+
+	it('stops the moment the step produced output, whatever the exit code was', async () => {
+		let attempts = 0;
+		const flaky = {
+			run: async () => {
+				attempts++;
+				return attempts === 1
+					? { code: 255, stdout: '', stderr: 'kex_exchange_identification' }
+					: { code: 0, stdout: 'PHP 8.2.15', stderr: '' };
+			},
+			spawn: async () => 0
+		};
+		const result = await sshTransport(flaky, target).exec('php -v');
+		expect(result.stdout).toBe('PHP 8.2.15');
+		expect(attempts).toBe(2);
+	});
+
+	// a non-zero exit that is not 255 is the command's own answer and must not be retried
+	it('does not retry a command that ran and failed', async () => {
+		let attempts = 0;
+		const runner = {
+			run: async () => {
+				attempts++;
+				return { code: 127, stdout: '', stderr: 'drush: command not found' };
+			},
+			spawn: async () => 0
+		};
+		const result = await sshTransport(runner, target).exec('drush status');
+		expect(result.code).toBe(127);
+		expect(attempts).toBe(1);
 	});
 });

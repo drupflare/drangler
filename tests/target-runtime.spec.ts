@@ -15,15 +15,20 @@ import {
 import { fakeFetch } from './helpers';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const WORKER_CONFIG = resolve(HERE, '..', '..', 'worker', 'wrangler.jsonc');
+const WORKER_DIR = resolve(HERE, '..', '..', 'worker');
+const WORKER_CONFIG = resolve(WORKER_DIR, 'wrangler.jsonc');
 
 /**
  * Reads which interpreter the worker's own config selects.
  *
- * The alias in `wrangler.jsonc` is the authority: `"./runtime/php-binary.js"` points at
- * `./src/runtime/php-binary-85.ts`, and the `85` in that filename is the shipping version. Reading
- * the alias rather than a version string means this tracks the thing that actually decides which
- * wasm binary is bundled.
+ * Follows the alias in `wrangler.jsonc` to the seam file and takes the version out of the seam's
+ * `.interp/php<major>.<minor>` imports, which is what decides the wasm binary that gets bundled.
+ *
+ * **It used to read the digits out of the alias TARGET's filename**, back when the shipping seam
+ * was `php-binary-85.ts`. That seam is `php-binary-raw.ts` since the compressed bundle limit was
+ * removed on 2026-09-04, so the pattern stopped matching -- and a null reads here as "no worker
+ * checkout", which skips the drift check and, under `REQUIRE_SIBLINGS=1`, fails naming the wrong
+ * cause. The version lives in the imports, so that is where it is read from.
  */
 function shippingPhpFromWorkerConfig(): string | null {
 	if (!existsSync(WORKER_CONFIG)) return null;
@@ -32,9 +37,10 @@ function shippingPhpFromWorkerConfig(): string | null {
 	};
 	const target = config.alias?.['./runtime/php-binary.js'];
 	if (typeof target !== 'string') return null;
-	const digits = /php-binary-(\d)(\d+)\.ts$/.exec(target);
-	if (digits === null) return null;
-	return `${digits[1]}.${digits[2]}`;
+	const seam = resolve(WORKER_DIR, target);
+	if (!existsSync(seam)) return null;
+	const digits = /\.interp\/php(\d+)\.(\d+)[.-]/.exec(readFileSync(seam, 'utf8'));
+	return digits === null ? null : `${digits[1]}.${digits[2]}`;
 }
 
 /**
@@ -66,9 +72,16 @@ describe.skipIf(shipping === null)('the fallback tracks what the worker actually
 		).toBe(shipping);
 	});
 
-	it('reads the alias rather than a version string, so a binary swap is what moves it', () => {
-		const raw = readFileSync(WORKER_CONFIG, 'utf8');
-		expect(raw).toContain('./runtime/php-binary.js');
+	it('follows the alias into the seam, so a binary swap is what moves it', () => {
+		expect(readFileSync(WORKER_CONFIG, 'utf8')).toContain('./runtime/php-binary.js');
+	});
+
+	// the alias target was renamed once and this check silently stopped running for it
+	it('does not read the version out of the alias target filename', () => {
+		const config = JSON.parse(stripJsonComments(readFileSync(WORKER_CONFIG, 'utf8'))) as {
+			alias?: Record<string, string>;
+		};
+		expect(config.alias?.['./runtime/php-binary.js']).not.toMatch(/php-binary-\d\d\.ts$/);
 	});
 });
 

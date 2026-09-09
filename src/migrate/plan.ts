@@ -1,3 +1,4 @@
+import type { ExportEnvelope } from './rules';
 import { rulesFor, type Direction, type Finding, type Severity } from './rules';
 import type { SiteSurvey } from './survey';
 import { assumedTarget, type TargetRuntime } from './target-runtime';
@@ -30,7 +31,7 @@ export interface MigrationPlan {
  * that the driver is fine; it has not looked, and saying so is the difference between a plan and a
  * guess.
  */
-const REQUIRED_FIELDS: readonly (readonly [string, (s: SiteSurvey) => boolean])[] = [
+export const REQUIRED_FIELDS: readonly (readonly [string, (s: SiteSurvey) => boolean])[] = [
 	['php.version', (s) => s.php.version !== null],
 	['drupal.version', (s) => s.drupal.version !== null],
 	['database.driver', (s) => s.database.driver !== null],
@@ -130,11 +131,12 @@ const TO_VPS_STEPS = (survey: SiteSurvey): PlanStep[] => [
 export function buildPlan(
 	survey: SiteSurvey,
 	direction: Direction,
-	target: TargetRuntime = assumedTarget()
+	target: TargetRuntime = assumedTarget(),
+	envelope: ExportEnvelope | null = null
 ): MigrationPlan {
 	const findings: Finding[] = [];
 	for (const rule of rulesFor(direction)) {
-		const finding = rule.evaluate(survey, target);
+		const finding = rule.evaluate(survey, target, envelope);
 		if (finding !== null) findings.push(finding);
 	}
 	const counts: Record<Severity, number> = { blocker: 0, warning: 0, note: 0 };

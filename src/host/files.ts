@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 
 export interface DirEntry {
@@ -16,6 +24,14 @@ export interface FileHost {
 	exists(path: string): boolean;
 	readText(path: string): string;
 	writeText(path: string, text: string): void;
+	/**
+	 * Writes a file only its owner can read, for anything holding a credential.
+	 *
+	 * Separate from {@link writeText} rather than a mode argument on it, so a caller has to decide
+	 * which one it is writing. The global config carries owner tokens and lands here; the project
+	 * `drangler.json` is a file people commit and lands in `writeText`.
+	 */
+	writeSecret(path: string, text: string): void;
 	/** raw bytes, because a database and a files tree are not text and a decode would corrupt them */
 	readBytes(path: string): Uint8Array;
 	writeBytes(path: string, bytes: Uint8Array): void;
@@ -31,6 +47,13 @@ export function nodeFiles(): FileHost {
 		writeText: (path, text) => {
 			mkdirSync(dirname(path), { recursive: true });
 			writeFileSync(path, text, 'utf8');
+		},
+		writeSecret: (path, text) => {
+			mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+			writeFileSync(path, text, { encoding: 'utf8', mode: 0o600 });
+			// writeFileSync honours `mode` only when it CREATES the file, so an existing one keeps
+			// whatever it had
+			chmodSync(path, 0o600);
 		},
 		readBytes: (path) => new Uint8Array(readFileSync(path)),
 		writeBytes: (path, bytes) => {
@@ -49,6 +72,8 @@ export function nodeFiles(): FileHost {
 export interface MemoryFiles extends FileHost {
 	/** every path written, so a spec can assert on output without a temp directory */
 	readonly written: Map<string, string>;
+	/** the subset written through `writeSecret`, so a spec can assert a credential took that path */
+	readonly secrets: Set<string>;
 }
 
 /**
@@ -70,6 +95,7 @@ export function memoryFiles(seed: Record<string, string> = {}): MemoryFiles {
 		])
 	);
 	const written = new Map<string, string>();
+	const secrets = new Set<string>();
 
 	const isDir = (path: string): boolean => {
 		const prefix = path.endsWith('/') ? path : `${path}/`;
@@ -83,13 +109,20 @@ export function memoryFiles(seed: Record<string, string> = {}): MemoryFiles {
 		return hit;
 	};
 
+	const put = (path: string, text: string) => {
+		files.set(path, new Uint8Array(Buffer.from(text, 'utf8')));
+		written.set(path, text);
+	};
+
 	return {
 		written,
+		secrets,
 		exists: (path) => files.has(path) || isDir(path),
 		readText: (path) => Buffer.from(read(path)).toString('utf8'),
-		writeText: (path, text) => {
-			files.set(path, new Uint8Array(Buffer.from(text, 'utf8')));
-			written.set(path, text);
+		writeText: put,
+		writeSecret: (path, text) => {
+			put(path, text);
+			secrets.add(path);
 		},
 		readBytes: (path) => read(path),
 		writeBytes: (path, bytes) => {

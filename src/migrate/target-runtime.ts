@@ -21,9 +21,14 @@ export interface TargetRuntime {
  * The fallback, used when nothing could be read.
  *
  * Correct as of the worker's `wrangler.jsonc` aliasing `./runtime/php-binary.js` to
- * `php-binary-85.ts`. `tests/target-runtime.spec.ts` reads that alias out of the sibling checkout
- * and fails when the two drift, so this constant is checked against the artifact rather than
- * against itself.
+ * `php-binary-raw.ts`, whose imports name `.interp/php8.5.wasm`.
+ * `tests/target-runtime.spec.ts` follows that alias into the sibling checkout and fails when the
+ * two drift, so this constant is checked against the artifact rather than against itself.
+ *
+ * **The version is in the seam's imports, not in the alias filename.** It used to be readable from
+ * `php-binary-85.ts`, and the seam that ships is `php-binary-raw.ts` since the compressed bundle
+ * limit was removed on 2026-09-04. A check keyed on the filename reads the rename as an absent
+ * checkout and skips.
  *
  * **It is a fallback rather than a fact, and the normal case.** The only route that reports the
  * interpreter version is `/php`, which is diagnostic-gated -- so on a correctly configured

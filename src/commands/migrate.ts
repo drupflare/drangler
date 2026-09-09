@@ -1,7 +1,18 @@
+import type { GlobalOptions } from '../config/globals';
 import type { Context } from '../context';
 import { DranglerError, FindingError, UsageError } from '../errors';
 import { emit, bytes as humanBytes, kv, table } from '../format';
+import {
+	DEFAULT_CHECKPOINT,
+	digestOf,
+	emptyCheckpoint,
+	notePhase,
+	readCheckpoint,
+	writeCheckpoint
+} from '../migrate/checkpoint';
 import { convertDump, DO_STATEMENT_CHARS, type Dialect } from '../migrate/convert';
+import { deltaPlan } from '../migrate/delta';
+import { recoverFiles, writeRecovered } from '../migrate/files';
 import { buildPlan, renderPlan } from '../migrate/plan';
 import type { Direction } from '../migrate/rules';
 import { emptySurvey, runSurvey, surveyPlan, type SiteSurvey } from '../migrate/survey';
@@ -30,6 +41,8 @@ import {
 import { assertUsable, readState, resolveWorkspace, WORKER_PACKAGE } from '../workspace/layout';
 
 export interface SurveyOptions {
+	/** re-run only the steps that have neither a value nor a recorded error */
+	resume?: boolean;
 	host: string;
 	root: string;
 	identity?: string;
@@ -63,7 +76,12 @@ export async function runSurveyCommand(ctx: Context, opts: SurveyOptions): Promi
 		return;
 	}
 
-	const survey = await runSurvey({ transport, now: ctx.now }, opts.host, target.root);
+	// a resume reads the survey it is continuing, so the steps that already answered are skipped
+	const before =
+		opts.resume === true && opts.out !== undefined && ctx.files.exists(opts.out)
+			? (JSON.parse(ctx.files.readText(opts.out)) as SiteSurvey)
+			: null;
+	const survey = await runSurvey({ transport, now: ctx.now }, opts.host, target.root, before);
 	if (opts.out !== undefined)
 		ctx.files.writeText(opts.out, `${JSON.stringify(survey, null, 2)}\n`);
 
@@ -190,13 +208,31 @@ function readOrFail(ctx: Context, path: string): string {
 }
 
 export interface ExportOptions {
-	url: string;
+	/** the deployed worker origin; resolved from `--site` or the config when the flag is absent */
+	url?: string;
 	site?: string;
 	out?: string;
 	all?: boolean;
 	json?: boolean;
 	/** the per-site owner token `/firstrun` returns once as `ownerToken` */
 	token?: string;
+	/** pull the dump in chunks through `?cursor=`, so a dropped connection loses one chunk */
+	chunked?: boolean;
+	/** continue from the cursor a previous run recorded */
+	resume?: boolean;
+	/** where that cursor is recorded; defaults to `.drangler/migration.json` */
+	checkpoint?: string;
+	/** characters per chunk, passed through as `?chunkChars=` */
+	chunkChars?: string | number;
+}
+
+/** one chunk of a cursored dump, and the cursor that follows it */
+interface ExportChunk extends ExportBody {
+	ok?: boolean;
+	done?: boolean;
+	/** opaque; it goes back to the route verbatim */
+	nextCursor?: string | null;
+	cursor?: unknown;
 }
 
 interface ExportBody {
@@ -225,12 +261,21 @@ interface ExportBody {
  * counterpart to this command.
  */
 export async function runExportCommand(ctx: Context, opts: ExportOptions): Promise<void> {
+	if (opts.url === undefined || opts.url.trim() === '') {
+		throw new UsageError(
+			'no site to export from; pass --url, --site, or put a site in a drangler.json'
+		);
+	}
 	const url = new URL('/export', opts.url.startsWith('http') ? opts.url : `https://${opts.url}`);
 	url.searchParams.set('body', '1');
 	url.searchParams.set('site', opts.site ?? 'site');
 	if (opts.all === true) url.searchParams.set('all', '1');
 
 	const token = opts.token ?? ctx.env.DRUPFLARE_OWNER_TOKEN ?? '';
+	if (opts.chunked === true || opts.resume === true) {
+		await exportChunked(ctx, opts, url, token);
+		return;
+	}
 	const response = await ctx.fetch(url.toString(), {
 		headers: token === '' ? {} : { authorization: `Bearer ${token}` }
 	});
@@ -420,8 +465,11 @@ export interface InstallOptions {
 	asset?: string[];
 	/** run `bun run assets:sql` afterwards, which is what makes a landed database ship */
 	repack?: boolean;
-	dryRun?: boolean;
-	json?: boolean;
+	/** report the backup set an earlier run took rather than refusing over it */
+	resume?: boolean;
+	/** where the migration checkpoint lives */
+	checkpoint?: string;
+	globals: GlobalOptions;
 }
 
 /** `<from>=<to>`, where `to` is workspace-relative and may not climb out of the workspace */
@@ -454,7 +502,7 @@ export function parseAssetPair(pair: string, workspace: string): CopyEntry {
  * because replaying somebody's dump is a decision with a different blast radius from copying a file.
  */
 export async function runInstallCommand(ctx: Context, opts: InstallOptions): Promise<void> {
-	const location = resolveWorkspace(ctx, opts);
+	const location = resolveWorkspace(ctx, opts, opts.globals.config);
 	const state = readState(ctx.files, location.path);
 	assertUsable(state);
 	if (!state.checkout) {
@@ -474,14 +522,43 @@ export async function runInstallCommand(ctx: Context, opts: InstallOptions): Pro
 	}
 
 	const plan = planCopy(ctx.files, entries);
-	if (opts.dryRun === true) {
-		emit(ctx.io, opts.json === true, { workspace: location.path, plan, applied: null }, () =>
+	if (opts.globals.dryRun) {
+		emit(ctx.io, opts.globals.json, { workspace: location.path, plan, applied: null }, () =>
 			renderInstall(location.path, plan, null)
 		);
 		return;
 	}
 
+	// A SECOND BACKUP OVER THE FIRST IS THE ONE THAT LOSES THE ORIGINAL. A re-run after a partial
+	// install would copy what the first run already wrote, so the set that could put the site back
+	// is the one from the first run and nothing else
+	const checkpointPath = opts.checkpoint ?? DEFAULT_CHECKPOINT;
+	const existing =
+		readCheckpoint(ctx.files, checkpointPath)?.phases['install']?.backupDir ?? null;
+	if (existing !== null && ctx.files.exists(existing)) {
+		if (opts.resume !== true) {
+			throw new UsageError(
+				`${existing} already holds a backup set from an earlier install; a second one would copy what that run wrote and lose the originals`,
+				`drangler migrate install --resume, or drangler migrate restore --backup ${existing}`
+			);
+		}
+		ctx.io.err(`resuming; the backup set from the first run is at ${existing}`);
+	}
+
 	const result = applyCopy(ctx.files, plan, location.path, ctx.now());
+	if (result.backupDir !== null) {
+		const base =
+			readCheckpoint(ctx.files, checkpointPath) ??
+			emptyCheckpoint('', 'to-worker', ctx.now().toISOString());
+		writeCheckpoint(
+			ctx.files,
+			checkpointPath,
+			notePhase(base, 'install', {
+				state: 'done',
+				backupDir: existing ?? result.backupDir
+			})
+		);
+	}
 	// not conditioned on --db: an --asset can land a database too, and a silently ignored flag is worse
 	if (opts.repack === true) {
 		ctx.io.out(`${location.path}$ bun run assets:sql`);
@@ -498,7 +575,7 @@ export async function runInstallCommand(ctx: Context, opts: InstallOptions): Pro
 		}
 	}
 
-	emit(ctx.io, opts.json === true, { workspace: location.path, plan, applied: result }, () =>
+	emit(ctx.io, opts.globals.json, { workspace: location.path, plan, applied: result }, () =>
 		renderInstall(location.path, plan, result)
 	);
 }
@@ -566,4 +643,292 @@ export async function runRestoreCommand(ctx: Context, opts: RestoreOptions): Pro
 		'',
 		`${entries.length} file(s) restored from ${opts.backup}`
 	]);
+}
+
+/**
+ * Pulls the dump one chunk at a time, so a dropped connection loses a chunk rather than the dump.
+ *
+ * The mechanism is the worker's and it was already there: `/export?cursor=` walks a `DumpCursor` and
+ * the route answers 409 on a shape mismatch, because "two different dumps are being spliced"
+ * produces a file that looks whole and is not. A single unbounded `?body=1` held the whole thing in
+ * memory and had no way back from a failure part-way.
+ *
+ * The terminating observation is THE CURSOR ADVANCING, not a chunk count. A chunk that comes back
+ * with the cursor it was given will come back that way every time, so it is `export-stalled` rather
+ * than a loop that spends its bound.
+ */
+async function exportChunked(
+	ctx: Context,
+	opts: ExportOptions,
+	url: URL,
+	token: string
+): Promise<void> {
+	const path = opts.checkpoint ?? DEFAULT_CHECKPOINT;
+	const checkpoint = opts.resume === true ? readCheckpoint(ctx.files, path) : null;
+	if (opts.resume === true && checkpoint === null) {
+		throw new UsageError(`no checkpoint at ${path}, so there is nothing to resume`);
+	}
+	let cursor = (opts.resume === true ? checkpoint?.phases['export']?.cursor : null) ?? 'start';
+	const parts: string[] = [];
+	let chunks = 0;
+	let statements = 0;
+	let last: ExportChunk = {};
+
+	for (;;) {
+		const chunkUrl = new URL(url.toString());
+		chunkUrl.searchParams.set('cursor', cursor);
+		if (opts.chunkChars !== undefined) {
+			chunkUrl.searchParams.set('chunkChars', String(opts.chunkChars));
+		}
+		const response = await ctx.fetch(chunkUrl.toString(), {
+			headers: token === '' ? {} : { authorization: `Bearer ${token}` }
+		});
+		// the route's own refusal: the options behind this cursor are not the options it was
+		// created under, and continuing would splice two dumps
+		if (response.status === 409) {
+			throw new DranglerError(
+				'export-torn',
+				`${url.origin}/export refused to continue this cursor: ${(await response.text()).trim().slice(0, 300)}`,
+				{ next: 'drangler migrate export --chunked, from the start' }
+			);
+		}
+		if (!response.ok && response.status !== 200) {
+			throw new DranglerError(
+				'export-failed',
+				`${url.origin}/export answered ${response.status} on chunk ${chunks + 1}`
+			);
+		}
+		const chunk = (await response.json()) as ExportChunk;
+		if (typeof chunk.sql !== 'string') {
+			throw new DranglerError('export-failed', 'a chunk carried no `sql`; ask for ?body=1');
+		}
+		parts.push(chunk.sql);
+		statements += chunk.statements ?? 0;
+		chunks++;
+		last = chunk;
+
+		if (chunk.done === true || chunk.nextCursor === null || chunk.nextCursor === undefined) {
+			break;
+		}
+		if (chunk.nextCursor === cursor) {
+			await recordCursor(ctx, path, opts, cursor);
+			throw new DranglerError(
+				'export-stalled',
+				`chunk ${chunks} came back with the cursor it was given, so the dump is not advancing`
+			);
+		}
+		cursor = chunk.nextCursor;
+		ctx.io.err(`chunk ${chunks}, ${statements} statement(s)`);
+		await recordCursor(ctx, path, opts, cursor);
+	}
+
+	const sql = parts.join('');
+	if (opts.out !== undefined) ctx.files.writeText(opts.out, sql);
+	await recordCursor(ctx, path, opts, null);
+
+	emit(
+		ctx.io,
+		opts.json === true,
+		{
+			chunks,
+			statements,
+			chars: sql.length,
+			tables: last.tables ?? null,
+			structureOnly: last.structureOnly ?? null,
+			replayable: last.replayable ?? null,
+			resumed: opts.resume === true,
+			out: opts.out ?? null
+		},
+		() =>
+			kv([
+				['chunks', String(chunks)],
+				['statements', String(statements)],
+				['characters', String(sql.length)],
+				['resumed', opts.resume === true ? 'yes' : 'no'],
+				['written to', opts.out ?? '(not written; pass --out)']
+			])
+	);
+}
+
+/** keeps the cursor where a resume will find it; a null cursor marks the phase done */
+async function recordCursor(
+	ctx: Context,
+	path: string,
+	opts: ExportOptions,
+	cursor: string | null
+): Promise<void> {
+	const existing = readCheckpoint(ctx.files, path);
+	const base = existing ?? emptyCheckpoint('', 'to-vps', ctx.now().toISOString());
+	writeCheckpoint(
+		ctx.files,
+		path,
+		notePhase(base, 'export', {
+			state: cursor === null ? 'done' : 'partial',
+			artifact: opts.out ?? null,
+			cursor,
+			...(cursor === null && opts.out !== undefined
+				? { sha256: await digestOf(ctx.files, opts.out) }
+				: {})
+		})
+	);
+}
+
+export interface DeltaOptions {
+	/** a survey, so contrib entity tables reach the set through the patterns */
+	survey?: string;
+	globals: GlobalOptions;
+}
+
+/**
+ * The second dump's table set, and the one arithmetic step in the whole procedure.
+ *
+ * Prints; it runs nothing. The delta reaches the site through a deploy, exactly as the first pass
+ * does, because the alternative is a route that applies arbitrary SQL to a live object and that is
+ * `/restore` with a smaller blast radius and the same shape.
+ */
+export function runDeltaCommand(ctx: Context, opts: DeltaOptions): void {
+	const discovered =
+		opts.survey === undefined || !ctx.files.exists(opts.survey)
+			? []
+			: tablesFromSurvey(ctx, opts.survey);
+	const plan = deltaPlan(discovered);
+	emit(ctx.io, opts.globals.json, plan, () => [
+		...kv([
+			['tables', String(plan.tables.length)],
+			['excluded', String(plan.excluded.length)],
+			['re-seed', plan.reseed]
+		]),
+		'',
+		'tables',
+		`  ${plan.tables.join(', ')}`,
+		'',
+		'left behind on purpose',
+		...plan.excluded.map((e) => `  ${e.table}: ${e.why}`),
+		'',
+		'steps',
+		...plan.steps.flatMap((step) => [
+			`  ${step.n}. ${step.title}`,
+			...(step.command === null ? [] : [`     $ ${step.command}`]),
+			`     ${step.detail}`
+		])
+	]);
+}
+
+/** the entity tables a survey happened to record, so contrib storage reaches the pattern set */
+function tablesFromSurvey(ctx: Context, path: string): string[] {
+	try {
+		const survey = JSON.parse(ctx.files.readText(path)) as { tables?: string[] };
+		return Array.isArray(survey.tables) ? survey.tables : [];
+	} catch {
+		return [];
+	}
+}
+
+export interface CutoverOptions {
+	checklist?: boolean;
+	globals: GlobalOptions;
+}
+
+/**
+ * The steps a human confirms, and the three things no mechanism catches.
+ *
+ * **It never ticks itself.** A checklist that reports its own items done is a checklist nobody
+ * reads, and every item below is something only the person doing the cutover can observe.
+ */
+export function runCutoverCommand(ctx: Context, opts: CutoverOptions): void {
+	const plan = deltaPlan();
+	const unsafe = [
+		{
+			id: 'writes-after-the-last-read',
+			detail: 'writes the source accepted between the last dump read and maintenance mode. There is no mechanism that catches them; the window exists to make the set empty'
+		},
+		{
+			id: 'a-visitor-mid-form',
+			detail: "their form_build_id was minted against the source's hash_salt and the target mints its own, so the POST fails. Maintenance mode makes that a maintenance page rather than a silent token rejection, which is why the window starts with it"
+		},
+		{
+			id: 'cron-part-way',
+			detail: 'a queue item claimed and not released is claimed on the source forever and absent from the target'
+		}
+	];
+	const report = { steps: plan.steps, unsafe, verdict: null };
+	emit(ctx.io, opts.globals.json, report, () => [
+		'cutover checklist -- nothing here is ticked by drangler',
+		'',
+		...plan.steps.flatMap((step) => [
+			`  [ ] ${step.n}. ${step.title}`,
+			...(step.command === null ? [] : [`         $ ${step.command}`]),
+			`         ${step.detail}`
+		]),
+		'',
+		'what no mechanism catches',
+		...unsafe.flatMap((row) => [`  ${row.id}`, `    ${row.detail}`]),
+		'',
+		'there is no done verdict for any of these; a checklist that ticks itself is one nobody reads'
+	]);
+}
+
+export interface FilesOptions {
+	/** the dump to read `cfw_file_chunk` rows out of */
+	fromDump?: string;
+	/** where the tree lands */
+	out?: string;
+	globals: GlobalOptions;
+}
+
+/**
+ * Writes the managed files in a dump back onto a filesystem.
+ *
+ * The step `export-files` names as missing. The bytes leave in `cfw_file_chunk` and nothing turned
+ * them back into a tree, so a user who acted on the old warning arrived at a VPS with every upload
+ * gone.
+ */
+export function runFilesCommand(ctx: Context, opts: FilesOptions): void {
+	if (opts.fromDump === undefined) {
+		throw new UsageError(
+			'pass --from-dump <file>, a dump written by `drangler migrate export`'
+		);
+	}
+	if (!ctx.files.exists(opts.fromDump)) throw new UsageError(`no dump at ${opts.fromDump}`);
+	const report = recoverFiles(ctx.files.readText(opts.fromDump));
+
+	const written =
+		opts.out === undefined || opts.globals.dryRun
+			? { written: [], bytes: 0 }
+			: writeRecovered(ctx.files, opts.out, report);
+
+	emit(
+		ctx.io,
+		opts.globals.json,
+		{
+			files: report.files.map((f) => ({ uri: f.uri, path: f.path, bytes: f.bytes.length })),
+			incomplete: report.incomplete,
+			totalBytes: report.totalBytes,
+			written: written.written,
+			out: opts.out ?? null
+		},
+		() => {
+			const lines = kv([
+				['files', String(report.files.length)],
+				['bytes', String(report.totalBytes)],
+				['written', opts.out === undefined ? '(not written; pass --out)' : opts.out]
+			]);
+			if (report.incomplete.length > 0) {
+				lines.push('', 'incomplete');
+				for (const row of report.incomplete) {
+					lines.push(
+						`  ${row.uri}: ${row.have} of ${row.expected} chunk(s); this dump is truncated`
+					);
+				}
+			}
+			return lines;
+		}
+	);
+
+	if (report.incomplete.length > 0) {
+		throw new FindingError(
+			'files-incomplete',
+			`${report.incomplete.length} file(s) have missing chunks, so this dump is truncated`
+		);
+	}
 }

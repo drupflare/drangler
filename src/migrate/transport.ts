@@ -37,19 +37,32 @@ export function sshArgs(target: SshTarget, command: string): string[] {
  * `migrate survey --dry-run` build the whole command plan against a live target and print it without
  * a connection.
  */
+export const SSH_ATTEMPTS = 3;
+
+/**
+ * Retries only a TRANSPORT failure, and terminates on an observation rather than on the count.
+ *
+ * ssh exits 255 for everything from a refused connection to a dropped session, and every one of them
+ * is worth one more attempt: the remote command never ran, so a retry cannot double anything. The
+ * terminating observation is **this step produced output** -- any exit code other than 255 means the
+ * command ran and its result is the answer, whatever the answer was.
+ *
+ * A step that fails three times with the same stderr is a `TransportError`, which `runSurvey()`
+ * already records in `survey.errors[]` before carrying on. The bound is the second condition and
+ * never the only one.
+ */
 export function sshTransport(runner: CommandRunner, target: SshTarget): Transport {
 	return {
 		label: destination(target),
 		async exec(command) {
-			const result = await runner.run('ssh', sshArgs(target, command), {
-				timeoutMs: 120_000
-			});
-			if (result.code === 255) {
-				throw new TransportError(
-					`ssh could not connect to ${destination(target)}: ${result.stderr.trim() || 'no detail'}`
-				);
+			let last: CommandResult = { code: 255, stdout: '', stderr: '' };
+			for (let attempt = 1; attempt <= SSH_ATTEMPTS; attempt++) {
+				last = await runner.run('ssh', sshArgs(target, command), { timeoutMs: 120_000 });
+				if (last.code !== 255) return last;
 			}
-			return result;
+			throw new TransportError(
+				`ssh could not connect to ${destination(target)} in ${SSH_ATTEMPTS} attempts: ${last.stderr.trim() || 'no detail'}`
+			);
 		}
 	};
 }

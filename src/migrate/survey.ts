@@ -17,9 +17,25 @@ export interface SiteSurvey {
 	capturedAt: string | null;
 	php: { version: string | null; extensions: string[] };
 	drush: string | null;
-	drupal: { version: string | null; profile: string | null; uri: string | null };
+	drupal: {
+		version: string | null;
+		profile: string | null;
+		uri: string | null;
+		/** the root drush reported; a survey against the wrong one measures a different site */
+		root: string | null;
+	};
 	database: { driver: string | null; name: string | null; bytes: number | null };
 	files: { kb: number | null; count: number | null };
+	/**
+	 * Whether the database answered a trivial query, and how many `file_managed` rows it holds.
+	 *
+	 * Both are CONTROLS rather than measurements. `drush status` reporting no driver and a database
+	 * that refuses a connection produce the same blank field, and zero files on disk means nothing
+	 * until you know whether the site has uploads at all: zero and zero is a site with none, zero
+	 * and four thousand is a missing volume.
+	 */
+	dbAlive: boolean | null;
+	fileRows: number | null;
 	modules: string[];
 	nodes: number | null;
 	imageStyles: number | null;
@@ -79,6 +95,18 @@ export function surveyPlan(root: string): SurveyStep[] {
 				'WHERE table_schema = DATABASE()"',
 			required: false,
 			description: 'database size (MySQL only)'
+		},
+		{
+			id: 'db-alive',
+			command: `${cd} drush sql:query "SELECT 1"`,
+			required: false,
+			description: 'whether the database answers'
+		},
+		{
+			id: 'file-rows',
+			command: `${cd} drush sql:query "SELECT COUNT(*) FROM file_managed"`,
+			required: false,
+			description: 'managed file rows'
 		},
 		{
 			id: 'nodes',
@@ -142,6 +170,8 @@ export interface DrushStatusFields {
 	dbName: string | null;
 	uri: string | null;
 	profile: string | null;
+	/** the root drush bootstrapped, which is not always the one `--root` named */
+	root: string | null;
 }
 
 /** Parses `drush status --format=json`, tolerating both key spellings and a non-JSON body. */
@@ -159,7 +189,8 @@ export function parseDrushStatus(stdout: string): DrushStatusFields | null {
 		dbDriver: statusField(status, 'db-driver', 'dbDriver'),
 		dbName: statusField(status, 'db-name', 'dbName'),
 		uri: statusField(status, 'uri'),
-		profile: statusField(status, 'install-profile', 'installProfile')
+		profile: statusField(status, 'install-profile', 'installProfile'),
+		root: statusField(status, 'root', 'drupal-root', 'drupalRoot')
 	};
 }
 
@@ -209,9 +240,11 @@ export function emptySurvey(host: string, root: string): SiteSurvey {
 		capturedAt: null,
 		php: { version: null, extensions: [] },
 		drush: null,
-		drupal: { version: null, profile: null, uri: null },
+		drupal: { version: null, profile: null, uri: null, root: null },
 		database: { driver: null, name: null, bytes: null },
 		files: { kb: null, count: null },
+		dbAlive: null,
+		fileRows: null,
 		modules: [],
 		nodes: null,
 		imageStyles: null,
@@ -231,11 +264,22 @@ export interface SurveyDeps {
  * without drush still answers `php -v` -- and the rules layer is written to treat an unknown as
  * unknown rather than as a pass.
  */
-export async function runSurvey(deps: SurveyDeps, host: string, root: string): Promise<SiteSurvey> {
-	const survey = emptySurvey(host, root);
+export async function runSurvey(
+	deps: SurveyDeps,
+	host: string,
+	root: string,
+	resumeFrom: SiteSurvey | null = null
+): Promise<SiteSurvey> {
+	const survey = resumeFrom === null ? emptySurvey(host, root) : { ...resumeFrom, host, root };
 	survey.capturedAt = (deps.now ?? (() => new Date()))().toISOString();
+	const settled = resumeFrom === null ? new Set<string>() : settledSteps(resumeFrom);
+	// a step is re-run only when it has NEITHER a value nor a recorded error, because a step that
+	// failed the same way twice will fail the same way a third time and re-running it is what turns
+	// a resume into a restart
+	if (resumeFrom !== null) survey.errors = [...resumeFrom.errors];
 
 	for (const step of surveyPlan(root)) {
+		if (settled.has(step.id)) continue;
 		let result: CommandResult;
 		try {
 			result = await deps.transport.exec(step.command);
@@ -250,11 +294,47 @@ export async function runSurvey(deps: SurveyDeps, host: string, root: string): P
 					detail: `exit ${result.code}: ${result.stderr.trim().split('\n')[0] ?? 'no detail'}`
 				});
 			}
+			// a control that RAN and refused is a measurement, where an absent one is not: the
+			// whole point of `SELECT 1` is separating "no driver reported" from "driver reported,
+			// database refuses", and both would read as null if the failure were dropped
+			if (step.id === 'db-alive') survey.dbAlive = false;
 			continue;
 		}
 		applyStep(survey, step.id, result.stdout);
 	}
 	return survey;
+}
+
+/**
+ * Which steps a resume may skip: the ones that already produced a value or a recorded error.
+ *
+ * Read off the SURVEY rather than off a separate list, so a field that stops being filled by a step
+ * cannot leave the two disagreeing about what was done.
+ */
+export function settledSteps(survey: SiteSurvey): Set<string> {
+	const done = new Set<string>(survey.errors.map((e) => e.id));
+	const has = (id: string, value: unknown) => {
+		if (
+			value !== null &&
+			value !== undefined &&
+			!(Array.isArray(value) && value.length === 0)
+		) {
+			done.add(id);
+		}
+	};
+	has('php-version', survey.php.version);
+	has('php-modules', survey.php.extensions);
+	has('drush-version', survey.drush);
+	has('drush-status', survey.drupal.version);
+	has('modules', survey.modules);
+	has('files-kb', survey.files.kb);
+	has('files-count', survey.files.count);
+	has('db-bytes', survey.database.bytes);
+	has('db-alive', survey.dbAlive);
+	has('file-rows', survey.fileRows);
+	has('nodes', survey.nodes);
+	has('image-styles', survey.imageStyles);
+	return done;
 }
 
 /** Folds one step's stdout into the survey. Split out so a spec can drive a single parser path. */
@@ -275,6 +355,7 @@ export function applyStep(survey: SiteSurvey, id: string, stdout: string): void 
 			survey.drupal.version = status.drupalVersion;
 			survey.drupal.profile = status.profile;
 			survey.drupal.uri = status.uri;
+			survey.drupal.root = status.root;
 			survey.database.driver = status.dbDriver;
 			survey.database.name = status.dbName;
 			return;
@@ -290,6 +371,14 @@ export function applyStep(survey: SiteSurvey, id: string, stdout: string): void 
 			return;
 		case 'db-bytes':
 			survey.database.bytes = parseCount(stdout);
+			return;
+		case 'db-alive':
+			// the query returns the literal 1, and anything at all coming back means the driver
+			// connected; a failed step never reaches here, so absent stays null
+			survey.dbAlive = parseCount(stdout) !== null;
+			return;
+		case 'file-rows':
+			survey.fileRows = parseCount(stdout);
 			return;
 		case 'nodes':
 			survey.nodes = parseCount(stdout);
