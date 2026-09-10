@@ -11,14 +11,18 @@
 <li><a href="../modules/health_probe.html">health/probe</a></li>
 <li><a href="" aria-current="page">KNOWN_HEADER_VERSION</a></li></ul>
 <h1>Variable KNOWN_HEADER_VERSION<code class="tsd-tag">Const</code></h1></div>
-<div class="tsd-signature"><span class="tsd-kind-variable">KNOWN_HEADER_VERSION</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">1</span></div>
+<div class="tsd-signature"><span class="tsd-kind-variable">KNOWN_HEADER_VERSION</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">2</span></div>
 <div class="tsd-comment tsd-typography"><p>The <code>x-cfw-v</code> contract version this build reads.</p>
 <p>The worker bumps it only when a header is RENAMED or REMOVED, never when one is added, so a
 higher number is the only signal that a field read by name here may have moved. Without it a
 renamed header is indistinguishable from a header the response did not set.</p>
+<p><strong>v2 is <code>x-cfw-plan</code> losing its third meaning.</strong> It carried an edge-plan provenance, a compiled
+plan tier and the account's Workers plan, and the last of those moves to
+<code>x-cfw-account-plan</code>. A v1 worker sends neither the new header nor the new version, so
+<a href="../interfaces/health_probe.ProbeResult.html#accountplan" class="tsd-kind-property">ProbeResult.accountPlan</a> reads null there and nothing else changes.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/health/probe.ts#L17">src/health/probe.ts:17</a></li></ul></aside></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/health/probe.ts#L44">src/health/probe.ts:44</a></li></ul></aside></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

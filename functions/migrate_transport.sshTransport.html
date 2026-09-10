@@ -16,10 +16,14 @@
 <li class="">
 <div class="tsd-signature tsd-anchor-link" id="sshtransport"><span class="tsd-kind-call-signature">sshTransport</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">runner</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/host_exec.CommandRunner.html" class="tsd-signature-type tsd-kind-interface">CommandRunner</a><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">target</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/migrate_target.SshTarget.html" class="tsd-signature-type tsd-kind-interface">SshTarget</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/migrate_transport.Transport.html" class="tsd-signature-type tsd-kind-interface">Transport</a><a href="#sshtransport" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>A transport that runs the real <code>ssh</code> binary through the injected runner.</p>
-<p>Constructing one opens nothing; the first <code>exec()</code> is the first contact. That is what lets
-<code>migrate survey --dry-run</code> build the whole command plan against a live target and print it without
-a connection.</p>
+<div class="tsd-comment tsd-typography"><p>Retries only a TRANSPORT failure, and terminates on an observation rather than on the count.</p>
+<p>ssh exits 255 for everything from a refused connection to a dropped session, and every one of them
+is worth one more attempt: the remote command never ran, so a retry cannot double anything. The
+terminating observation is <strong>this step produced output</strong> -- any exit code other than 255 means the
+command ran and its result is the answer, whatever the answer was.</p>
+<p>A step that fails three times with the same stderr is a <code>TransportError</code>, which <code>runSurvey()</code>
+already records in <code>survey.errors[]</code> before carrying on. The bound is the second condition and
+never the only one.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -28,7 +32,7 @@ a connection.</p>
 <li><span><span class="tsd-kind-parameter">target</span>: <a href="../interfaces/migrate_target.SshTarget.html" class="tsd-signature-type tsd-kind-interface">SshTarget</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="../interfaces/migrate_transport.Transport.html" class="tsd-signature-type tsd-kind-interface">Transport</a></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/migrate/transport.ts#L40">src/migrate/transport.ts:40</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/migrate/transport.ts#L54">src/migrate/transport.ts:54</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

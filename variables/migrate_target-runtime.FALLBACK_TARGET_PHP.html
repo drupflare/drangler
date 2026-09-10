@@ -14,16 +14,20 @@
 <div class="tsd-signature"><span class="tsd-kind-variable">FALLBACK_TARGET_PHP</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">&quot;8.5&quot;</span><span class="tsd-signature-symbol"> = &#39;8.5&#39;</span></div>
 <div class="tsd-comment tsd-typography"><p>The fallback, used when nothing could be read.</p>
 <p>Correct as of the worker's <code>wrangler.jsonc</code> aliasing <code>./runtime/php-binary.js</code> to
-<code>php-binary-85.ts</code>. <code>tests/target-runtime.spec.ts</code> reads that alias out of the sibling checkout
-and fails when the two drift, so this constant is checked against the artifact rather than
-against itself.</p>
+<code>php-binary-raw.ts</code>, whose imports name <code>.interp/php8.5.wasm</code>.
+<code>tests/target-runtime.spec.ts</code> follows that alias into the sibling checkout and fails when the
+two drift, so this constant is checked against the artifact rather than against itself.</p>
+<p><strong>The version is in the seam's imports, not in the alias filename.</strong> It used to be readable from
+<code>php-binary-85.ts</code>, and the seam that ships is <code>php-binary-raw.ts</code> since the compressed bundle
+limit was removed on 2026-09-04. A check keyed on the filename reads the rename as an absent
+checkout and skips.</p>
 <p><strong>It is a fallback rather than a fact, and the normal case.</strong> The only route that reports the
 interpreter version is <code>/php</code>, which is diagnostic-gated -- so on a correctly configured
 deployment drangler CANNOT read it, and <code>x-cfw-v</code> does not help: that is the header CONTRACT
 version, bumped when a header is renamed, and it carries nothing about PHP.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/migrate/target-runtime.ts#L33">src/migrate/target-runtime.ts:33</a></li></ul></aside></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/migrate/target-runtime.ts#L38">src/migrate/target-runtime.ts:38</a></li></ul></aside></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

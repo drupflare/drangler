@@ -1,4 +1,4 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>FREE_CEILING | drupflare/drangler - v0.1.0</title><meta name="description" content="Documentation for drupflare/drangler"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script><script async src="../assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>LEVERS | drupflare/drangler - v0.1.0</title><meta name="description" content="Documentation for drupflare/drangler"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script><script async src="../assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
 <div class="tsd-toolbar-contents container"><a href="../index.html" class="title">drupflare/drangler - v0.1.0</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
@@ -8,16 +8,19 @@
 <div class="col-content">
 <div class="tsd-page-title">
 <ul class="tsd-breadcrumb" aria-label="Breadcrumb">
-<li><a href="../modules/workspace_bundle.html">workspace/bundle</a></li>
-<li><a href="" aria-current="page">FREE_CEILING</a></li></ul>
-<h1>Variable FREE_CEILING<code class="tsd-tag">Const</code></h1></div>
-<div class="tsd-signature"><span class="tsd-kind-variable">FREE_CEILING</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">3145728</span><span class="tsd-signature-symbol"> = 3_145_728</span></div>
-<div class="tsd-comment tsd-typography"><p>Free-plan Worker size after gzip, and it is MiB rather than MB: 3 * 1024 * 1024.</p>
-<p>Confirmed twice over in <code>drupflare/worker</code> -- by the API's own <code>code: 10027</code> rejection, and by
-wrangler's reported figure for bundles measured either side of the boundary.</p>
+<li><a href="../modules/cloudflare_config.html">cloudflare/config</a></li>
+<li><a href="" aria-current="page">LEVERS</a></li></ul>
+<h1>Variable LEVERS<code class="tsd-tag">Const</code></h1></div>
+<div class="tsd-signature"><span class="tsd-kind-variable">LEVERS</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <a href="../interfaces/cloudflare_config.Lever.html" class="tsd-signature-type tsd-kind-interface">Lever</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol"> = ...</span></div>
+<div class="tsd-comment tsd-typography"><p>The levers drangler has a command or a check for.</p>
+<p>Deliberately short. <code>worker/docs/configuration.md</code> documents every var the site reads, and a
+second list of all of them here would be a copy that goes stale on the next one the worker adds.
+A lever earns a row when something in drangler acts on it: <code>FILES_PUBLIC_URL</code> has a reachability
+check, <code>SWEEP</code> and <code>SWEEP_ROWS_FRACTION</code> drive <code>drangler sweep</code>, and <code>ASSET_AGGREGATES</code> needs a
+build artifact whose absence makes the lever inert.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/workspace/bundle.ts#L15">src/workspace/bundle.ts:15</a></li></ul></aside></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/cloudflare/config.ts#L283">src/cloudflare/config.ts:283</a></li></ul></aside></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

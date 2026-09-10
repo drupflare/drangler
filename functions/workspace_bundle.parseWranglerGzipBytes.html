@@ -16,20 +16,17 @@
 <li class="">
 <div class="tsd-signature tsd-anchor-link" id="parsewranglergzipbytes"><span class="tsd-kind-call-signature">parseWranglerGzipBytes</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">stdout</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span><a href="#parsewranglergzipbytes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Reads the gzipped bundle size out of wrangler's own output.</p>
-<p>Wrangler prints KiB (<code>gzip: 2818.80 KiB</code>) and the ceiling is in bytes, so the conversion is the
-whole point of this function. <code>drupflare/worker</code>'s report has already quoted one such figure as
-bytes, which overstated the headroom by 67,406.</p>
+<div class="tsd-comment tsd-typography"><p>The gzipped figure, which is reported and no longer compared against anything.</p>
+<p>Kept because every historical measurement in <code>drupflare/worker</code>'s report is expressed in it, so a
+user reading an old number needs the current one in the same unit.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
 <ul class="tsd-parameter-list">
 <li><span><span class="tsd-kind-parameter">stdout</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
-<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span></h4><p>bytes, or <code>undefined</code> when the line is absent, which means the run failed rather than
-that the bundle is small.</p>
-<aside class="tsd-sources">
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/workspace/bundle.ts#L30">src/workspace/bundle.ts:30</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/workspace/bundle.ts#L53">src/workspace/bundle.ts:53</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

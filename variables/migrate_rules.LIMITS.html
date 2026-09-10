@@ -11,7 +11,7 @@
 <li><a href="../modules/migrate_rules.html">migrate/rules</a></li>
 <li><a href="" aria-current="page">LIMITS</a></li></ul>
 <h1>Variable LIMITS<code class="tsd-tag">Const</code></h1></div>
-<div class="tsd-signature"><span class="tsd-kind-variable">LIMITS</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span><br/>    <span class="tsd-kind-property">assetBytes</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">boundParams</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">100</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">imageTransformsPerMonth</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">5000</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">recordBytes</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">2199995</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">rendersPerDayCold</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">1052</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">rendersPerDayWindowed</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">7575</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">statementChars</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">100000</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">visitsPerDay</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">100000</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol"> = ...</span></div>
+<div class="tsd-signature"><span class="tsd-kind-variable">LIMITS</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span><br/>    <span class="tsd-kind-property">assetBytes</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">boundParams</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">100</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">imageTransformsPerMonth</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">5000</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">recordBytes</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">2199995</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">rowsPerDayAlarmChain</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">2777</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">rowsPerDayWindowed</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">10869</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">rowsPerFillCold</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">156</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">rowsPerFillWarm</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">2</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">statementChars</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">100000</span><span class="tsd-signature-symbol">;</span><br/>    <span class="tsd-kind-property">visitsPerDay</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">100000</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol"> = ...</span></div>
 <div class="tsd-comment tsd-typography"><p>The limits for the migration rules.</p>
 <p>Kept as one table so a rule cannot invent a ceiling, and so a figure that moves is corrected in one
 place instead of in every message that mentions it.</p>
@@ -36,12 +36,28 @@ place instead of in every message that mentions it.</p>
 <div class="tsd-comment tsd-typography"><p>one Durable Object SQLite record</p>
 </div></li>
 <li class="tsd-parameter">
-<h5 id="rendersperdaycold"><code class="tsd-tag">Readonly</code><span class="tsd-kind-property">rendersPerDayCold</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">1052</span></h5>
-<div class="tsd-comment tsd-typography"><p>cold regeneration ceiling, bound by rows written</p>
+<h5 id="rowsperdayalarmchain"><code class="tsd-tag">Readonly</code><span class="tsd-kind-property">rowsPerDayAlarmChain</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">2777</span></h5>
+<div class="tsd-comment tsd-typography"><p>The same budget on the alarm chain, which is the tighter of the two by 3.9x.</p>
+<p>Same source. A regeneration driven only by the cron alarm is scored against this rather than
+against the windowed figure.</p>
 </div></li>
 <li class="tsd-parameter">
-<h5 id="rendersperdaywindowed"><code class="tsd-tag">Readonly</code><span class="tsd-kind-property">rendersPerDayWindowed</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">7575</span></h5>
-<div class="tsd-comment tsd-typography"><p>the same ceiling with a fill window amortising the boot</p>
+<h5 id="rowsperdaywindowed"><code class="tsd-tag">Readonly</code><span class="tsd-kind-property">rowsPerDayWindowed</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">10869</span></h5>
+<div class="tsd-comment tsd-typography"><p>Rows written per day on the free plan, inside a fill window.</p>
+<p>This is the meter regeneration is bound by, and it replaces a <code>rendersPerDayCold: 1_052</code> and a
+<code>rendersPerDayWindowed: 7_575</code> that nothing here or in <code>drupflare/worker</code> derived. Score a real
+workload with <code>bun scripts/measure/free-envelope.ts</code> in that repository; the figure is its
+windowed row budget.</p>
+</div></li>
+<li class="tsd-parameter">
+<h5 id="rowsperfillcold"><code class="tsd-tag">Readonly</code><span class="tsd-kind-property">rowsPerFillCold</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">156</span></h5>
+<div class="tsd-comment tsd-typography"><p>The high end of that range, with nothing warm.</p>
+<p><code>tests/integration/rows-per-fill-audit.spec.ts</code> in <code>drupflare/worker</code> pins each class between
+the two. There is no flat figure to quote, so a span is what a plan can honestly print.</p>
+</div></li>
+<li class="tsd-parameter">
+<h5 id="rowsperfillwarm"><code class="tsd-tag">Readonly</code><span class="tsd-kind-property">rowsPerFillWarm</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">2</span></h5>
+<div class="tsd-comment tsd-typography"><p>rows one page fill writes with the bins already warm; the low end of a measured range</p>
 </div></li>
 <li class="tsd-parameter">
 <h5 id="statementchars"><code class="tsd-tag">Readonly</code><span class="tsd-kind-property">statementChars</span><span class="tsd-signature-symbol">: </span><span class="tsd-signature-type">100000</span></h5>
@@ -52,7 +68,7 @@ place instead of in every message that mentions it.</p>
 <div class="tsd-comment tsd-typography"><p>Worker requests per day on the free plan; every visit costs one, cached or not</p>
 </div></li></ul></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/migrate/rules.ts#L35">src/migrate/rules.ts:35</a></li></ul></aside></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/migrate/rules.ts#L73">src/migrate/rules.ts:73</a></li></ul></aside></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

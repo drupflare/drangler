@@ -14,21 +14,26 @@
 <section class="tsd-panel">
 <ul class="tsd-signatures">
 <li class="">
-<div class="tsd-signature tsd-anchor-link" id="resolveworkspace"><span class="tsd-kind-call-signature">resolveWorkspace</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">ctx</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/context.Context.html" class="tsd-signature-type tsd-kind-interface">Context</a><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">opts</span><span class="tsd-signature-symbol">?:</span> <a href="../interfaces/workspace_layout.WorkspaceOptions.html" class="tsd-signature-type tsd-kind-interface">WorkspaceOptions</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/workspace_layout.WorkspaceLocation.html" class="tsd-signature-type tsd-kind-interface">WorkspaceLocation</a><a href="#resolveworkspace" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-signature tsd-anchor-link" id="resolveworkspace"><span class="tsd-kind-call-signature">resolveWorkspace</span><span class="tsd-signature-symbol">(</span><br/>    <span class="tsd-kind-parameter">ctx</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/context.Context.html" class="tsd-signature-type tsd-kind-interface">Context</a><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">opts</span><span class="tsd-signature-symbol">?:</span> <a href="../interfaces/workspace_layout.WorkspaceOptions.html" class="tsd-signature-type tsd-kind-interface">WorkspaceOptions</a><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">config</span><span class="tsd-signature-symbol">?:</span> <a href="../interfaces/config_file.ResolvedConfig.html" class="tsd-signature-type tsd-kind-interface">ResolvedConfig</a><span class="tsd-signature-symbol">,</span><br/><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/workspace_layout.WorkspaceLocation.html" class="tsd-signature-type tsd-kind-interface">WorkspaceLocation</a><a href="#resolveworkspace" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Picks the workspace: the flag, then the environment, then the working directory, then the default.</p>
+<div class="tsd-comment tsd-typography"><p>Picks the workspace: the flag, the environment, either config file, the working directory, the
+default.</p>
+<p>The first four come from <code>config</code>, which already ordered them; <code>--workspace</code> is a program-level
+flag, so it arrives there rather than in a command's own options. <code>opts.workspace</code> is the seam for
+a caller holding no resolved config, which is every spec that drives a command directly.</p>
 <p>The working directory is only taken when it IS a worker checkout, which is what makes
-<code>drangler dev</code> work from inside one without any flag. It sits below the environment variable on
-purpose -- an explicit setting outranks an inference from where the shell happens to be.</p>
+<code>drangler dev</code> work from inside one without any flag. It sits below everything explicit on
+purpose: a setting somebody wrote down outranks an inference from where the shell happens to be.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
 <ul class="tsd-parameter-list">
 <li><span><span class="tsd-kind-parameter">ctx</span>: <a href="../interfaces/context.Context.html" class="tsd-signature-type tsd-kind-interface">Context</a></span></li>
-<li><span><span class="tsd-kind-parameter">opts</span>: <a href="../interfaces/workspace_layout.WorkspaceOptions.html" class="tsd-signature-type tsd-kind-interface">WorkspaceOptions</a><span class="tsd-signature-symbol"> = {}</span></span></li></ul></div>
+<li><span><span class="tsd-kind-parameter">opts</span>: <a href="../interfaces/workspace_layout.WorkspaceOptions.html" class="tsd-signature-type tsd-kind-interface">WorkspaceOptions</a><span class="tsd-signature-symbol"> = {}</span></span></li>
+<li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">config</span>: <a href="../interfaces/config_file.ResolvedConfig.html" class="tsd-signature-type tsd-kind-interface">ResolvedConfig</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="../interfaces/workspace_layout.WorkspaceLocation.html" class="tsd-signature-type tsd-kind-interface">WorkspaceLocation</a></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/workspace/layout.ts#L49">src/workspace/layout.ts:49</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/workspace/layout.ts#L55">src/workspace/layout.ts:55</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

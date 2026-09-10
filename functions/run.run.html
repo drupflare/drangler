@@ -19,6 +19,15 @@
 <div class="tsd-comment tsd-typography"><p>Parses and runs one invocation, returning the exit code instead of taking the process down.</p>
 <p><code>cli.ts</code> is then three lines and every path through the CLI -- including the failures and the help
 output -- is reachable from a spec.</p>
+<p><strong>No arguments prints an orientation rather than commander's help.</strong> The help lists every command
+to somebody who has not decided anything yet; the orientation says what is configured and names
+the three commands worth typing next. <code>--help</code> still reaches the full listing.</p>
+<p><strong>A stack trace is never printed to a user.</strong> An exception that is not a <code>DranglerError</code> is a bug
+in drangler, and the useful half of it is the message; the stack is noise to everybody except the
+person fixing it, and <code>--verbose</code> is how that person asks for it.</p>
+<p><strong>Under <code>--json</code>, stdout parses on the failure path too.</strong> A CI step should not have to branch on
+the exit code before it can parse, so the error object IS the report there and &quot;stdout carries the
+report and nothing else&quot; holds unchanged.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -27,7 +36,7 @@ output -- is reachable from a spec.</p>
 <li><span><span class="tsd-kind-parameter">argv</span>: <span class="tsd-signature-keyword">readonly</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/run.ts#L12">src/run.ts:12</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/run.ts#L36">src/run.ts:36</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

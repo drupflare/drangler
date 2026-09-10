@@ -14,11 +14,11 @@
 <div class="tsd-signature"><span class="tsd-kind-variable">GATES</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">&quot;dev&quot;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">&quot;deploy&quot;</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-keyword">readonly</span> <a href="../types/workspace_validate.CheckId.html" class="tsd-signature-type tsd-kind-type-alias">CheckId</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div>
 <div class="tsd-comment tsd-typography"><p>Which checks each command insists on before it will do its work.</p>
 <p><code>dev</code> and <code>deploy</code> differ on two, and the difference is what each one actually risks.
-<code>wrangler dev</code> bundles locally and never uploads, so the 3 MiB ceiling does not apply to it and a
+<code>wrangler dev</code> bundles locally and never uploads, so the size ceiling does not apply to it and a
 seeded credential in the pack is not published by it. <code>wrangler deploy</code> does both.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/workspace/validate.ts#L33">src/workspace/validate.ts:33</a></li></ul></aside></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/workspace/validate.ts#L38">src/workspace/validate.ts:38</a></li></ul></aside></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

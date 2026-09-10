@@ -13,9 +13,13 @@
 <h1>Variable SERVICE_MODULES<code class="tsd-tag">Const</code></h1></div>
 <div class="tsd-signature"><span class="tsd-kind-variable">SERVICE_MODULES</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div>
 <div class="tsd-comment tsd-typography"><p>Modules that can run but need something the one-click deploy does not provision.</p>
+<p><code>redis</code> and <code>search_api_solr</code> were both refused here as runtime impossibilities and both are
+<code>verified</code> in <code>worker/src/ops/module-table.ts</code>. A refusal keyed on a mechanism the runtime has
+since acquired still reads to a user as a platform limit, so each entry now says what the site
+has to supply instead.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/migrate/rules.ts#L77">src/migrate/rules.ts:77</a></li></ul></aside></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/migrate/rules.ts#L140">src/migrate/rules.ts:140</a></li></ul></aside></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

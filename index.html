@@ -8,7 +8,7 @@
 <div class="col-content">
 <div class="tsd-page-title">
 <h1>drupflare/drangler - v0.1.0</h1></div>
-<div class="tsd-panel tsd-typography"><h1 id="🔧-drangler" class="tsd-anchor-link">🔧 drangler<a href="#🔧-drangler" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1>
+<div class="tsd-panel tsd-typography"><h1 id="drangler" class="tsd-anchor-link">drangler<a href="#drangler" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1>
 <blockquote>
 <p>Start, maintain and migrate a drupflare site, in either direction</p>
 </blockquote>
@@ -16,42 +16,22 @@
 <a href="https://github.com/drupflare/drangler/actions/workflows/prettier.yml"><img src="https://github.com/drupflare/drangler/actions/workflows/prettier.yml/badge.svg" alt="Prettier"></a>
 <a href="https://codecov.io/gh/drupflare/drangler"><img src="https://codecov.io/gh/drupflare/drangler/branch/master/graph/badge.svg" alt="codecov"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a></p>
-<p><strong>Stands a Drupal site up on Cloudflare Workers in one line, moves an existing one on or off, and
-tells you what will break before you start.</strong> Both directions. Four commands write; every other one
-reads.</p>
+<p>Stands a Drupal site up on Cloudflare Workers in one line, moves an existing one on or off, develops
+a module against it, and tells you what will break before you start.</p>
 <hr>
-<h2 id="📋-table-of-contents" class="tsd-anchor-link">📋 Table of Contents<a href="#📋-table-of-contents" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
-<ul>
-<li><a href="#-install">Install</a></li>
-<li><a href="#-quick-start">Quick Start</a></li>
-<li><a href="#-site-lifecycle">Site Lifecycle</a></li>
-<li><a href="#-commands">Commands</a></li>
-<li><a href="#-workspaces">Workspaces</a></li>
-<li><a href="#-validation">Validation</a></li>
-<li><a href="#-migrating-to-workers">Migrating to Workers</a></li>
-<li><a href="#-migrating-back-to-a-vps">Migrating Back to a VPS</a></li>
-<li><a href="#-installing-a-migrated-site">Installing a Migrated Site</a></li>
-<li><a href="#-dialect-conversion">Dialect Conversion</a></li>
-<li><a href="#-cloudflare-access">Cloudflare Access</a></li>
-<li><a href="#-exit-codes">Exit Codes</a></li>
-<li><a href="#-out-of-scope">Out of Scope</a></li>
-<li><a href="#-testing">Testing</a></li>
-<li><a href="#-related-repositories">Related Repositories</a></li>
-<li><a href="#-license">License</a></li>
-</ul>
-<hr>
-<h2 id="📥-install" class="tsd-anchor-link">📥 Install<a href="#📥-install" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
-<pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">add</span><span class="hl-1"> </span><span class="hl-3">-g</span><span class="hl-1"> </span><span class="hl-2">@drupflare/drangler</span>
+<h2 id="install" class="tsd-anchor-link">Install<a href="#install" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">add</span><span class="hl-1"> </span><span class="hl-3">-g</span><span class="hl-1"> </span><span class="hl-2">@drupflare/drangler</span><br/><span class="hl-0">npm</span><span class="hl-1"> </span><span class="hl-2">i</span><span class="hl-1"> </span><span class="hl-3">-g</span><span class="hl-1"> </span><span class="hl-2">@drupflare/drangler</span>
 </code><button type="button">Copy</button></pre>
 
 <p>Or build the single-file binary, which carries its own runtime:</p>
 <pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">build:binary</span><span class="hl-1"> </span><span class="hl-4"># dist/drangler</span>
 </code><button type="button">Copy</button></pre>
 
-<p><code>git</code>, <code>ssh</code> and <code>wrangler</code> are needed on the machine running drangler. <code>drangler doctor</code> reports
-which are present and how to install the ones that are not.</p>
+<p><code>ssh</code> and <code>wrangler</code> are required on the machine running drangler; <code>git</code>, <code>bun</code> and <code>rsync</code> are used
+by some commands and optional for the rest. <code>drangler doctor</code> reports which are present, how to
+install the ones that are not, and which config file supplied each setting.</p>
 <hr>
-<h2 id="🚀-quick-start" class="tsd-anchor-link">🚀 Quick Start<a href="#🚀-quick-start" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="quick-start" class="tsd-anchor-link">Quick Start<a href="#quick-start" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p>A local Drupal to click around in, from nothing:</p>
 <pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">dev</span>
 </code><button type="button">Copy</button></pre>
@@ -59,7 +39,7 @@ which are present and how to install the ones that are not.</p>
 <p>That clones <code>drupflare/worker</code>, downloads the generated Drupal tree and the PHP interpreter, checks
 the result, and runs <code>wrangler dev</code>. Run it again and it reuses the workspace instead of starting
 over. When you like what you see:</p>
-<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">deploy</span>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">deploy</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">site</span><span class="hl-1"> </span><span class="hl-2">claim</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span>
 </code><button type="button">Copy</button></pre>
 
 <p>Moving an existing site starts by reading it:</p>
@@ -74,38 +54,113 @@ over. When you like what you see:</p>
 route, and nothing on disk. <code>health</code> answers &quot;is it up and which tier answered&quot;, which is the one to
 put in a monitor.</p>
 <hr>
-<h2 id="🧭-site-lifecycle" class="tsd-anchor-link">🧭 Site Lifecycle<a href="#🧭-site-lifecycle" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="configuration" class="tsd-anchor-link">Configuration<a href="#configuration" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>Every setting resolves in the same order, most specific first: a flag, then the environment
+variable, then a <code>drangler.json</code> in the nearest ancestor of the working directory, then
+<code>$XDG_CONFIG_HOME/drangler/config.json</code> (or <code>~/.config/drangler/config.json</code>), then the built-in
+default. <code>drangler config where</code> prints which file supplied each value.</p>
+<pre><code class="jsonc"><span class="hl-1">{</span><br/><span class="hl-1">  </span><span class="hl-5">&quot;site&quot;</span><span class="hl-1">: { </span><span class="hl-5">&quot;origin&quot;</span><span class="hl-1">: </span><span class="hl-2">&quot;https://my-site.example&quot;</span><span class="hl-1">, </span><span class="hl-5">&quot;name&quot;</span><span class="hl-1">: </span><span class="hl-2">&quot;site&quot;</span><span class="hl-1"> },</span><br/><span class="hl-1">  </span><span class="hl-5">&quot;module&quot;</span><span class="hl-1">: { </span><span class="hl-5">&quot;root&quot;</span><span class="hl-1">: </span><span class="hl-2">&quot;.&quot;</span><span class="hl-1">, </span><span class="hl-5">&quot;package&quot;</span><span class="hl-1">: </span><span class="hl-2">&quot;mantle2&quot;</span><span class="hl-1"> },</span><br/><span class="hl-1">  </span><span class="hl-5">&quot;workspace&quot;</span><span class="hl-1">: </span><span class="hl-2">&quot;.drupflare/worker&quot;</span><br/><span class="hl-1">}</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>--profile &lt;name&gt;</code> selects a named block inside either file; <code>--config-file &lt;path&gt;</code> replaces the
+search. <code>drangler init</code> writes the file after asking at most five questions, and <code>drangler modify init</code> writes the module half of it.</p>
+<p><strong>The owner token never goes in <code>drangler.json</code>.</strong> That file is committed. It lands in the global
+config under <code>sites[&quot;&lt;origin&gt;&quot;].ownerToken</code> at mode <code>0600</code>, and the commands that write it say where
+it went.</p>
+<p>These flags are inherited by every command:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>stdout is one JSON object, the same one the text is built from</td>
+</tr>
+<tr>
+<td><code>--quiet</code>, <code>-q</code></td>
+<td>suppress progress on stderr; the report still prints</td>
+</tr>
+<tr>
+<td><code>--verbose</code>, <code>-v</code></td>
+<td>every subprocess argv and every request line, on stderr</td>
+</tr>
+<tr>
+<td><code>--site &lt;origin&gt;</code></td>
+<td>the site to act on, always an origin</td>
+</tr>
+<tr>
+<td><code>--site-name &lt;n&gt;</code></td>
+<td>the Durable Object identity inside that site</td>
+</tr>
+<tr>
+<td><code>--profile &lt;name&gt;</code></td>
+<td>which config block to read</td>
+</tr>
+<tr>
+<td><code>--config-file &lt;p&gt;</code></td>
+<td>a config file, which replaces the search</td>
+</tr>
+<tr>
+<td><code>--yes</code>, <code>-y</code></td>
+<td>consent for anything that writes to a live site</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>print the plan, execute nothing</td>
+</tr>
+<tr>
+<td><code>--timeout &lt;ms&gt;</code></td>
+<td>per-request timeout</td>
+</tr>
+<tr>
+<td><code>--token &lt;token&gt;</code></td>
+<td>the owner token; also read from <code>DRUPFLARE_OWNER_TOKEN</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>--site</code> takes an origin and refuses a bare word by naming <code>--site-name</code>, which is the Durable
+Object identity.</p>
+<hr>
+<h2 id="site-lifecycle" class="tsd-anchor-link">Site Lifecycle<a href="#site-lifecycle" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p>What happens between a <code>deploy</code> and a site you can log in to. The same sequence runs for
 <code>drangler dev</code>, the one-click Deploy to Cloudflare button, and <code>wrangler deploy</code> in a checkout.</p>
 <h3 id="first-boot" class="tsd-anchor-link">First Boot<a href="#first-boot" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <p>A fresh site has an empty Durable Object, and the first request is what starts it. Until the packed
 database has finished replaying, every request gets a 503 carrying <code>x-cfw-migrate</code> and
 <code>x-cfw-migrate-state</code>; a browser sees a self-refreshing page and lands on the site by itself.</p>
-<p><strong>Measured on a deployed worker: 4 to 7 polls at 2 s, so 8 to 14 seconds from the first request to
-the first 200.</strong> <code>health</code> calls that <code>warming</code> and exits <code>0</code>, and names the chunk it is on:</p>
+<p>Measured on a deployed worker: 4 to 7 polls at 2 s, so 8 to 14 seconds from the first request to the
+first 200. <code>health</code> calls that <code>warming</code> and exits <code>0</code>, and names the chunk it is on:</p>
 <pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">health</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--skip-edge</span><br/><span class="hl-4"># verdict  warming</span><br/><span class="hl-4"># notes</span><br/><span class="hl-4">#   - replaying the database, chunk 31/62 (running); a fresh site does this once, and a 503</span><br/><span class="hl-4">#     until it finishes is expected</span>
 </code><button type="button">Copy</button></pre>
 
+<p><code>drangler site upgrade</code> polls that to completion and then runs the Drupal update chain, so a deploy
+and the two things that follow it are one command.</p>
 <h3 id="claiming" class="tsd-anchor-link">Claiming<a href="#claiming" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <p>The pack ships an <strong>installed</strong> database, so Drupal's <code>install.php</code> never runs and uid 1 carries a
 hash no password matches. <code>/firstrun</code> is what sets the administrator password, and until it does,
-whoever reaches the URL first can claim the site. A browser navigating to an unclaimed site gets a
-one-click claim page instead of the front page.</p>
-<p><code>status</code> reports the claim state and exits <code>3</code> while the window is open:</p>
-<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">status</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><br/><span class="hl-4"># claimed  unclaimed</span><br/><span class="hl-4"># notes</span><br/><span class="hl-4">#   - nobody has claimed this site: uid 1 has no usable password and whoever reaches the URL</span><br/><span class="hl-4">#     first can set one. POST /firstrun to claim it, and store the adminPass and ownerToken</span><br/><span class="hl-4">#     it returns</span>
+whoever reaches the URL first can claim the site.</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">site</span><span class="hl-1"> </span><span class="hl-2">claim</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--title</span><span class="hl-1"> </span><span class="hl-2">&quot;My Site&quot;</span><span class="hl-1"> </span><span class="hl-3">--save</span><br/><span class="hl-4"># claimed         yes, by this run</span><br/><span class="hl-4"># admin password  &lt;shown once&gt;</span><br/><span class="hl-4"># owner token     &lt;shown once&gt;</span><br/><span class="hl-4"># token saved to  ~/.config/drangler/config.json</span>
 </code><button type="button">Copy</button></pre>
 
-<p>Claim it in the browser, or from a terminal:</p>
-<pre><code class="sh"><span class="hl-0">curl</span><span class="hl-1"> </span><span class="hl-3">-X</span><span class="hl-1"> </span><span class="hl-2">POST</span><span class="hl-1"> </span><span class="hl-2">&quot;https://my-site.example/firstrun&quot;</span><span class="hl-1"> </span><span class="hl-5">\</span><br/><span class="hl-1">  </span><span class="hl-3">-H</span><span class="hl-1"> </span><span class="hl-2">&#39;content-type: application/json&#39;</span><span class="hl-1"> </span><span class="hl-5">\</span><br/><span class="hl-1">  </span><span class="hl-3">-d</span><span class="hl-1"> </span><span class="hl-2">&#39;{&quot;siteName&quot;:&quot;My Site&quot;,&quot;adminMail&quot;:&quot;you@example.com&quot;}&#39;</span>
+<p>The password goes in a JSON body. The route refuses <code>?pass=</code> outright, because a query string lands
+in tail, in observability and in every intermediary between the terminal and the object. <code>--save</code>
+writes the token to the global config; without it the token is printed and nothing is written, which
+is the right answer in a pipe.</p>
+<p><code>site claim</code> exits <code>3</code> when the site was already claimed, so a script can tell &quot;I claimed it&quot; from
+&quot;somebody else did&quot;. <code>status</code> reports the same state before anything is spent:</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">status</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><br/><span class="hl-4"># claimed  unclaimed</span>
 </code><button type="button">Copy</button></pre>
 
-<p>The response carries <strong><code>adminPass</code> and <code>ownerToken</code>, each shown once and stored nowhere.</strong> Save both.
-A site that answered <code>/firstrun</code> before this drangler could ask reports <code>unknown</code> rather than
-<code>unclaimed</code>, because &quot;I could not tell&quot; and &quot;nobody has claimed it&quot; are different answers.</p>
-<h3 id="logging-in-and-the-owner-token" class="tsd-anchor-link">Logging In and the Owner Token<a href="#logging-in-and-the-owner-token" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>A site that answered <code>/firstrun</code> before drangler could ask reports <code>unknown</code> rather than <code>unclaimed</code>,
+because &quot;I could not tell&quot; and &quot;nobody has claimed it&quot; are different answers.</p>
+<h3 id="the-owner-token" class="tsd-anchor-link">The Owner Token<a href="#the-owner-token" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <p>Log in at <code>/user/login</code> as <code>admin</code> with the <code>adminPass</code>. That is the Drupal account.</p>
-<p><strong>The <code>ownerToken</code> is a separate credential and is not a login.</strong> It goes in an <code>Authorization: Bearer</code> header and reaches <code>/export</code>, <code>/health</code>, <code>/setup/cf</code> and <code>/setup/mail</code> without exposing the
-diagnostic routes. drangler reads it from <code>--token</code> or <code>DRUPFLARE_OWNER_TOKEN</code>:</p>
+<p><strong>The <code>ownerToken</code> is a separate credential and is not a login.</strong> It goes in an <code>Authorization: Bearer</code> header and reaches the owner routes without exposing the diagnostic ones. Everything under
+<code>drangler site</code>, <code>drangler heal</code> and <code>drangler modify</code> needs it, and so does <code>migrate export</code>:</p>
 <pre><code class="sh"><span class="hl-3">export</span><span class="hl-1"> </span><span class="hl-6">DRUPFLARE_OWNER_TOKEN</span><span class="hl-1">=...</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">export</span><span class="hl-1"> </span><span class="hl-3">--url</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--out</span><span class="hl-1"> </span><span class="hl-2">worker.sql</span>
 </code><button type="button">Copy</button></pre>
 
@@ -129,12 +184,36 @@ diagnostic routes. drangler reads it from <code>--token</code> or <code>DRUPFLAR
 <td><code>drangler health &lt;target&gt;</code></td>
 </tr>
 <tr>
+<td>Is anything wrong with it?</td>
+<td><code>drangler heal &lt;target&gt;</code></td>
+</tr>
+<tr>
+<td>Is it on the pack that ships today?</td>
+<td><code>drangler reconcile &lt;target&gt;</code></td>
+</tr>
+<tr>
+<td>How much of it has a stored page?</td>
+<td><code>drangler sweep &lt;target&gt;</code></td>
+</tr>
+<tr>
+<td>Is anything wrong with the VPS I am leaving?</td>
+<td><code>drangler doctor --source &lt;target&gt;</code></td>
+</tr>
+<tr>
+<td>Can this site move, and what breaks?</td>
+<td><code>drangler migrate eligibility</code></td>
+</tr>
+<tr>
 <td>Is my machine set up to work on it?</td>
 <td><code>drangler doctor</code></td>
 </tr>
 <tr>
 <td>Will this config deploy?</td>
 <td><code>drangler config check &lt;file&gt;</code></td>
+</tr>
+<tr>
+<td>Which optional levers does it declare?</td>
+<td><code>drangler config levers &lt;file&gt;</code></td>
 </tr>
 <tr>
 <td>Which Cloudflare credential am I using?</td>
@@ -151,6 +230,14 @@ diagnostic routes. drangler reads it from <code>--token</code> or <code>DRUPFLAR
 <tr>
 <td>Move to a newer Drupflare</td>
 <td><code>drangler update [worker]</code></td>
+</tr>
+<tr>
+<td>Deploy and finish the upgrade</td>
+<td><code>drangler site upgrade &lt;target&gt;</code></td>
+</tr>
+<tr>
+<td>Clear a cache</td>
+<td><code>drangler site invalidate &lt;target&gt;</code></td>
 </tr>
 <tr>
 <td>Get my data out</td>
@@ -180,7 +267,444 @@ is the alternative and needs no OAuth client.</li>
 under <strong>Connecting a Cloudflare Account</strong> and <strong>Onboarding a Sending Domain</strong>. drangler does not
 restate the stage vocabulary; that has one implementation, in the worker.</p>
 <hr>
-<h2 id="🔧-commands" class="tsd-anchor-link">🔧 Commands<a href="#🔧-commands" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="modify" class="tsd-anchor-link">Modify<a href="#modify" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p><code>drangler modify</code> develops a custom module against a deployed site. A revision is an immutable,
+content-addressed manifest of one package's files, stored in that site's Durable Object: uploading a
+one-file edit sends one file, and rolling back sends nothing at all.</p>
+<pre><code class="console"><span class="hl-1">$ cd ~/work/mantle2</span><br/><span class="hl-1">$ drangler modify init --site https://my-site.example</span><br/><span class="hl-1">detected      module-project (/work/mantle2/mantle2.info.yml)</span><br/><span class="hl-1">package       mantle2</span><br/><span class="hl-1">mounts to     modules/custom/mantle2</span><br/><span class="hl-1">files         412</span><br/><span class="hl-1">site          https://my-site.example (claimed)</span><br/><span class="hl-1">owner token   set</span><br/><br/><span class="hl-1">wrote</span><br/><span class="hl-1">  /work/mantle2/drangler.json</span><br/><span class="hl-1">  /home/me/.config/drangler/config.json (mode 0600)</span><br/><br/><span class="hl-1">$ drangler modify check --php php --deps</span><br/><span class="hl-1">package     mantle2</span><br/><span class="hl-1">mounts to   modules/custom/mantle2</span><br/><span class="hl-1">files       412 kept, 1908 skipped</span><br/><span class="hl-1">bytes       1.8 MB in 2 batch(es)</span><br/><span class="hl-1">lint        412 of 412 ok (php 8.4.12)</span><br/><span class="hl-1">paths       no collision inside this project</span><br/><br/><span class="hl-1">$ drangler modify upload --message </span><span class="hl-2">&quot;add the streak service&quot;</span><br/><span class="hl-1">package     mantle2</span><br/><span class="hl-1">plan        412 files, 6 not on the site, 406 already there</span><br/><span class="hl-1">rows        6</span><br/><span class="hl-1">uploading   6 blob(s), 41.2 kB, 1 batch(es)</span><br/><span class="hl-1">commit      rev 9f2c1ab4</span><br/><span class="hl-1">verify      kernel booted</span><br/><br/><span class="hl-1">$ drangler modify rollback --yes</span><br/><span class="hl-1">package   mantle2</span><br/><span class="hl-1">active    rev 3d81ee07</span><br/><span class="hl-1">verify    kernel booted</span>
+</code><button type="button">Copy</button></pre>
+
+<table>
+<thead>
+<tr>
+<th>Subcommand</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>modify init [dir]</code></td>
+<td>link a project to a site and write down where the answers went</td>
+</tr>
+<tr>
+<td><code>modify status</code></td>
+<td>what is live on the site, against what is on this disk</td>
+</tr>
+<tr>
+<td><code>modify diff</code></td>
+<td>which files would be sent; exits 3 on a difference</td>
+</tr>
+<tr>
+<td><code>modify check</code></td>
+<td>everything knowable before bytes leave the machine</td>
+</tr>
+<tr>
+<td><code>modify upload</code></td>
+<td>send what the site is missing and make the result live</td>
+</tr>
+<tr>
+<td><code>modify revisions</code></td>
+<td>the stored revisions of a package, newest first</td>
+</tr>
+<tr>
+<td><code>modify activate &lt;rev&gt;</code></td>
+<td>make a stored revision live, with no bytes on the wire</td>
+</tr>
+<tr>
+<td><code>modify rollback</code></td>
+<td>activate the revision before the active one</td>
+</tr>
+<tr>
+<td><code>modify drop &lt;rev&gt;</code></td>
+<td>delete a stored revision and the blobs nothing else names</td>
+</tr>
+<tr>
+<td><code>modify release --tag</code></td>
+<td>upload from a tagged commit, refusing a dirty tree</td>
+</tr>
+<tr>
+<td><code>modify require &lt;name&gt;</code></td>
+<td>install a package from a registry, and optionally turn it on</td>
+</tr>
+<tr>
+<td><code>modify enable &lt;name&gt;</code></td>
+<td>turn a module on, once its files are on the site</td>
+</tr>
+<tr>
+<td><code>modify dev</code></td>
+<td><code>drangler dev --modify .</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>A commit is verified by a real kernel boot.</strong> A module that installs cleanly and fatals on boot
+would take the whole site down, so the site restores the previous file set and the upload exits <code>1</code>
+saying so. A syntax check cannot see that: a missing service fails when the container is built, not
+when the file is written.</p>
+<p>Four project shapes are detected, and detection names the file it decided from. A module or theme
+project, a Drupal source tree (<code>modules/custom/*</code>, <code>themes/custom/*</code>, <code>profiles/custom/*</code> only), a
+bare module directory, and a directory of patches, which is refused by name. Applying a patch needs
+the thing it patches, which lives on the site rather than on the developer's disk; patch the checkout
+and upload the result, or use <code>composer-patches</code> in a source tree and upload the patched directory.</p>
+<p>Contrib is not uploaded. A package with a registry entry belongs to the registry:</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">modify</span><span class="hl-1"> </span><span class="hl-2">require</span><span class="hl-1"> </span><span class="hl-2">drupal/key</span><span class="hl-1"> </span><span class="hl-2">drupal/redis</span><span class="hl-1"> </span><span class="hl-3">--enable</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>drangler dev --modify &lt;dir&gt;</code> mounts a local project into the local dev site and re-uploads on
+change. The dev site's owner token is minted for the process and never written to disk.</p>
+<hr>
+<h2 id="healing" class="tsd-anchor-link">Healing<a href="#healing" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p><code>drangler heal</code> reads the repair ladder, the tripwire findings, the health ledger and the rollback
+decision, and exits <code>3</code> when a site is quarantined or a rollback is pending.</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">heal</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><br/><span class="hl-4"># rung        quarantine</span><br/><span class="hl-4"># code        bridge.asyncify_called</span><br/><span class="hl-4"># strikes     3 of 3</span><br/><span class="hl-4"># since       2026-09-08T04:12:09Z (48m)</span><br/><span class="hl-4"># rollback    no -- quarantined 2880s of 1800s for bridge.asyncify_called</span><br/><span class="hl-4"># advisories  current: nothing outstanding</span><br/><span class="hl-4"># degraded    reduced (rows-written 0.83)</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>--watch</code> re-reads until the site is clean or <code>--wait</code> runs out and writes nothing either way. A
+quarantined site still serves; writes and the fill lane are what stop.</p>
+<h3 id="repairs" class="tsd-anchor-link">Repairs<a href="#repairs" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>Every repair carries the class the worker documents for its route: <strong>safe</strong> changes nothing a visitor
+sees, <strong>rebuild</strong> discards derived state that comes back on its own, <strong>stateful</strong> changes what the
+site serves.</p>
+<table>
+<thead>
+<tr>
+<th>repair</th>
+<th>class</th>
+<th>gate</th>
+<th>blast radius</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--release</code> clear a quarantine</td>
+<td>stateful</td>
+<td><code>--yes</code></td>
+<td>the site serves what quarantine stopped</td>
+</tr>
+<tr>
+<td><code>--replay</code> drive the replay</td>
+<td>stateful</td>
+<td><code>--yes</code></td>
+<td>none; the cursor only advances</td>
+</tr>
+<tr>
+<td><code>--unpin &lt;remote&gt;</code></td>
+<td>stateful</td>
+<td><code>--yes</code></td>
+<td>the poller owns the branch again</td>
+</tr>
+<tr>
+<td><code>--armfill</code> re-arm a fill</td>
+<td>rebuild</td>
+<td><code>--yes</code>, not while degraded</td>
+<td>the rows the drain writes</td>
+</tr>
+<tr>
+<td><code>--invalidate &lt;tags&gt;</code></td>
+<td>rebuild</td>
+<td><code>--yes</code>, not while degraded</td>
+<td>the tagged pages re-render</td>
+</tr>
+<tr>
+<td><code>--bump</code></td>
+<td>rebuild</td>
+<td><code>--yes</code>, not while degraded</td>
+<td><strong>the whole site re-renders</strong></td>
+</tr>
+<tr>
+<td><code>site updb --steps &lt;n&gt;</code></td>
+<td>stateful</td>
+<td><code>--yes</code> + a snapshot decision</td>
+<td>one site's schema</td>
+</tr>
+</tbody>
+</table>
+<p>A site already shedding load refuses the rebuild class with the driver named, because spending the
+meter it is already shedding on is how a repair becomes the outage. A beat of the update chain needs
+<code>--snapshot &lt;dir&gt;</code> or <code>--no-snapshot</code> on top of consent, and there is no default: <code>updbRollback()</code>
+exists on the worker and no route reaches it, so the snapshot is the only rollback a CLI has.</p>
+<p><code>--unpin</code> reaches no network. <code>unpreview</code> re-syncs to the branch head and needs the remote to answer,
+so a remote that is down holds its own pin in place while a pinned site takes no pushes and no polls.
+Releasing without a sync leaves the site serving what it already serves and gives the poller the
+branch back, so the next successful poll converges it.</p>
+<p><code>--auto</code> is the closest thing to unattended repair. It performs only the repairs that may run
+unattended, still needs <code>--yes</code>, and stops at the first that may not:</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">heal</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--auto</span><span class="hl-1"> </span><span class="hl-3">--yes</span>
+</code><button type="button">Copy</button></pre>
+
+<p><strong>A withdrawn replica lane is not on this list and does not need to be.</strong> A lane that withdrew asks
+the primary for a fresh copy itself and the primary queues it, so there is nothing to drive.
+<code>/replica</code> stays diagnostic-only, and lane state is read through <code>/health</code> and <code>/serve-stats</code>.</p>
+<p>Three things stay on the site by design. A rollback is a decision the object makes with a dwell timer
+and a restore point it can see, and <code>heal</code> prints that decision and its reason without offering to
+override it. Point-in-time recovery reaches a 30-day window with no undo and is diagnostic-only.
+Recycling the interpreter has to happen between invocations, so a request that triggered one would
+hold both allocations at once.</p>
+<hr>
+<h2 id="reconciling" class="tsd-anchor-link">Reconciling<a href="#reconciling" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>The Drupal pack delivers at provisioning and never again, so a fix that lands in it reaches new sites
+and no existing one. A site records which pack version it has reached; <code>drangler reconcile</code> reports
+what it still owes and drives the steps it owes.</p>
+<pre><code class="console"><span class="hl-1">$ drangler reconcile my-site.example</span><br/><span class="hl-1">site         https://my-site.example</span><br/><span class="hl-1">version      1 of 2 (1 behind)</span><br/><span class="hl-1">outstanding  1 owed, 1 deferred, 0 failed</span><br/><br/><span class="hl-1">step                     since  state     detail</span><br/><span class="hl-1">-----------------------  -----  --------  -----------------------------------------------</span><br/><span class="hl-1">page-max-age             1      applied   page cache max_age</span><br/><span class="hl-1">bake-clock               1      deferred  never claimed, so there is no real birthday yet</span><br/><span class="hl-1">container-driver-digest  2      owed      driver digest moved; 4 container rows to drop</span><br/><br/><span class="hl-1">notes</span><br/><span class="hl-1">  - the alarm chain drives one step per firing on its own; --run drives one now, --all drives until the site drives nothing</span><br/><span class="hl-1">  - a deferred step cannot be decided yet and waiting is correct</span>
+</code><button type="button">Copy</button></pre>
+
+<p>The site's alarm chain already drives a step per firing, so an owed step is a site converging rather
+than a fault, and the status view exits 0. <code>--run</code> drives one step now; <code>--all</code> drives until the site
+answers that it drove nothing, or a step reports <code>failed</code>.</p>
+<p>Each step is an observation of the site's end state, asked before the step runs and again after, so
+a site provisioned after a fix is marked done without doing any work. Five states appear:</p>
+<table>
+<thead>
+<tr>
+<th>state</th>
+<th>what it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>applied</code></td>
+<td>the site ran it, or already matched</td>
+</tr>
+<tr>
+<td><code>satisfied</code></td>
+<td>the end state matches and nothing has to run</td>
+</tr>
+<tr>
+<td><code>owed</code></td>
+<td>the site does not match yet</td>
+</tr>
+<tr>
+<td><code>deferred</code></td>
+<td>it cannot be decided yet, and waiting is correct</td>
+</tr>
+<tr>
+<td><code>failed</code></td>
+<td>it ran and left the site still owing it</td>
+</tr>
+</tbody>
+</table>
+<p>A <code>deferred</code> step is not a problem: two of the shipped steps compare against the moment the site was
+claimed, and an unclaimed site has no such moment. A <code>failed</code> step is, and it exits 3 with the site's
+own detail. So does a run that asked for a step and got none while the site is still behind, which is
+<code>reconcile-refused</code>: the site says why, and the two reasons are <code>RECONCILE</code> switched off and a replica
+lane, which serves a copy and reconciles nothing.</p>
+<p>The version a run reports is the version reached, not the version that ships. A step that has spent
+its three attempts stops being retried and stays visible here instead of owning the alarm chain.</p>
+<hr>
+<h2 id="coverage" class="tsd-anchor-link">Coverage<a href="#coverage" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>Page coverage is demand-driven: a URL renders when somebody asks for it, and that visitor waits. The
+sweep enumerates the addressable space from the site's <code>router</code> and entity tables, ranks it by
+observed views then recency then path depth, and queues the top of the list for the fill batch the
+alarm already runs. It queues and never renders.</p>
+<pre><code class="console"><span class="hl-1">$ drangler sweep my-site.example</span><br/><span class="hl-1">site            https://my-site.example</span><br/><span class="hl-1">sweep           on</span><br/><span class="hl-1">coverage        120 of 500 addressable (24.0%), 380 pending</span><br/><span class="hl-1">last step       refused</span><br/><span class="hl-1">queued          0</span><br/><span class="hl-1">bound by        daily-cap</span><br/><span class="hl-1">reason          the sweep&#39;s 25% share of today is spent (12408 rows over 762 pages); resumes at 00:00 UTC</span><br/><span class="hl-1">cost            0 rows, 0 DO request(s)</span><br/><span class="hl-1">last queued at  2026-09-04T15:33:20.000Z</span><br/><span class="hl-1">spent today     12408 rows over 762 pages</span><br/><br/><span class="hl-1">notes</span><br/><span class="hl-1">  - the sweep&#39;s declared share of today is spent; it resumes at 00:00 UTC</span><br/><span class="hl-1">  - the sweep queues and never renders; the fill batch the alarm already runs drains what it queued</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>bound by</code> and <code>reason</code> come from the site's governor, so a step that queued nothing says which of
+six bounds stopped it rather than reporting an empty result:</p>
+<table>
+<thead>
+<tr>
+<th>bound</th>
+<th>what stopped it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>floor</code></td>
+<td>a daily meter is past the point where the quota ladder stops cron</td>
+</tr>
+<tr>
+<td><code>daily-cap</code></td>
+<td>the declared share of today is spent; it resumes at 00:00 UTC</td>
+</tr>
+<tr>
+<td><code>remaining</code></td>
+<td>the share of what is left this step is spent</td>
+</tr>
+<tr>
+<td><code>batch</code></td>
+<td>one step queues at most one fill batch</td>
+</tr>
+<tr>
+<td><code>backlog</code></td>
+<td>the fill queue still has work, so the sweep yields to it</td>
+</tr>
+<tr>
+<td><code>covered</code></td>
+<td>every addressable path is stored, queued or proven unstorable</td>
+</tr>
+</tbody>
+</table>
+<p><code>floor</code> exits 3, because it is the one an operator acts on: the site is spending enough of a daily
+meter that the ladder has already stopped cron, the queue and image regeneration. The other five are
+the governor working and exit 0.</p>
+<p>The sweep is off unless the site sets <code>SWEEP</code> to anything other than <code>0</code>, and it spends at most
+<code>SWEEP_ROWS_FRACTION</code> of each daily meter, 0.25 by default and clamped to 0.01-0.5. The <code>sweep</code> line
+reads the site's own switch, so a sweep that is off and one that is on with no step yet are two
+different answers rather than one empty report.</p>
+<p><code>--run</code> forces a step off the interval the alarm chain waits out, and the report says whether it got
+one: a forced call that took no step is showing you an earlier firing, and the site names the reason.</p>
+<hr>
+<h2 id="optional-levers" class="tsd-anchor-link">Optional Levers<a href="#optional-levers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p><code>drangler config levers &lt;file&gt;</code> reads the optional levers out of a wrangler config and reports the
+state of each. Every one is off by default and the site is correct without it, so an unset lever is
+reported rather than warned about; <code>config check</code> is where a deployment is scored.</p>
+<pre><code class="console"><span class="hl-1">$ drangler config levers wrangler.jsonc --check</span><br/><span class="hl-1">config  wrangler.jsonc</span><br/><br/><span class="hl-1">lever                declared               state</span><br/><span class="hl-1">-------------------  ---------------------  ---------------------------------------------------------</span><br/><span class="hl-1">FILES_PUBLIC_URL     https://files.example  mirrored public files are linked at https://files.example</span><br/><span class="hl-1">ASSET_AGGREGATES     unset                  a stored page keeps the tags Drupal emitted</span><br/><span class="hl-1">SWEEP                1                      on</span><br/><span class="hl-1">SWEEP_ROWS_FRACTION  unset                  0.25 of each daily meter</span><br/><br/><span class="hl-1">files origin  https://files.example</span><br/><span class="hl-1">answered      yes, HTTP 404</span><br/><br/><span class="hl-1">notes</span><br/><span class="hl-1">  - any status counts as an answer here; an R2 bucket origin has no object at / and a 404 there is normal</span>
+</code><button type="button">Copy</button></pre>
+
+<p><strong><code>FILES_PUBLIC_URL</code> is an option, not a recommendation.</strong> Unset, every file is served through the
+Worker, which is correct and costs one Worker request per file. Set to an R2 custom domain fronting
+the <code>FILES</code> bucket, a public file that has already mirrored is linked at that origin and costs no
+Worker request. A <code>private://</code> file never gets the external URL at any setting, and a public file
+that has not mirrored yet keeps its Worker URL. Nothing else in drangler depends on it.</p>
+<p><code>--check</code> requests the configured origin and reports what answered. Any status counts as an answer: a
+bucket origin holds no object at <code>/</code>, so a 404 there proves DNS, TLS and the custom domain are
+working. An origin that does not answer is reported and the command still exits 0, because the site
+serves those files through the Worker either way.</p>
+<p><code>ASSET_AGGREGATES</code> substitutes the build's per-library CSS and JS aggregates into a stored page, and
+only the value <code>1</code> turns it on. It needs <code>bun run assets:agg</code> to have written <code>assets/agg/</code>; without
+that manifest no library matches and the substitution changes nothing, which the report notes when
+the lever is on and the manifest is not beside the assets directory.</p>
+<p>Anything else in <code>vars</code> is echoed as declared, without a verdict. A var whose name looks like a
+credential is reported as <code>set</code> and never printed.</p>
+<p><strong>This reads the config, so it reports what a deployment declares.</strong> <code>ASSET_AGGREGATES</code> is the one of
+the four on the worker's <code>KV_OVERRIDABLE</code> list, so a <code>settings</code> key in the <code>CONFIG_KV</code> namespace can
+turn it on or off on a running site without a redeploy, and that override wins over the value here.
+The other three reach the site only as deployed vars.</p>
+<hr>
+<h2 id="eligibility" class="tsd-anchor-link">Eligibility<a href="#eligibility" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p><code>drangler migrate eligibility</code> answers whether a site can move in a given direction today, and what
+would have to change first. Four verdicts, and the fourth is why the exit set has four values.</p>
+<table>
+<thead>
+<tr>
+<th>verdict</th>
+<th>means</th>
+<th>exit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GO</code></td>
+<td>no blocker, no warning, and every criterion reached a measurement</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>GO WITH CHANGES</code></td>
+<td>no blocker, at least one warning, every criterion measured</td>
+<td><code>3</code></td>
+</tr>
+<tr>
+<td><code>NO</code></td>
+<td>at least one blocker</td>
+<td><code>3</code></td>
+</tr>
+<tr>
+<td>no verdict</td>
+<td>a criterion could not be measured at all</td>
+<td><code>1</code></td>
+</tr>
+</tbody>
+</table>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">eligibility</span><span class="hl-1"> </span><span class="hl-3">--survey</span><span class="hl-1"> </span><span class="hl-2">survey.json</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">eligibility</span><span class="hl-1"> </span><span class="hl-3">--to</span><span class="hl-1"> </span><span class="hl-2">vps</span><span class="hl-1"> </span><span class="hl-3">--survey</span><span class="hl-1"> </span><span class="hl-2">survey.json</span><span class="hl-1"> </span><span class="hl-3">--json</span>
+</code><button type="button">Copy</button></pre>
+
+<p>A criterion that could not be measured is exit <code>1</code>, never a <code>GO</code> with a caveat. <code>--assume-worst</code>
+scores each one as a blocker and produces a <code>NO</code> with a reason, for a script that must have an
+answer. <strong>Every finding names the field it was read from</strong>, so a verdict can be followed back to a
+byte.</p>
+<p>The <code>to vps</code> direction reads a real <code>/export</code> envelope: whether the route is reachable with the owner
+token, whether the worker itself calls the dump replayable, which tables come back as schema, and how
+many <code>cfw_file_chunk</code> rows are in it. It also emits the substitution table as data, because a user
+changes every entry by hand:</p>
+<table>
+<thead>
+<tr>
+<th>what the site runs on drupflare</th>
+<th>what a VPS uses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Drupal\drupflare\Cache\CfwCacheBackendFactory</code></td>
+<td><code>cache.backend.database</code></td>
+</tr>
+<tr>
+<td><code>Drupal\drupflare\Lock\CfwLockBackend</code></td>
+<td><code>Drupal\Core\Lock\DatabaseLockBackend</code></td>
+</tr>
+<tr>
+<td><code>Drupal\drupflare\Plugin\Mail\CfwMail</code></td>
+<td><code>php_mail</code>, or the <code>smtp</code> module</td>
+</tr>
+<tr>
+<td>the <code>cfw_do_sqlite</code> driver block in <code>settings.php</code></td>
+<td>a real <code>$databases</code> entry</td>
+</tr>
+</tbody>
+</table>
+<p><code>drangler migrate eligibility --to vps --json</code> carries the whole list.</p>
+<hr>
+<h2 id="migrating-under-traffic" class="tsd-anchor-link">Migrating Under Traffic<a href="#migrating-under-traffic" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>A migration that assumes a quiet source is a migration for a site nobody uses. What makes it safe is
+a read-only window with a delta pass that narrows it, not a delta pass that removes it.</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">cutover</span><span class="hl-1"> </span><span class="hl-3">--checklist</span>
+</code><button type="button">Copy</button></pre>
+
+<p>That prints the steps and ticks none of them. Every item is something only the person doing the
+cutover can observe, and a checklist that ticks itself is one nobody reads.</p>
+<p>The second dump carries the tables Drupal's own state inventory calls authoritative, minus the ones
+that must never cross:</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">delta</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>sessions</code> is dropped and everybody logs in again; rows minted on the source are signed against a
+different <code>hash_salt</code>, so on the target they neither work nor fail visibly. <code>semaphore</code>, <code>flood</code>,
+<code>queue</code> and <code>batch</code> go for their own reasons, each printed with the table.</p>
+<p><strong><code>sequences</code> is copied and then re-seeded.</strong> That is the one arithmetic step in the procedure and
+the one that fails silently if it is skipped: the first new node on the target collides with a row
+the delta brought over, and nothing errors until the two meet. <code>migrate delta</code> prints the statement.</p>
+<p>Three things no mechanism catches, and the checklist says so rather than implying otherwise: writes
+the source accepted between the last dump read and maintenance mode, a visitor mid-form whose
+<code>form_build_id</code> was minted against the source's salt, and anything the source's cron was part way
+through.</p>
+<h3 id="resuming" class="tsd-anchor-link">Resuming<a href="#resuming" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>Every long step records where it got to, in <code>.drangler/migration.json</code>:</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">survey</span><span class="hl-1"> </span><span class="hl-3">--host</span><span class="hl-1"> </span><span class="hl-2">deploy@old.example</span><span class="hl-1"> </span><span class="hl-3">--root</span><span class="hl-1"> </span><span class="hl-2">/var/www/html</span><span class="hl-1"> </span><span class="hl-3">--out</span><span class="hl-1"> </span><span class="hl-2">survey.json</span><span class="hl-1"> </span><span class="hl-3">--resume</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">export</span><span class="hl-1"> </span><span class="hl-3">--chunked</span><span class="hl-1"> </span><span class="hl-3">--out</span><span class="hl-1"> </span><span class="hl-2">worker.sql</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">export</span><span class="hl-1"> </span><span class="hl-3">--resume</span><span class="hl-1"> </span><span class="hl-3">--out</span><span class="hl-1"> </span><span class="hl-2">rest.sql</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">install</span><span class="hl-1"> </span><span class="hl-3">--db</span><span class="hl-1"> </span><span class="hl-2">site.sqlite</span><span class="hl-1"> </span><span class="hl-3">--resume</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>export --chunked</code> pulls the dump through the worker's own cursor, so a dropped connection loses a
+chunk rather than the dump. A resume against a checkpoint from a different migration exits <code>2</code> and
+names both fingerprints; there is no <code>--force</code>, because two migrations spliced together produce a
+database that looks whole and is not.</p>
+<p>Every retry terminates on an OBSERVATION rather than on a count. An export chunk that comes back with
+the cursor it was given is <code>export-stalled</code>; an updb beat that leaves the cursor where it was is
+<code>updb-stalled</code>; ssh retries only a transport failure and stops the moment the step produced output.</p>
+<hr>
+<h2 id="diagnosing" class="tsd-anchor-link">Diagnosing<a href="#diagnosing" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p><code>drangler doctor</code> is unchanged and looks at nothing on disk. Two flags widen it:</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">doctor</span><span class="hl-1"> </span><span class="hl-3">--source</span><span class="hl-1"> </span><span class="hl-2">deploy@old.example</span><span class="hl-1"> </span><span class="hl-3">--root</span><span class="hl-1"> </span><span class="hl-2">/var/www/html</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">doctor</span><span class="hl-1"> </span><span class="hl-3">--site</span><span class="hl-1"> </span><span class="hl-2">https://my-site.example</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>--source</code> runs the same read-only survey <code>migrate survey</code> issues and scores what came back: a dead
+PHP, an absent drush, a Drupal that did not bootstrap, a database that reported a driver and then
+refused a connection, a files directory that is not there, and a root drush bootstrapped somewhere
+else. None of them is auto-repairable, because drangler is read-only against a VPS by construction.</p>
+<p><code>--site</code> reads every owner route that reports a state and scores thirteen of them. <strong>A check that did
+not run gets its own block</strong>: an owner route that did not answer and a check that passed are
+different facts, and collapsing them is what makes a report a guess.</p>
+<hr>
+<h2 id="errors" class="tsd-anchor-link">Errors<a href="#errors" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>Every error carries a code, an exit, whether a retry could work, and what to run next.</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">status</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--json</span><br/><span class="hl-4"># {&quot;ok&quot;:false,&quot;error&quot;:{&quot;code&quot;:&quot;probe&quot;,&quot;message&quot;:&quot;...&quot;,&quot;retryable&quot;:true,&quot;next&quot;:null}}</span>
+</code><button type="button">Copy</button></pre>
+
+<p>Under <code>--json</code> stdout parses on the failure path too, so a CI step does not have to branch on the
+exit code before it can parse. <code>retryable</code> is about the operation rather than the network: a 503 from
+a warming site is retryable, a 401 is not. <code>next</code> is a command, never advice.</p>
+<p>No stack traces. An exception that is not one drangler raised becomes <code>internal</code> with its message and
+a line saying <code>--verbose</code> prints the rest.</p>
+<hr>
+<h2 id="commands" class="tsd-anchor-link">Commands<a href="#commands" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <table>
 <thead>
 <tr>
@@ -189,6 +713,10 @@ restate the stage vocabulary; that has one implementation, in the worker.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>init</code></td>
+<td>Connect this machine to a site and write down where it went</td>
+</tr>
 <tr>
 <td><code>build</code></td>
 <td>Clone <code>drupflare/worker</code> and build it into a deployable tree</td>
@@ -215,15 +743,55 @@ restate the stage vocabulary; that has one implementation, in the worker.</p>
 </tr>
 <tr>
 <td><code>doctor</code></td>
-<td>Preflight the toolchain and the Cloudflare credential</td>
+<td>Preflight the toolchain, the credential and the config resolution</td>
 </tr>
 <tr>
 <td><code>health &lt;target&gt;</code></td>
 <td>Probe a deployed worker or a VPS Drupal and report what answered</td>
 </tr>
 <tr>
+<td><code>heal &lt;target&gt;</code></td>
+<td>Report the repair ladder, and perform the repairs a route allows</td>
+</tr>
+<tr>
+<td><code>reconcile &lt;target&gt;</code></td>
+<td>What a site still owes the shipping pack, and drive the steps</td>
+</tr>
+<tr>
+<td><code>sweep &lt;target&gt;</code></td>
+<td>Coverage of the addressable space, and what the governor decided</td>
+</tr>
+<tr>
+<td><code>site claim &lt;target&gt;</code></td>
+<td>Mint the administrator password and the owner token</td>
+</tr>
+<tr>
+<td><code>site updb &lt;target&gt;</code></td>
+<td>Read the Drupal update chain, and drive one beat of it</td>
+</tr>
+<tr>
+<td><code>site invalidate</code></td>
+<td>Purge a site cache, by tag or by bumping the generation</td>
+</tr>
+<tr>
+<td><code>site upgrade &lt;target&gt;</code></td>
+<td>Deploy, wait for the replay, then run the update chain</td>
+</tr>
+<tr>
+<td><code>modify …</code></td>
+<td>Develop a module against a site, one revision at a time</td>
+</tr>
+<tr>
 <td><code>config check &lt;file&gt;</code></td>
 <td>Score a wrangler config against known-bad deployments</td>
+</tr>
+<tr>
+<td><code>config levers &lt;file&gt;</code></td>
+<td>The optional levers a config declares, and the state of each</td>
+</tr>
+<tr>
+<td><code>config where</code></td>
+<td>Which file supplied each setting, and which files were searched</td>
 </tr>
 <tr>
 <td><code>cf whoami</code></td>
@@ -240,6 +808,22 @@ restate the stage vocabulary; that has one implementation, in the worker.</p>
 <tr>
 <td><code>secrets scan &lt;paths...&gt;</code></td>
 <td>Find credentials in a dump or a tree, without printing them</td>
+</tr>
+<tr>
+<td><code>migrate eligibility</code></td>
+<td>Can this site move in this direction today, and what would change</td>
+</tr>
+<tr>
+<td><code>migrate delta</code></td>
+<td>The second dump table set, and the re-seed that fails silently</td>
+</tr>
+<tr>
+<td><code>migrate cutover</code></td>
+<td>The steps a human confirms, ticked by nobody</td>
+</tr>
+<tr>
+<td><code>migrate files</code></td>
+<td>Write the managed files in a dump back onto a filesystem</td>
 </tr>
 <tr>
 <td><code>migrate survey</code></td>
@@ -268,15 +852,20 @@ restate the stage vocabulary; that has one implementation, in the worker.</p>
 </tbody>
 </table>
 <p>Every command takes <code>--json</code> and prints the same object its text render is built from.</p>
-<p><strong><code>build</code>, <code>dev</code>, <code>deploy</code>, <code>update</code> and <code>migrate install</code> are the five that write.</strong> The first four
-write to a local workspace and to your own Cloudflare account through your own <code>wrangler</code>; the last
-writes to a workspace and backs up anything it replaces first. Nothing in drangler deletes a file or
-a directory.</p>
+<p><strong>What writes, and where.</strong> <code>build</code>, <code>migrate install</code> and <code>update</code> write to a local workspace;
+<code>dev</code> and <code>deploy</code> hand the terminal to your own <code>wrangler</code>. <code>site</code>, <code>heal --release</code>, <code>modify</code>,
+<code>reconcile --run</code> and <code>sweep --run</code> write to a live site, each needs the owner token, and each one
+that changes what visitors get needs <code>--yes</code> as well. Nothing in drangler deletes a file or a
+directory.</p>
+<p><code>reconcile --run</code> and <code>sweep --run</code> are the two exceptions to the <code>--yes</code> rule, and both do exactly
+what the site's own alarm chain does unattended: drive one reconciliation step, take one sweep step.
+A consent flag on either would gate an operator out of accelerating work the site is already doing on
+its own schedule.</p>
 <hr>
-<h2 id="📁-workspaces" class="tsd-anchor-link">📁 Workspaces<a href="#📁-workspaces" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="workspaces" class="tsd-anchor-link">Workspaces<a href="#workspaces" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p>A workspace is a checkout of <a href="https://github.com/drupflare/worker"><code>drupflare/worker</code></a> with its
-generated tree in place: 22 MB of Drupal packs and the PHP 8.5 interpreter, neither of which is in
-the repository. <code>drangler build</code> produces one in four steps, of which <code>refresh</code> is opt-in.</p>
+generated tree in place: the Drupal packs and the PHP interpreter, neither of which is in the
+repository. <code>drangler build</code> produces one in four steps, of which <code>refresh</code> is opt-in.</p>
 <table>
 <thead>
 <tr>
@@ -319,7 +908,7 @@ URL, which is how a fork or an offline copy is used.</p>
 uncommitted changes in it. <code>--force</code> re-runs <code>install</code> and <code>hydrate</code>; it never re-clones, because
 that would mean deleting a tree.</p>
 <hr>
-<h2 id="✅-validation" class="tsd-anchor-link">✅ Validation<a href="#✅-validation" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="validation" class="tsd-anchor-link">Validation<a href="#validation" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p><code>drangler validate</code> runs five checks against a workspace. Each one reports a fix, and a check that
 could not be made is reported as such rather than as a pass.</p>
 <table>
@@ -353,7 +942,7 @@ could not be made is reported as such rather than as a pass.</p>
 </tr>
 <tr>
 <td><code>bundle</code></td>
-<td><code>wrangler deploy --dry-run</code> fits the 3 MiB free-plan ceiling</td>
+<td><code>wrangler deploy --dry-run</code> fits the Worker size limit</td>
 <td>deploy</td>
 </tr>
 </tbody>
@@ -363,12 +952,12 @@ never uploads: the size ceiling does not apply to it and it publishes no pack. <
 subset; <code>--skip-validate</code> on <code>dev</code> or <code>deploy</code> bypasses the gate entirely.</p>
 <p>The size figure is the one <code>wrangler deploy</code> prints, not a local gzip. The interpreter list is read
 out of the config's own <code>php-binary</code> alias and the seam it points at, so a checkout whose alias
-resolves to the fallback binary is reported rather than deployed at 710,410 bytes over the ceiling.
-The pack check runs the checkout's own <code>assets:scrub:check</code>; drangler does not open the pack.</p>
+resolves to the fallback binary is reported rather than deployed. The pack check runs the checkout's
+own <code>assets:scrub:check</code>; drangler does not open the pack.</p>
 <p>Exit <code>3</code> means a check ran and found something, and <code>1</code> means a check could not run. A CI step can
 read the status instead of grepping the output.</p>
 <hr>
-<h2 id="🚚-migrating-to-workers" class="tsd-anchor-link">🚚 Migrating to Workers<a href="#🚚-migrating-to-workers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="migrating-to-workers" class="tsd-anchor-link">Migrating to Workers<a href="#migrating-to-workers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p><code>migrate survey</code> runs ten read-only commands over SSH and folds them into one record: PHP version and
 loaded extensions, Drupal version and install profile, database driver and size, the public files
 directory, the enabled module list, the node count and the image style count.</p>
@@ -398,12 +987,12 @@ mechanism:</p>
 <tr>
 <td><code>incompatible-modules</code></td>
 <td>blocker</td>
-<td>Redis, Memcache, MongoDB, ImageMagick: raw TCP or a process spawn</td>
+<td>Memcache, MongoDB and ImageMagick: a daemon or a process spawn</td>
 </tr>
 <tr>
 <td><code>service-modules</code></td>
 <td>warning</td>
-<td>Solr and Backup &amp; Migrate: runnable, but nothing provisions them</td>
+<td>Redis, Solr, Backup &amp; Migrate: runnable, nothing provisions them</td>
 </tr>
 <tr>
 <td><code>php-version</code></td>
@@ -433,7 +1022,7 @@ mechanism:</p>
 <tr>
 <td><code>regeneration-ceiling</code></td>
 <td>varies</td>
-<td>nodes against 1,052 renders/day cold, 7,575 with a fill window</td>
+<td>nodes against the free plan's rows-written budget</td>
 </tr>
 <tr>
 <td><code>drush-absent</code></td>
@@ -458,7 +1047,7 @@ reports it and that route is diagnostic-gated, so on a correctly configured depl
 read and the plan says <code>assumed</code>. <code>--target-php &lt;version&gt;</code> states it; <code>--site &lt;origin&gt;</code> reads it from
 a deployment that does expose it. A figure that was not measured is never printed as though it was.</p>
 <hr>
-<h2 id="🔙-migrating-back-to-a-vps" class="tsd-anchor-link">🔙 Migrating Back to a VPS<a href="#🔙-migrating-back-to-a-vps" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="migrating-back-to-a-vps" class="tsd-anchor-link">Migrating Back to a VPS<a href="#migrating-back-to-a-vps" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">plan</span><span class="hl-1"> </span><span class="hl-3">--to</span><span class="hl-1"> </span><span class="hl-2">vps</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">export</span><span class="hl-1"> </span><span class="hl-3">--url</span><span class="hl-1"> </span><span class="hl-2">drupflare.example</span><span class="hl-1"> </span><span class="hl-3">--out</span><span class="hl-1"> </span><span class="hl-2">worker.sql</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">convert</span><span class="hl-1"> </span><span class="hl-3">--from</span><span class="hl-1"> </span><span class="hl-2">sqlite</span><span class="hl-1"> </span><span class="hl-3">--to</span><span class="hl-1"> </span><span class="hl-2">mysql</span><span class="hl-1"> </span><span class="hl-3">--in</span><span class="hl-1"> </span><span class="hl-2">worker.sql</span><span class="hl-1"> </span><span class="hl-3">--out</span><span class="hl-1"> </span><span class="hl-2">vps.sql</span>
 </code><button type="button">Copy</button></pre>
 
@@ -466,10 +1055,10 @@ a deployment that does expose it. A figure that was not measured is never printe
 about that path are worth knowing before relying on it:</p>
 <ul>
 <li><strong><code>/export</code> needs the site owner token.</strong> It sits on the owner tier: pass <code>--token</code>, or set
-<code>DRUPFLARE_OWNER_TOKEN</code>. The token is minted per site and returned once by <code>/firstrun</code> as
-<code>ownerToken</code>. Without one the route answers 401 with a <code>WWW-Authenticate: Bearer</code> challenge, and
-drangler reports that as a missing credential rather than a missing route. <code>/restore</code> and <code>/sql</code>
-remain diagnostic-only, which is why there is no import counterpart to this command.</li>
+<code>DRUPFLARE_OWNER_TOKEN</code>. The token is minted per site and returned once by <code>drangler site claim</code>.
+Without one the route answers 401 with a <code>WWW-Authenticate: Bearer</code> challenge, and drangler reports
+that as a missing credential rather than a missing route. <code>/restore</code> and <code>/sql</code> remain
+diagnostic-only, which is why there is no import counterpart to this command.</li>
 <li><strong>Some tables come back as schema with no rows.</strong> Which ones is reported in the envelope's
 <code>structureOnly</code> field and printed verbatim; drangler does not restate the rule. <code>--all</code> includes
 their rows, and the worker answers 409 when that produces a dump it knows cannot be replayed.</li>
@@ -480,7 +1069,7 @@ the object mints one per site. A restored VPS needs its own, and links minted by
 validating.</li>
 </ul>
 <hr>
-<h2 id="📦-installing-a-migrated-site" class="tsd-anchor-link">📦 Installing a Migrated Site<a href="#📦-installing-a-migrated-site" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="installing-a-migrated-site" class="tsd-anchor-link">Installing a Migrated Site<a href="#installing-a-migrated-site" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p><code>migrate convert</code> writes a dump; <code>migrate install</code> puts the result into a workspace and backs up
 whatever it replaces.</p>
 <pre><code class="sh"><span class="hl-0">sqlite3</span><span class="hl-1"> </span><span class="hl-2">site.sqlite</span><span class="hl-1"> &lt; </span><span class="hl-2">vps.sql</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">migrate</span><span class="hl-1"> </span><span class="hl-2">install</span><span class="hl-1"> </span><span class="hl-3">--db</span><span class="hl-1"> </span><span class="hl-2">site.sqlite</span><span class="hl-1"> </span><span class="hl-3">--repack</span>
@@ -505,7 +1094,7 @@ set before it writes any of it.</li>
 </code><button type="button">Copy</button></pre>
 
 <hr>
-<h2 id="🔄-dialect-conversion" class="tsd-anchor-link">🔄 Dialect Conversion<a href="#🔄-dialect-conversion" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="dialect-conversion" class="tsd-anchor-link">Dialect Conversion<a href="#dialect-conversion" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p><code>migrate convert</code> reads a <code>mysqldump</code> or a SQLite dump and writes the other. It refuses rather than
 guesses: an unconvertible statement is an error naming the statement, and <code>--skip-unsupported</code>
 downgrades that to a recorded skip.</p>
@@ -602,7 +1191,7 @@ breach it is a property of the site, so the ceiling is the rule rather than a ta
 length, a dropped <code>FULLTEXT</code> index, a SQLite <code>NUMERIC</code> given an invented scale, and a MySQL key
 narrowed to the first 191 characters of a text column, which changes what uniqueness means.</p>
 <hr>
-<h2 id="🔑-cloudflare-access" class="tsd-anchor-link">🔑 Cloudflare Access<a href="#🔑-cloudflare-access" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="cloudflare-access" class="tsd-anchor-link">Cloudflare Access<a href="#cloudflare-access" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p><code>cf whoami</code> resolves the credential in the order wrangler itself resolves it: <code>CLOUDFLARE_API_TOKEN</code>
 first, then the <code>wrangler login</code> OAuth session. When there is neither it says which command to run.</p>
 <p><code>cf workers</code> lists the account's workers and compares them against a saved baseline:</p>
@@ -617,7 +1206,7 @@ and no <code>durableObject</code> event: tail has been measured dropping those s
 Observability API reported the same invocations, so a capture in that shape is an instrument failure
 rather than a measurement.</p>
 <hr>
-<h2 id="🚦-exit-codes" class="tsd-anchor-link">🚦 Exit Codes<a href="#🚦-exit-codes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="exit-codes" class="tsd-anchor-link">Exit Codes<a href="#exit-codes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <table>
 <thead>
 <tr>
@@ -645,13 +1234,15 @@ rather than a measurement.</p>
 </tbody>
 </table>
 <hr>
-<h2 id="🚫-out-of-scope" class="tsd-anchor-link">🚫 Out of Scope<a href="#🚫-out-of-scope" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="out-of-scope" class="tsd-anchor-link">Out of Scope<a href="#out-of-scope" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <ul>
 <li><strong>It does not delete.</strong> No command removes a file, a directory, a worker or a remote object.
 <code>build --force</code> re-runs the build steps and never re-clones; a workspace holding something other
 than a worker checkout is refused rather than cleared.</li>
 <li><strong>It does not hold a Cloudflare deploy credential.</strong> <code>deploy</code> runs your <code>wrangler</code>, which uses the
 login you already have. drangler never reads it.</li>
+<li><strong>It does not force a rollback.</strong> A site refuses one far more often than it agrees, and every
+refusal names its mechanism. <code>heal</code> prints the decision and stops there.</li>
 <li><strong>It does not write to a remote host.</strong> The survey command plan is read-only by construction, and
 there is no counterpart to <code>migrate export</code> that posts to <code>/restore</code>.</li>
 <li><strong>It does not move a public files tree.</strong> <code>migrate plan</code> emits the <code>rsync</code> line; those bytes are
@@ -663,30 +1254,27 @@ inside a checkout of it.</li>
 and a second copy would drift from it. The pack check runs that repository's own scrubber.</li>
 </ul>
 <hr>
-<h2 id="🧪-testing" class="tsd-anchor-link">🧪 Testing<a href="#🧪-testing" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="testing" class="tsd-anchor-link">Testing<a href="#testing" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p>Two lanes. The gate is hermetic; the integration lane needs Docker.</p>
-<pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">typecheck</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test</span><span class="hl-1"> </span><span class="hl-4"># no network, no daemon</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:coverage</span><br/><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e</span><span class="hl-1">       </span><span class="hl-4"># 35 assertions across 5 specs, against a real Drupal</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e:clone</span><span class="hl-1"> </span><span class="hl-4"># the clone lane alone; no Docker, about ten seconds</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">e2e:down</span><span class="hl-1">       </span><span class="hl-4"># remove the containers and their volumes</span>
+<pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">typecheck</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test</span><span class="hl-1"> </span><span class="hl-4"># no network, no daemon</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:coverage</span><br/><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e</span><span class="hl-1">       </span><span class="hl-4"># against a real Drupal</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">test:e2e:clone</span><span class="hl-1"> </span><span class="hl-4"># the clone lane alone; no Docker, about ten seconds</span><br/><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">e2e:down</span><span class="hl-1">       </span><span class="hl-4"># remove the containers and their volumes</span>
 </code><button type="button">Copy</button></pre>
 
-<p><strong>547 passing</strong> in the gate at <strong>98.33% statements</strong>, with every external effect behind an injected
-seam: the terminal, the filesystem, subprocesses, <code>fetch</code>, and the environment. No gate test opens a
-socket, reaches a VPS, contacts Cloudflare, or clones a repository. The workspace commands are
-covered against a scripted runner whose build steps land the files they really produce, so the gate
-scores itself against a tree the build made rather than against an empty directory.</p>
-<p><strong>35 passing</strong> in the integration lane, which boots MariaDB and a real Drupal 11 in Docker, runs the
-survey over a real SSH connection, and drives a real Durable Object under <code>wrangler dev</code>. Both
-migration directions are asserted byte for byte, and the comparator reads hex through a different
-path from the one that moved the data. Alongside it, the clone lane builds a workspace out of the
-published <code>drupflare/worker</code> with the real runner and the real filesystem, which is the only place
-<code>git clone</code>, <code>bun install</code> and the interpreter alias are read from the thing that ships rather than
-from a fixture. Three more assertions cover hydrating a release payload and wait on the first tag.
-<code>tests/e2e/README.md</code> covers the topology, the seed corpus and its gaps, and the planted defects
-that prove the lane can fail.</p>
-<p>Two requirements, two gates, two jobs in <code>.github/workflows/e2e.yml</code>. Each skips when what it needs
-is absent and fails when the lane declares it: <code>REQUIRE_DOCKER=1</code> for the Drupal half,
-<code>REQUIRE_CLONE=1</code> for the clone half.</p>
+<p>The gate covers argument parsing, config resolution, workspace resolution, step ordering, every
+check's verdict and every command's report, with every external effect behind an injected seam: the
+terminal, the filesystem, subprocesses, <code>fetch</code>, and the environment. No gate test opens a socket,
+reaches a VPS, contacts Cloudflare, or clones a repository.</p>
+<p>The integration lane boots MariaDB and a real Drupal 11 in Docker, runs the survey over a real SSH
+connection, and drives a real Durable Object under <code>wrangler dev</code>. Both migration directions are
+asserted byte for byte, and the comparator reads hex through a different path from the one that moved
+the data. Alongside it, the clone lane builds a workspace out of the published <code>drupflare/worker</code>
+with the real runner and the real filesystem, and the modify lane uploads a module into a site
+running under <code>wrangler dev</code> and reads it back. <code>tests/e2e/README.md</code> covers the topology, the seed
+corpus and its gaps, and the planted defects that prove the lane can fail.</p>
+<p>Each lane skips when what it needs is absent and fails when the lane declares it: <code>REQUIRE_DOCKER=1</code>
+for the Drupal half, <code>REQUIRE_CLONE=1</code> for the clone and modify halves, <code>REQUIRE_SIBLINGS=1</code> for the
+checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <hr>
-<h2 id="🔗-related-repositories" class="tsd-anchor-link">🔗 Related Repositories<a href="#🔗-related-repositories" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="related-repositories" class="tsd-anchor-link">Related Repositories<a href="#related-repositories" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <table>
 <thead>
 <tr>
@@ -718,7 +1306,7 @@ is absent and fails when the lane declares it: <code>REQUIRE_DOCKER=1</code> for
 </tbody>
 </table>
 <hr>
-<h2 id="📄-license" class="tsd-anchor-link">📄 License<a href="#📄-license" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<h2 id="license" class="tsd-anchor-link">License<a href="#license" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p>MIT (c) Gregory Mitchell 2026. See <a href="media/LICENSE">LICENSE</a>.</p>
 </div></div>
 <div class="col-sidebar">
@@ -735,32 +1323,47 @@ is absent and fails when the lane declares it: <code>REQUIRE_DOCKER=1</code> for
 <div class="tsd-theme-toggle"><label class="settings-label" for="tsd-theme">Theme</label><select id="tsd-theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div></details></div>
 <details open class="tsd-accordion tsd-page-navigation"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg>
 <h3>On This Page</h3></summary>
-<div class="tsd-accordion-details"><a href="#🔧-drangler"><span>🔧 drangler</span></a>
+<div class="tsd-accordion-details"><a href="#drangler"><span>drangler</span></a>
 <ul>
-<li><a href="#📋-table-of-contents"><span>📋 <wbr/>Table of <wbr/>Contents</span></a></li>
-<li><a href="#📥-install"><span>📥 <wbr/>Install</span></a></li>
-<li><a href="#🚀-quick-start"><span>🚀 <wbr/>Quick <wbr/>Start</span></a></li>
-<li><a href="#🧭-site-lifecycle"><span>🧭 <wbr/>Site <wbr/>Lifecycle</span></a></li>
+<li><a href="#install"><span>Install</span></a></li>
+<li><a href="#quick-start"><span>Quick <wbr/>Start</span></a></li>
+<li><a href="#configuration"><span>Configuration</span></a></li>
+<li><a href="#site-lifecycle"><span>Site <wbr/>Lifecycle</span></a></li>
 <li>
 <ul>
 <li><a href="#first-boot"><span>First <wbr/>Boot</span></a></li>
 <li><a href="#claiming"><span>Claiming</span></a></li>
-<li><a href="#logging-in-and-the-owner-token"><span>Logging <wbr/>In and the <wbr/>Owner <wbr/>Token</span></a></li>
+<li><a href="#the-owner-token"><span>The <wbr/>Owner <wbr/>Token</span></a></li>
 <li><a href="#running-day-to-day"><span>Running <wbr/>Day to <wbr/>Day</span></a></li>
 <li><a href="#connecting-cloudflare-and-sending-mail"><span>Connecting <wbr/>Cloudflare and <wbr/>Sending <wbr/>Mail</span></a></li></ul></li>
-<li><a href="#🔧-commands"><span>🔧 <wbr/>Commands</span></a></li>
-<li><a href="#📁-workspaces"><span>📁 <wbr/>Workspaces</span></a></li>
-<li><a href="#✅-validation"><span>✅ <wbr/>Validation</span></a></li>
-<li><a href="#🚚-migrating-to-workers"><span>🚚 <wbr/>Migrating to <wbr/>Workers</span></a></li>
-<li><a href="#🔙-migrating-back-to-a-vps"><span>🔙 <wbr/>Migrating <wbr/>Back to a <wbr/>VPS</span></a></li>
-<li><a href="#📦-installing-a-migrated-site"><span>📦 <wbr/>Installing a <wbr/>Migrated <wbr/>Site</span></a></li>
-<li><a href="#🔄-dialect-conversion"><span>🔄 <wbr/>Dialect <wbr/>Conversion</span></a></li>
-<li><a href="#🔑-cloudflare-access"><span>🔑 <wbr/>Cloudflare <wbr/>Access</span></a></li>
-<li><a href="#🚦-exit-codes"><span>🚦 <wbr/>Exit <wbr/>Codes</span></a></li>
-<li><a href="#🚫-out-of-scope"><span>🚫 <wbr/>Out of <wbr/>Scope</span></a></li>
-<li><a href="#🧪-testing"><span>🧪 <wbr/>Testing</span></a></li>
-<li><a href="#🔗-related-repositories"><span>🔗 <wbr/>Related <wbr/>Repositories</span></a></li>
-<li><a href="#📄-license"><span>📄 <wbr/>License</span></a></li></ul></div></details></div>
+<li><a href="#modify"><span>Modify</span></a></li>
+<li><a href="#healing"><span>Healing</span></a></li>
+<li>
+<ul>
+<li><a href="#repairs"><span>Repairs</span></a></li></ul></li>
+<li><a href="#reconciling"><span>Reconciling</span></a></li>
+<li><a href="#coverage"><span>Coverage</span></a></li>
+<li><a href="#optional-levers"><span>Optional <wbr/>Levers</span></a></li>
+<li><a href="#eligibility"><span>Eligibility</span></a></li>
+<li><a href="#migrating-under-traffic"><span>Migrating <wbr/>Under <wbr/>Traffic</span></a></li>
+<li>
+<ul>
+<li><a href="#resuming"><span>Resuming</span></a></li></ul></li>
+<li><a href="#diagnosing"><span>Diagnosing</span></a></li>
+<li><a href="#errors"><span>Errors</span></a></li>
+<li><a href="#commands"><span>Commands</span></a></li>
+<li><a href="#workspaces"><span>Workspaces</span></a></li>
+<li><a href="#validation"><span>Validation</span></a></li>
+<li><a href="#migrating-to-workers"><span>Migrating to <wbr/>Workers</span></a></li>
+<li><a href="#migrating-back-to-a-vps"><span>Migrating <wbr/>Back to a <wbr/>VPS</span></a></li>
+<li><a href="#installing-a-migrated-site"><span>Installing a <wbr/>Migrated <wbr/>Site</span></a></li>
+<li><a href="#dialect-conversion"><span>Dialect <wbr/>Conversion</span></a></li>
+<li><a href="#cloudflare-access"><span>Cloudflare <wbr/>Access</span></a></li>
+<li><a href="#exit-codes"><span>Exit <wbr/>Codes</span></a></li>
+<li><a href="#out-of-scope"><span>Out of <wbr/>Scope</span></a></li>
+<li><a href="#testing"><span>Testing</span></a></li>
+<li><a href="#related-repositories"><span>Related <wbr/>Repositories</span></a></li>
+<li><a href="#license"><span>License</span></a></li></ul></div></details></div>
 <div class="site-menu">
 <nav class="tsd-navigation"><a href="modules.html">drupflare/drangler - v0.1.0</a>
 <ul class="tsd-small-nested-navigation" id="tsd-nav-container">

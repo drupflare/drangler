@@ -15,12 +15,13 @@
 <div class="tsd-comment tsd-typography"><p>What drangler shells out to, and which command needs each.</p>
 <p><code>ssh</code> and <code>wrangler</code> are required because half the surface is unusable without them. <code>php</code> and
 <code>drush</code> are not listed at all: they are needed on the VPS being surveyed, not on this machine.</p>
-<p><code>git</code> was dropped when <code>status</code> stopped scanning source checkouts. Nothing here shells out to it
-any more, and a preflight that demands a tool the CLI never runs is a false failure on a user's
-machine -- which is the whole class of bug this command exists to avoid producing.</p>
+<p><code>git</code> is OPTIONAL and it is back. It was dropped when <code>status</code> stopped scanning source checkouts,
+and <code>build</code> and <code>modify</code> reach for it again: <code>build</code> clones the worker, and <code>modify release</code>
+reads a tag and refuses a dirty tree. Optional rather than required, because a preflight that
+demands a tool most of the surface never runs is a false failure on a user's machine.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/3c4b3aa18a90599f677324d7045de190133e689e/src/commands/doctor.ts#L35">src/commands/doctor.ts:35</a></li></ul></aside></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/commands/doctor.ts#L48">src/commands/doctor.ts:48</a></li></ul></aside></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
