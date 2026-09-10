@@ -70,6 +70,14 @@ export interface SiteInputs {
 	claimed: 'claimed' | 'unclaimed' | 'unknown';
 	/** whether a workspace was given, which is what the container-cid check needs */
 	workspace: boolean;
+	/**
+	 * The pack's `VERSIONS_HASH` and the cid on the workspace's `cache_container` row.
+	 *
+	 * Null when no workspace was given or either artifact was unreadable. THE CHECK THIS FEEDS WAS
+	 * ADVERTISED AND NEVER WRITTEN: `site.container-cid-stale` appeared only in `siteUnchecked()`, so
+	 * passing `--workspace` took it off that list without anything running in its place.
+	 */
+	container: { packHash: string; rowCid: string } | null;
 }
 
 function finding(
@@ -219,6 +227,20 @@ export function siteFindings(input: SiteInputs): SiteFinding[] {
 				'error',
 				'nobody has claimed this site: uid 1 has no usable password and whoever reaches the URL first can set one',
 				'/firstrun .configured'
+			)
+		);
+	}
+
+	// the cid embeds the hash, so `includes` is the comparison; the row also carries the OS and the
+	// services.yml path, which is why this is not an equality test
+	if (input.container !== null && !input.container.rowCid.includes(input.container.packHash)) {
+		found.push(
+			finding(
+				'site.container-cid-stale',
+				'warning',
+				`the packed container row is keyed to a different dependency set than the pack (pack ${input.container.packHash}), so every first kernel boot rebuilds a 482 KB container`,
+				'workspace: assets/drupal-pf against cache_container.cid',
+				'rebuild'
 			)
 		);
 	}

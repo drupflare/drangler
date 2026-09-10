@@ -1,4 +1,7 @@
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { readContainerCid } from '../src/commands/doctor';
 import type { ProbeResult } from '../src/health/probe';
 import { summariseHealth } from '../src/health/repair';
 import {
@@ -69,6 +72,7 @@ function inputs(over: Partial<SiteInputs> = {}): SiteInputs {
 		modify: { packages: [] },
 		claimed: 'claimed',
 		workspace: true,
+		container: null,
 		...over
 	};
 }
@@ -190,6 +194,25 @@ describe('one state at a time', () => {
 		expect(found[0]).toMatchObject({ id: 'site.revision-half-applied', severity: 'error' });
 	});
 
+	it('site.container-cid-stale, which was advertised and never implemented', () => {
+		// it appeared only in `siteUnchecked()`, so passing --workspace took it off that list with
+		// nothing running in its place. The cid embeds the hash alongside the OS and the services.yml
+		// path, so the comparison is a substring rather than equality
+		const stale = {
+			packHash: 'bb620d1eb8df7bc8',
+			rowCid: 'service_container:prod:d87c6ada93448a4f::Linux:a:1:{i:0;s:34:"/drupal/sites/default/services.yml";}'
+		};
+		expect(ids({ container: stale })).toEqual(['site.container-cid-stale']);
+
+		const agreeing = {
+			packHash: 'bb620d1eb8df7bc8',
+			rowCid: 'service_container:prod:bb620d1eb8df7bc8::Linux:a:1:{i:0;s:34:"/drupal/sites/default/services.yml";}'
+		};
+		expect(ids({ container: agreeing })).toEqual([]);
+		// and no workspace reports nothing rather than a false stale
+		expect(ids({ container: null })).toEqual([]);
+	});
+
 	it('site.unclaimed, which is the one anybody can still take', () => {
 		expect(ids({ claimed: 'unclaimed' })).toEqual(['site.unclaimed']);
 		expect(ids({ claimed: 'unknown' })).toEqual([]);
@@ -235,5 +258,33 @@ describe('what to type next', () => {
 			[`drangler heal ${ORIGIN} --armfill --yes`]
 		);
 		expect(siteNext(ORIGIN, [])).toEqual([]);
+	});
+});
+
+describe('readContainerCid, against a real worker checkout', () => {
+	const WORKER = resolve(import.meta.dirname, '..', '..', 'worker');
+	const have =
+		existsSync(join(WORKER, 'assets/drupal-pf/core.pf.bin')) &&
+		existsSync(join(WORKER, 'assets/drupal/site.sqlite'));
+
+	/**
+	 * The READER, which the finding test cannot reach.
+	 *
+	 * `siteFindings` takes `container` as an input, so every assertion above passes on a reader that
+	 * returns null for everything. That is the shape this check was already guilty of once: it was
+	 * advertised in `siteUnchecked()` and never implemented.
+	 */
+	it.skipIf(!have)('reads the pack hash and the row cid off disk', () => {
+		const read = readContainerCid(WORKER);
+		expect(read, 'no reading from a checkout that has both artifacts').not.toBeNull();
+		expect(read?.packHash).toMatch(/^[0-9a-f]{16}$/);
+		expect(read?.rowCid).toContain('service_container:prod:');
+		// this checkout is expected to AGREE, so the finding must not fire on it
+		expect(read?.rowCid).toContain(read?.packHash ?? 'no-hash');
+		expect(siteFindings(inputs({ container: read })).map((f) => f.id)).toEqual([]);
+	});
+
+	it('answers null for a directory that is not a worker checkout', () => {
+		expect(readContainerCid(resolve(import.meta.dirname))).toBeNull();
 	});
 });

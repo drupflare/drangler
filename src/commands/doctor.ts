@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { inflateRawSync } from 'node:zlib';
 import { resolveAuth } from '../cloudflare/auth';
 import type { ResolvedConfig, Setting } from '../config/file';
 import type { Context } from '../context';
@@ -311,8 +314,46 @@ async function scoreSite(ctx: Context, opts: DoctorOptions): Promise<SiteReport>
 		git: git === null ? null : { remotes: readRemotes(git) },
 		modify: modify === null ? null : { packages: readPackages(modify) },
 		claimed: claim.state,
-		workspace: opts.workspace !== undefined
+		workspace: opts.workspace !== undefined,
+		container: opts.workspace === undefined ? null : readContainerCid(opts.workspace)
 	});
+}
+
+/**
+ * The pack's `VERSIONS_HASH` and the cid on the workspace's `cache_container` row.
+ *
+ * Null on anything unreadable, so a workspace that is not a worker checkout reports nothing rather
+ * than a false stale. The hash lives in the PACK rather than in `drupal-src`, because the pack is
+ * what a site mounts; comparing against the source tree is what let this drift ship in the worker.
+ */
+export function readContainerCid(workspace: string): SiteInputs['container'] {
+	try {
+		const manifest = JSON.parse(
+			readFileSync(join(workspace, 'assets/drupal-pf/core.pf.json'), 'utf8')
+		) as Record<string, { p: string; o: number; c: number; l: number }>;
+		const entry = Object.values(manifest).find(
+			(e) => e.p === 'vendor/drupal/DrupalInstalled.php'
+		);
+		if (!entry) return null;
+
+		const bin = readFileSync(join(workspace, 'assets/drupal-pf/core.pf.bin'));
+		// RAW deflate; `inflateSync` answers "incorrect header check" on these entries
+		const raw = inflateRawSync(bin.subarray(entry.o, entry.o + entry.c));
+		if (raw.length !== entry.l) return null;
+		const packHash = /VERSIONS_HASH\s*=\s*'([0-9a-f]+)'/.exec(raw.toString('utf8'))?.[1];
+		if (!packHash) return null;
+
+		// the cid is a string in the file, so a substring test needs no sqlite driver and keeps this
+		// runnable wherever the CLI runs
+		const needle = `service_container:prod:${packHash}:`;
+		const db = readFileSync(join(workspace, 'assets/drupal/site.sqlite'));
+		const at = db.indexOf('service_container:prod:');
+		if (at < 0) return null;
+		const rowCid = db.includes(needle) ? needle : db.subarray(at, at + 120).toString('utf8');
+		return { packHash, rowCid };
+	} catch {
+		return null;
+	}
 }
 
 function readUpdb(body: Record<string, unknown>): SiteInputs['updb'] {
