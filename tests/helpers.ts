@@ -111,6 +111,7 @@ export function workerTree(over: Record<string, string> = {}): Record<string, st
 		[`${WORKSPACE}/node_modules/.bin/wrangler`]: '#!/bin/sh',
 		[`${WORKSPACE}/wrangler.jsonc`]: WORKER_CONFIG,
 		[`${WORKSPACE}/${WORKER_SEAM_PATH}`]: WORKER_SEAM,
+		[`${WORKSPACE}/assets/robots.txt`]: 'User-agent: *\n',
 		[`${WORKSPACE}/assets/driver.json`]: '{}',
 		[`${WORKSPACE}/assets/prefill.json`]: '{}',
 		[`${WORKSPACE}/assets/core/misc/drupal.js`]: 'asset',

@@ -348,7 +348,9 @@ export interface Repair {
  * primary for a fresh copy itself and the primary queues it and arms an alarm, so there is nothing
  * for an operator to drive; `/replica` also carries the path a lane uses to commit a speculative
  * batch, which belongs to the pool rather than to whoever holds the owner token. It is
- * diagnostic-only, and lane state is read through `/health` and `/serve-stats`.
+ * diagnostic-only, and lane state is read through `/health`. This used to name `/serve-stats`
+ * beside it, which nothing here reads -- `/serve-stats` is owner-reachable now, so a command that
+ * wants the object's own meters can take it, but no code path did and the sentence implied one.
  */
 export const REPAIRS: Record<string, Repair> = {
 	release: {

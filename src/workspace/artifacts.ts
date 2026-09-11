@@ -23,6 +23,9 @@ export interface RequiredArtifact {
  * `wrangler.jsonc`, so {@link interpreterFiles} derives it rather than naming it.
  */
 export const REQUIRED_ARTIFACTS: readonly RequiredArtifact[] = [
+	// core's own crawler contract. TRACKED rather than generated, which is why nothing produces it:
+	// a checkout already has it and a payload carries it so a hydrate cannot leave it behind
+	{ path: 'assets/robots.txt', produces: 'tracked in the repository; a checkout already has it' },
 	{ path: 'assets/driver.json', produces: 'bun run assets:driver' },
 	{
 		path: 'assets/prefill.json',

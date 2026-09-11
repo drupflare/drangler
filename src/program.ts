@@ -32,7 +32,9 @@ import {
 	runModifyUpload
 } from './commands/modify';
 import { runReconcile } from './commands/reconcile';
+import { runRecover } from './commands/recover';
 import { runSecretsScan } from './commands/secrets';
+import { runSetupCloudflare, runSetupIdentity, runSetupMail } from './commands/setup';
 import { runSiteClaim, runSiteInvalidate, runSiteUpdb, runSiteUpgrade } from './commands/site';
 import { runStatus } from './commands/status';
 import { runSweep } from './commands/sweep';
@@ -477,8 +479,8 @@ export function buildProgram(ctx: Context): Command {
 			'after',
 			[
 				'',
-				'The sweep is off unless `SWEEP` is set to anything other than `0`, and it spends at',
-				'most `SWEEP_ROWS_FRACTION` (0.25, clamped 0.01-0.5) of the day on each daily meter.',
+				'The sweep RUNS unless `SWEEP` is `0`, and it spends at most a declared share of',
+				'each daily meter: `SWEEP_ROWS_FRACTION`, clamped 0.01-0.5, and smaller when unasked.',
 				'',
 				'Examples:',
 				'  drangler sweep',
@@ -489,6 +491,101 @@ export function buildProgram(ctx: Context): Command {
 		.action(async (target: string | undefined, opts, command) => {
 			const bound = bind(command);
 			await runSweep(bound.ctx, target, { ...opts, globals: bound.globals });
+		});
+
+	// THE SWEEP DEFAULT INVERTED. It runs unless `SWEEP` is `0`, and the help text below said the
+	// opposite for as long as it had been wrong.
+	program
+		.command('recover')
+		.argument('[target]', 'the site origin; defaults to --site or the config')
+		.description("Read the platform's 30-day recovery window, or schedule a restore from it")
+		.option('--at <when>', 'an ISO timestamp or epoch ms to resolve to a bookmark')
+		.option('--bookmark <id>', 'schedule a restore to this bookmark')
+		.option('--yes', 'confirm a restore; required, because it replaces the database')
+		.addHelpText(
+			'after',
+			[
+				'',
+				'Cloudflare keeps a 30-day change log for a Durable Object and exposes it as',
+				'bookmarks. There is no wrangler command and no dashboard button for it, which is',
+				"why this exists. A restore is applied on the object's NEXT START, and the call",
+				'that schedules it is the only place the undo bookmark can be obtained -- keep it.',
+				'',
+				'`drangler migrate restore` is a different thing: it replays a dump from disk.',
+				'',
+				'Examples:',
+				'  drangler recover',
+				'  drangler recover --at 2026-09-10T12:00:00Z',
+				'  drangler recover --bookmark 00000001-... --yes'
+			].join('\n')
+		)
+		.action(async (target: string | undefined, opts, command) => {
+			const bound = bind(command);
+			await runRecover(bound.ctx, target, { ...opts, globals: bound.globals });
+		});
+
+	const setup = program
+		.command('setup')
+		.description('The three account-level surfaces: Cloudflare, mail and identity');
+
+	setup
+		.command('cloudflare')
+		.argument('[target]', 'the site origin; defaults to --site or the config')
+		.description('Whether a Cloudflare account grant is connected, and give it back')
+		.option('--disconnect', 'revoke the grant at Cloudflare and clear it here')
+		.action(async (target: string | undefined, opts, command) => {
+			const bound = bind(command);
+			await runSetupCloudflare(bound.ctx, target, { ...opts, globals: bound.globals });
+		});
+
+	setup
+		.command('mail')
+		.argument('[target]', 'the site origin; defaults to --site or the config')
+		.description('Sending-domain onboarding: what is set up, and take the next step')
+		.option('--zone <id>', 'the Cloudflare zone the sending subdomain lives in')
+		.option('--name <name>', 'the sending subdomain to create')
+		.option('--apply', 'take the next onboarding step rather than only reporting')
+		.addHelpText(
+			'after',
+			[
+				'',
+				'This needs a connected Cloudflare account; `drangler setup cloudflare` says whether',
+				'there is one. Read-only without --apply, so a long DNS wait can be watched.',
+				'',
+				'Examples:',
+				'  drangler setup mail',
+				'  drangler setup mail --zone <zone-id> --apply'
+			].join('\n')
+		)
+		.action(async (target: string | undefined, opts, command) => {
+			const bound = bind(command);
+			await runSetupMail(bound.ctx, target, { ...opts, globals: bound.globals });
+		});
+
+	setup
+		.command('identity')
+		.argument('[target]', 'the site origin; defaults to --site or the config')
+		.description('The OpenID Connect provider: read it, set it, or clear it')
+		.option('--issuer <url>', 'the provider issuer; saving fetches its discovery document')
+		.option('--client-id <id>', 'the client id registered with that provider')
+		.option('--clear', 'remove the stored configuration')
+		.addHelpText(
+			'after',
+			[
+				'',
+				'People sign in at <site>/oidc. That URL is not printed by the provider and was not',
+				'printed anywhere else either, which is why a fully configured provider could be',
+				'undiscoverable.',
+				'',
+				'Examples:',
+				'  drangler setup identity',
+				'  drangler setup identity --issuer https://accounts.example.com --client-id abc',
+				'  drangler setup identity --clear'
+			].join('\n')
+		)
+		.action(async (target: string | undefined, opts, command) => {
+			const bound = bind(command);
+			await runSetupIdentity(bound.ctx, target, { ...opts, globals: bound.globals });
 		});
 
 	program
