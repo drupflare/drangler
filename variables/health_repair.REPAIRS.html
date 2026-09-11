@@ -17,10 +17,12 @@
 primary for a fresh copy itself and the primary queues it and arms an alarm, so there is nothing
 for an operator to drive; <code>/replica</code> also carries the path a lane uses to commit a speculative
 batch, which belongs to the pool rather than to whoever holds the owner token. It is
-diagnostic-only, and lane state is read through <code>/health</code> and <code>/serve-stats</code>.</p>
+diagnostic-only, and lane state is read through <code>/health</code>. This used to name <code>/serve-stats</code>
+beside it, which nothing here reads -- <code>/serve-stats</code> is owner-reachable now, so a command that
+wants the object's own meters can take it, but no code path did and the sentence implied one.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/c7a69bd127405bd228cbbc1af00193ed7d2a1f3e/src/health/repair.ts#L353">src/health/repair.ts:353</a></li></ul></aside></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/1d7e140f4524ac4493cfcbd2264e08a089b3fbd3/src/health/repair.ts#L355">src/health/repair.ts:355</a></li></ul></aside></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
