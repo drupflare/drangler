@@ -195,9 +195,14 @@ Four things the routes decide that drangler must not re-derive:
   that do not hash to the name they were sent under are a 422, which is a security property rather
   than a consistency check: a manifest names files by hash, so storing chosen bytes under a chosen
   hash would let a later `activate` mount content that was never reviewed.
-- **The revision id is sha256 over the manifest sorted by path**, `"<path> <hash>"` per line joined
+- **The revision id is sha256 over the manifest sorted by path**, `<path>\0<hash>` per line joined
   by `\n`. `manifestRev()` computes the same thing locally, which is what lets `modify status` say
-  `clean` without asking the site to hash anything.
+  `clean` without asking the site to hash anything. **The separator is a NUL**, which is what makes
+  it unambiguous where a path cannot help; this section said a space for two sessions, and so did
+  `manifestRev()` and the fake site in `tests/modify.spec.ts`, so all three agreed with each other
+  and none of them agreed with `hashManifest()` in the worker. `modify status` could not answer
+  `clean` on any real site. `tests/modify-rev.spec.ts` now reads the separator out of the sibling's
+  template literal rather than restating it.
 - **`commit` applies immediately.** The route has no store-without-activating mode, so there is no
   `--no-activate`; going back is `activate` against an earlier revision.
 - **Five revisions per package are retained**, and dropping one frees only the blobs no surviving
@@ -243,9 +248,16 @@ started as a background task and stopped when wrangler exits. Two consequences:
   sixth seam on `Context`, and the poll answers the same question. `--interval 0` is what makes a
   spec run it at the speed of the microtask queue; `pause()` in `src/owner.ts` is the only wait.
 
-The dev site is `site=dev` and its owner token is minted by `POST /firstrun` and held in memory for
-the process. It is never written to disk: a local dev credential in a config file outlives the server
-it belonged to.
+**Nothing here sends `?site=`, and the dev site used to.** `resolveSite()` on the worker honours the
+parameter only on a route that is not public, and `/firstrun` is public -- so a claim naming a site
+mints the token on the object the HOST resolves to while every owner call after it addresses the one
+it was told, and a valid token answers 401. `DEV_SITE = 'dev'` and a config default of `'site'` both
+did that; the default worked against `wrangler dev` on localhost, whose host derives to the same
+`FALLBACK_SITE`, and broke every deployment. `--site-name` is now an explicit override with no
+default, and `ownerUrl()` omits the parameter when there is none.
+
+The dev site's owner token is minted by `POST /firstrun` and held in memory for the process. It is
+never written to disk: a local dev credential in a config file outlives the server it belonged to.
 
 ## Every error carries a code, an exit, a retry verdict and a next command
 
@@ -406,9 +418,9 @@ on-and-inert rather than on.
 
 ## What the CLI copies from the worker, and what checks each copy
 
-Four constants and one classification are repeated here because the work happens on a local disk the
-site cannot see. Each one has a spec that reads the sibling's source and fails when the two disagree,
-skipping without the sibling and failing under `REQUIRE_SIBLINGS=1`:
+Four constants, one classification and one formula are repeated here because the work happens on a
+local disk the site cannot see. Each one has a spec that reads the sibling's source and fails when
+the two disagree, skipping without the sibling and failing under `REQUIRE_SIBLINGS=1`:
 
 | copied here                            | from                        | checked by                    |
 | -------------------------------------- | --------------------------- | ----------------------------- |
@@ -417,6 +429,7 @@ skipping without the sibling and failing under `REQUIRE_SIBLINGS=1`:
 | the three repair class words           | `docs/configuration.md`     | `tests/heal.spec.ts`          |
 | `AUTHORITATIVE_TABLES`                 | `ops/state-inventory.ts`    | `tests/delta.spec.ts`         |
 | the service classes in `SUBSTITUTIONS` | `drupflare/drupflare`'s src | `tests/eligibility.spec.ts`   |
+| the revision id formula                | `ops/module-rev.ts`         | `tests/modify-rev.spec.ts`    |
 
 **A `to-vps` rule that ignores its envelope is scoring a paragraph rather than a site.** All five of
 them used to declare `evaluate()` with no parameters and return a constant, so the whole off-boarding
