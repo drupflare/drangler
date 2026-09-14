@@ -11,7 +11,7 @@ import { planBuild, runPlan } from '../../src/workspace/build';
 import { readState } from '../../src/workspace/layout';
 import { resolveSource } from '../../src/workspace/source';
 import { cloneGate, resolvePayload, WORKER_REF, WORKER_SOURCE } from './helpers/clone';
-import { startFixtureWorker, type RunningWorker } from './helpers/worker';
+import { claimRealSite, startFixtureWorker, type RunningWorker } from './helpers/worker';
 
 const skip = (await cloneGate()) || (await resolvePayload()) === null;
 
@@ -57,16 +57,7 @@ describe.skipIf(skip)("the real worker's repair envelopes", () => {
 			port: PORT,
 			probePath: '/serve'
 		});
-		// NO `?site=`, which is the property this lane exists to hold. `resolveSite()` honours the
-		// parameter only on a route that is not public, so a claim naming one mints the token on the
-		// object the HOST resolves to and every owner call after it addresses a different one
-		const claim = await fetch(`${worker.origin}/firstrun`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ siteName: 'Heal Real' }),
-			signal: AbortSignal.timeout(300_000)
-		});
-		token = ((await claim.json()) as { ownerToken?: string }).ownerToken ?? '';
+		token = await claimRealSite(worker.origin, 'Heal Real');
 	}, 900_000);
 
 	afterAll(() => {

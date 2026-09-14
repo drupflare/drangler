@@ -128,7 +128,61 @@ export async function startFixtureWorker(
 	}
 }
 
-/** The site's owner token, the way a real user gets one: once, from `/firstrun`. */
+/**
+ * Claims a REAL worker's site and returns the token it minted.
+ *
+ * **`startFixtureWorker` returns when the PORT answers, which is not when the SITE can answer.**
+ * The first request boots the interpreter and `/firstrun` writes Drupal config through it, so a
+ * single POST into that window comes back without an `ownerToken` and the caller reads an empty
+ * string. Measured on CI: the run that failed spent 8.5s in `heal-real.spec.ts` where the passing
+ * one spent 18s, and the whole report was `expected '' not to be ''`, which names nothing. Waiting
+ * here rather than probing harder in the launcher, because "can this site mint a token" is the
+ * question these specs actually need answered and `/serve` cannot answer it.
+ *
+ * A 409 is TERMINAL, never retried: the site is already claimed and no amount of waiting mints a
+ * second token.
+ *
+ * No `?site=`, which is the property the real-worker lane exists to hold: `resolveSite()` honours
+ * the parameter only on a route that is not public, so a claim naming one mints the token on a
+ * different object than every owner call after it would address.
+ */
+export async function claimRealSite(
+	origin: string,
+	siteName: string,
+	timeoutMs = 600_000
+): Promise<string> {
+	const started = Date.now();
+	let last = 'nothing came back';
+	for (;;) {
+		try {
+			const response = await fetch(`${origin}/firstrun`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ siteName }),
+				signal: AbortSignal.timeout(300_000)
+			});
+			const body = await response.text();
+			last = `HTTP ${response.status}: ${body.slice(0, 400)}`;
+			if (response.status === 409) {
+				throw new Error(`${origin} is already claimed, so nothing here can mint. ${last}`);
+			}
+			const minted = (JSON.parse(body) as { ownerToken?: string }).ownerToken;
+			if (typeof minted === 'string' && minted !== '') return minted;
+		} catch (e) {
+			if (e instanceof Error && e.message.includes('already claimed')) throw e;
+			last = e instanceof Error ? e.message : String(e);
+		}
+		const waited = Math.round((Date.now() - started) / 1000);
+		if (Date.now() - started > timeoutMs) {
+			throw new Error(
+				`${origin}/firstrun minted no owner token in ${waited}s. Last answer: ${last}`
+			);
+		}
+		await new Promise((r) => setTimeout(r, 2_000));
+	}
+}
+
+/** The FIXTURE site's owner token, which it mints on a GET and keys by `?site=`. */
 export async function ownerToken(origin: string, site: string): Promise<string> {
 	const url = new URL('/firstrun', origin);
 	url.searchParams.set('site', site);

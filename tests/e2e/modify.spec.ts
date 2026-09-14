@@ -12,7 +12,7 @@ import { readState } from '../../src/workspace/layout';
 import { resolveSource } from '../../src/workspace/source';
 import { testGlobals } from '../helpers';
 import { cloneGate, resolvePayload, WORKER_REF, WORKER_SOURCE } from './helpers/clone';
-import { startFixtureWorker, type RunningWorker } from './helpers/worker';
+import { claimRealSite, startFixtureWorker, type RunningWorker } from './helpers/worker';
 
 const skip = (await cloneGate()) || (await resolvePayload()) === null;
 
@@ -76,16 +76,8 @@ describe.skipIf(skip)('an upload into a real dev site', () => {
 			probePath: '/serve'
 		});
 
-		// claimed the way a user claims one: a POST with a JSON body, and the token rides the reply.
-		// NO `?site=`: the parameter is honoured only on a route that is not public, so a claim that
-		// names one mints the token on a different object than every owner call would address
-		const claim = await fetch(`${worker.origin}/firstrun`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ siteName: 'Modify E2E' }),
-			signal: AbortSignal.timeout(300_000)
-		});
-		token = ((await claim.json()) as { ownerToken?: string }).ownerToken ?? '';
+		// claimed the way a user claims one: a POST with a JSON body, and the token rides the reply
+		token = await claimRealSite(worker.origin, 'Modify E2E');
 	}, 900_000);
 
 	afterAll(() => {
