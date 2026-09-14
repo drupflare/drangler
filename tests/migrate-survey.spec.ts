@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { runSurveyCommand, selectTransport } from '../src/commands/migrate';
 import { TransportError, UsageError } from '../src/errors';
+import { sourceFindings } from '../src/health/source';
 import { memoryFiles } from '../src/host/files';
 import {
 	applyStep,
@@ -175,6 +176,28 @@ describe('runSurvey', () => {
 		);
 		expect(survey.errors).toEqual([]);
 		expect(survey.database.bytes).toBeNull();
+	});
+
+	/**
+	 * The whole chain behind `source.files-missing`, rather than a hand-built error.
+	 *
+	 * `tests/source.spec.ts` puts `errors[files-kb]` into a survey by hand and asserts the finding
+	 * fires, which is true and proves nothing about whether a survey ever produces that error. It
+	 * did not: `files-kb` was optional, an optional step's non-zero exit is dropped, and the blocker
+	 * was unreachable on every real source. A `du` that says "No such file or directory" is exactly
+	 * the case it exists for.
+	 */
+	it('turns a du that did not answer into the blocker that reads it', async () => {
+		const partial = transcript();
+		partial[step('files-kb')] = fail(1, "du: cannot access '...': No such file or directory");
+		const survey = await runSurvey(
+			{ transport: replayTransport(partial) },
+			'h',
+			'/var/www/html'
+		);
+		expect(survey.files.kb).toBeNull();
+		expect(survey.errors.map((e) => e.id)).toContain('files-kb');
+		expect(sourceFindings(survey).map((f) => f.id)).toContain('source.files-missing');
 	});
 
 	it('records a transport refusal as an error per step', async () => {

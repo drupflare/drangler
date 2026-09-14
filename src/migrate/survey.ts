@@ -76,9 +76,13 @@ export function surveyPlan(root: string): SurveyStep[] {
 			description: 'enabled modules'
 		},
 		{
+			// REQUIRED because its failure is the evidence behind a blocker. `source.files-missing`
+			// reads `survey.errors[files-kb]`, and an optional step's non-zero exit is not recorded
+			// there -- so a `du` that answered "No such file or directory" produced no finding at
+			// all and the whole verdict was unreachable
 			id: 'files-kb',
 			command: `du -sk ${root}/sites/default/files`,
-			required: false,
+			required: true,
 			description: 'public files size'
 		},
 		{
