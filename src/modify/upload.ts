@@ -212,14 +212,20 @@ export async function sha256(source: string): Promise<string> {
 /**
  * The revision id a manifest would get, computed the way the site computes it.
  *
- * sha256 over the manifest SORTED BY PATH, one `<path> <hash>` per line. Sorted so the same file
+ * sha256 over the manifest SORTED BY PATH, one `<path>\0<hash>` per line. Sorted so the same file
  * set walked in a different order is the same revision, which is what lets `modify status` compare
  * a local tree against a live one without asking the site to hash anything.
+ *
+ * **THE SEPARATOR IS A NUL AND A SPACE IS NOT CLOSE ENOUGH.** `hashManifest()` in the worker's
+ * `ops/module-rev.ts` joins the two fields with `\0`, which a path cannot contain, and this
+ * computed a space -- so every id disagreed with the site's, `modify status` could never answer
+ * `clean`, and nothing on this machine could notice because the gate lane compares this function
+ * against itself. `tests/modify-rev.spec.ts` reads the sibling's source instead.
  */
 export async function manifestRev(files: readonly DeclaredFile[]): Promise<string> {
 	const canonical = [...files]
 		.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-		.map((file) => `${file.path} ${file.hash}`)
+		.map((file) => `${file.path}\0${file.hash}`)
 		.join('\n');
 	return await sha256(canonical);
 }

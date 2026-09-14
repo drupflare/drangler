@@ -195,10 +195,13 @@ function fakeSite(over: Partial<SiteState> = {}): { fetch: FetchLike; state: Sit
 					409
 				);
 			}
+			// `hashManifest()` in the worker, byte for byte: sorted by path, NUL between the two
+			// fields. It said space here and in `manifestRev()`, so the fake agreed with the code
+			// it was checking and both were wrong against the site that actually stores revisions
 			const rev = await sha256(
-				files
-					.map((f) => `${f.path} ${f.hash}`)
-					.sort()
+				[...files]
+					.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+					.map((f) => `${f.path}\0${f.hash}`)
 					.join('\n')
 			);
 			if (state.refuseCommit) {
