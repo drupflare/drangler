@@ -19,11 +19,12 @@ bun add -g @drupflare/drangler
 npm i -g @drupflare/drangler
 ```
 
-Or build the single-file binary, which carries its own runtime:
+Every release also carries a single-file binary that needs no runtime, for Linux, macOS and Windows
+on x64 and arm64. Download the archive for your platform from the
+[releases page](https://github.com/drupflare/drangler/releases), verify it against the `SHA256SUMS`
+beside it, and put `drangler` on your `PATH`.
 
-```sh
-bun run build:binary # dist/drangler
-```
+From a checkout, `bun run build:binary` writes the same thing to `dist/drangler`.
 
 `ssh` and `wrangler` are required on the machine running drangler; `git`, `bun` and `rsync` are used
 by some commands and optional for the rest. `drangler doctor` reports which are present, how to

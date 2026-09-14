@@ -531,6 +531,30 @@ Platform figures the migration rules score against live in one table, `LIMITS` i
 `0` ok, `1` the check could not run, `2` bad input, `3` the check ran and found something. Collapsing
 3 onto 1 is what makes a CI step grep output instead of reading a status.
 
+## A release attaches its assets at CREATION, never after
+
+`.github/workflows/release.yml` is the `cartridge` / `durabledb` shape -- a `release` job that tags
+from `package.json`, then a `publish` job for npm and GitHub Packages -- plus a `binaries` job in
+front of both. Two things about it are load-bearing rather than stylistic.
+
+**The archives are handed to `softprops/action-gh-release` in its `files:`, so the release is
+published complete.** The organisation turns on GitHub's immutable releases, which freeze a
+published release's tag and assets: a workflow that creates the release and then uploads to it is
+one that cannot upload. The same ordering is what `../worker` already does with its payload tarball,
+and it also removes the state where a tag exists and its assets do not. `fail_on_unmatched_files`
+holds it: a glob that matches nothing would otherwise publish an empty release quietly.
+
+**Every target is cross-compiled on ONE runner.** `bun build --compile --target=bun-<os>-<arch>`
+downloads the target runtime and emits a real binary for it -- measured from darwin-arm64, the
+linux-x64 output is `ELF 64-bit LSB executable, x86-64` -- so five platforms cost one job rather
+than a runner matrix. The runner then extracts its OWN target's archive and runs `--version` against
+it, which is the only one of the five it can execute; the other four are checked by their build
+exiting zero.
+
+Two checks exist because drangler is the only sibling with a `bin`. `dist/cli.js` is gitignored and
+produced by `prepublishOnly`, so the publish job builds it and runs it before publishing -- a
+package whose entry point does not exist would otherwise publish clean.
+
 ## Conventions
 
 - Tabs rendered 4 wide, 100-char lines, LF, ASCII only.
