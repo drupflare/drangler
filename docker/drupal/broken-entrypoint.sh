@@ -81,9 +81,13 @@ case "$FAULT" in
 		rm -rf /opt/drupal/web/sites/default/files
 		;;
 	php-broken)
-		# a php.ini naming an extension that is not there: php exits non-zero and every step below
-		# it goes with it
-		echo 'extension=not_a_real_extension.so' > /usr/local/etc/php/conf.d/99-broken.ini
+		# an interpreter that exits non-zero on every invocation, so every step below it goes with
+		# it. This was an unloadable extension in a php.ini, which PHP reports as a startup WARNING
+		# and then runs anyway: `php -v` exited 0 and the fault was never planted at all
+		mv /usr/local/bin/php /usr/local/bin/php.real
+		printf '#!/bin/sh\necho "PHP Startup: Unable to load dynamic library" >&2\nexit 1\n' \
+			> /usr/local/bin/php
+		chmod +x /usr/local/bin/php
 		;;
 	drush-absent)
 		rm -f /usr/local/bin/drush /opt/drupal/vendor/bin/drush
