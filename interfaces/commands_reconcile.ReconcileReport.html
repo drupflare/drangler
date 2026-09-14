@@ -13,7 +13,7 @@
 <h1>Interface ReconcileReport</h1></div>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">ReconcileReport</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#behind">behind</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#deferred">deferred</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#drove">drove</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#failed">failed</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#last">last</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">unknown</span><span class="tsd-signature-symbol">&gt;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#notes">notes</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#owed">owed</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#packversion">packVersion</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#posts">posts</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#site">site</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#skipped">skipped</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#steps">steps</a><span class="tsd-signature-symbol">:</span> <a href="commands_reconcile.ReconcileStepView.html" class="tsd-signature-type tsd-kind-interface">ReconcileStepView</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#stuck">stuck</a><span class="tsd-signature-symbol">:</span> <a href="commands_reconcile.ReconcileStepView.html" class="tsd-signature-type tsd-kind-interface">ReconcileStepView</a> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#version">version</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L20">src/commands/reconcile.ts:20</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L20">src/commands/reconcile.ts:20</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -45,86 +45,86 @@
 <div class="tsd-comment tsd-typography"><p>null when either version could not be read</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L27">src/commands/reconcile.ts:27</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L27">src/commands/reconcile.ts:27</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="deferred"><span>deferred</span><a href="#deferred" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">deferred</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L30">src/commands/reconcile.ts:30</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L30">src/commands/reconcile.ts:30</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="drove"><span>drove</span><a href="#drove" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">drove</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div>
 <div class="tsd-comment tsd-typography"><p>how many of those posts the site actually drove a step for</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L35">src/commands/reconcile.ts:35</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L35">src/commands/reconcile.ts:35</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="failed"><span>failed</span><a href="#failed" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">failed</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L31">src/commands/reconcile.ts:31</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L31">src/commands/reconcile.ts:31</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="last"><span>last</span><a href="#last" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">last</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">unknown</span><span class="tsd-signature-symbol">&gt;</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the last step payload the site reported, which may predate this run</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L37">src/commands/reconcile.ts:37</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L37">src/commands/reconcile.ts:37</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="notes"><span>notes</span><a href="#notes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">notes</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L42">src/commands/reconcile.ts:42</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L42">src/commands/reconcile.ts:42</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="owed"><span>owed</span><a href="#owed" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">owed</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L29">src/commands/reconcile.ts:29</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L29">src/commands/reconcile.ts:29</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="packversion"><span>pack<wbr/>Version</span><a href="#packversion" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">packVersion</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the version the deployed pack reconciles to</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L25">src/commands/reconcile.ts:25</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L25">src/commands/reconcile.ts:25</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="posts"><span>posts</span><a href="#posts" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">posts</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div>
 <div class="tsd-comment tsd-typography"><p>how many times this run posted a step</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L33">src/commands/reconcile.ts:33</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L33">src/commands/reconcile.ts:33</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="site"><span>site</span><a href="#site" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">site</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L21">src/commands/reconcile.ts:21</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L21">src/commands/reconcile.ts:21</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="skipped"><span>skipped</span><a href="#skipped" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">skipped</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>why the last post drove nothing, in the site's words; null when it drove something</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L39">src/commands/reconcile.ts:39</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L39">src/commands/reconcile.ts:39</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="steps"><span>steps</span><a href="#steps" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">steps</span><span class="tsd-signature-symbol">:</span> <a href="commands_reconcile.ReconcileStepView.html" class="tsd-signature-type tsd-kind-interface">ReconcileStepView</a><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L28">src/commands/reconcile.ts:28</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L28">src/commands/reconcile.ts:28</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stuck"><span>stuck</span><a href="#stuck" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">stuck</span><span class="tsd-signature-symbol">:</span> <a href="commands_reconcile.ReconcileStepView.html" class="tsd-signature-type tsd-kind-interface">ReconcileStepView</a> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the step an operator has to act on, or null</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L41">src/commands/reconcile.ts:41</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L41">src/commands/reconcile.ts:41</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="version"><span>version</span><a href="#version" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">version</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the highest pack version this site has fully reached</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/commands/reconcile.ts#L23">src/commands/reconcile.ts:23</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/commands/reconcile.ts#L23">src/commands/reconcile.ts:23</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

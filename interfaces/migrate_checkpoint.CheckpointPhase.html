@@ -13,7 +13,7 @@
 <h1>Interface CheckpointPhase</h1></div>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">CheckpointPhase</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#artifact">artifact</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#backupdir">backupDir</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#cursor">cursor</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#error">error</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#sha256">sha256</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#state">state</a><span class="tsd-signature-symbol">:</span> <a href="../types/migrate_checkpoint.PhaseState.html" class="tsd-signature-type tsd-kind-type-alias">PhaseState</a><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/migrate/checkpoint.ts#L20">src/migrate/checkpoint.ts:20</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/migrate/checkpoint.ts#L20">src/migrate/checkpoint.ts:20</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -37,38 +37,38 @@
 <div class="tsd-comment tsd-typography"><p>the file this phase wrote, when it wrote one</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/migrate/checkpoint.ts#L23">src/migrate/checkpoint.ts:23</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/migrate/checkpoint.ts#L23">src/migrate/checkpoint.ts:23</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="backupdir"><code class="tsd-tag">Optional</code><span>backup<wbr/>Dir</span><a href="#backupdir" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">backupDir</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the backup set <code>install</code> took, which a second run must not take again</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/migrate/checkpoint.ts#L29">src/migrate/checkpoint.ts:29</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/migrate/checkpoint.ts#L29">src/migrate/checkpoint.ts:29</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="cursor"><code class="tsd-tag">Optional</code><span>cursor</span><a href="#cursor" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">cursor</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>an opaque <code>DumpCursor</code>, carried back to <code>/export?cursor=</code> verbatim</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/migrate/checkpoint.ts#L27">src/migrate/checkpoint.ts:27</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/migrate/checkpoint.ts#L27">src/migrate/checkpoint.ts:27</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="error"><code class="tsd-tag">Optional</code><span>error</span><a href="#error" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">error</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/migrate/checkpoint.ts#L30">src/migrate/checkpoint.ts:30</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/migrate/checkpoint.ts#L30">src/migrate/checkpoint.ts:30</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="sha256"><code class="tsd-tag">Optional</code><span>sha256</span><a href="#sha256" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">sha256</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>over the bytes on disk when the phase ended, so a resume tells its file from an edited one</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/migrate/checkpoint.ts#L25">src/migrate/checkpoint.ts:25</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/migrate/checkpoint.ts#L25">src/migrate/checkpoint.ts:25</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="state"><span>state</span><a href="#state" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">state</span><span class="tsd-signature-symbol">:</span> <a href="../types/migrate_checkpoint.PhaseState.html" class="tsd-signature-type tsd-kind-type-alias">PhaseState</a></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/7ad4602dd7603d4226e2571e643fbfbd9d723362/src/migrate/checkpoint.ts#L21">src/migrate/checkpoint.ts:21</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/398ebd2eb7374bf1ff82d38ec3d99e6454ae9961/src/migrate/checkpoint.ts#L21">src/migrate/checkpoint.ts:21</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
