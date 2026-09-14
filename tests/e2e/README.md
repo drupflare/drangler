@@ -185,8 +185,19 @@ make: gating on `CI` puts every requirement into every lane at once.
 **Both directions are counted, not predicted.** A lane that can only skip is worse than no lane, so
 the pair is measured at the time: container up gives a passing count, container stopped gives the
 same number skipped. `.github/workflows/e2e.yml` runs each gate as its own job so a red one names
-which requirement failed; `broken` and `worker` are nightly and dispatch only, because one installs
-Drupal twice and the other hydrates a worker.
+which requirement failed.
+
+`worker` is nightly and dispatch only: it hydrates a worker, and it adds no spec the `integration`
+job does not already run. What it adds is `REQUIRE_CLONE` and `REQUIRE_WORKER`, which turn a silent
+skip into a failure.
+
+`broken` installs Drupal a second time, so it is nightly and dispatch too -- **and on any push or
+pull request whose diff touches the code it scores**, which the `changes` job decides with
+`dorny/paths-filter`. `doctor-source` is gated on `REQUIRE_BROKEN` and nothing else sets it, so
+without that a fault in `doctor --source` is scored nowhere until the next nightly. The filter is
+directories rather than files (`src/health/**`, `src/migrate/**`, `docker/**`, `tests/e2e/**`, plus
+`src/commands/doctor.ts` and this workflow) because a list of filenames goes stale the first time
+somebody adds one. A dependency bump does not match; the nightly is what covers those.
 
 ## Why It Is Its Own Vitest Project
 

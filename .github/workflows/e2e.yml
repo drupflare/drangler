@@ -14,6 +14,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    name: What the Diff Touches
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    outputs:
+      source: ${{ steps.filter.outputs.source }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v4
+        id: filter
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+        with:
+          filters: |
+            source:
+              - 'src/commands/doctor.ts'
+              - 'src/health/**'
+              - 'src/migrate/**'
+              - 'docker/**'
+              - 'tests/e2e/**'
+              - '.github/workflows/e2e.yml'
+
   clone:
     name: Live Clone
     runs-on: ubuntu-latest
@@ -93,7 +122,10 @@ jobs:
     name: Broken VPS
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    needs: changes
+    if: >-
+      ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      || needs.changes.outputs.source == 'true' }}
 
     permissions:
       contents: read
