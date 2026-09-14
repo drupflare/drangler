@@ -23,10 +23,11 @@ a module against it, and tells you what will break before you start.</p>
 <pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">add</span><span class="hl-1"> </span><span class="hl-3">-g</span><span class="hl-1"> </span><span class="hl-2">@drupflare/drangler</span><br/><span class="hl-0">npm</span><span class="hl-1"> </span><span class="hl-2">i</span><span class="hl-1"> </span><span class="hl-3">-g</span><span class="hl-1"> </span><span class="hl-2">@drupflare/drangler</span>
 </code><button type="button">Copy</button></pre>
 
-<p>Or build the single-file binary, which carries its own runtime:</p>
-<pre><code class="sh"><span class="hl-0">bun</span><span class="hl-1"> </span><span class="hl-2">run</span><span class="hl-1"> </span><span class="hl-2">build:binary</span><span class="hl-1"> </span><span class="hl-4"># dist/drangler</span>
-</code><button type="button">Copy</button></pre>
-
+<p>Every release also carries a single-file binary that needs no runtime, for Linux, macOS and Windows
+on x64 and arm64. Download the archive for your platform from the
+<a href="https://github.com/drupflare/drangler/releases">releases page</a>, verify it against the <code>SHA256SUMS</code>
+beside it, and put <code>drangler</code> on your <code>PATH</code>.</p>
+<p>From a checkout, <code>bun run build:binary</code> writes the same thing to <code>dist/drangler</code>.</p>
 <p><code>ssh</code> and <code>wrangler</code> are required on the machine running drangler; <code>git</code>, <code>bun</code> and <code>rsync</code> are used
 by some commands and optional for the rest. <code>drangler doctor</code> reports which are present, how to
 install the ones that are not, and which config file supplied each setting.</p>
