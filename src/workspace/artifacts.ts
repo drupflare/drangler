@@ -6,6 +6,14 @@ export interface RequiredArtifact {
 	path: string;
 	/** true when the path is a directory whose contents are the artifact */
 	dir?: boolean;
+	/**
+	 * True when the repository carries the path, so a clean checkout already has it.
+	 *
+	 * Still required and still reported when absent -- a payload extraction that dropped it leaves
+	 * a site with no crawler contract -- but a lane that asserts what a fresh clone is MISSING has
+	 * to know the difference. Reading it off the `produces` prose instead would break on a reword.
+	 */
+	tracked?: boolean;
 	/** the specific producer; `bun run hydrate` produces every one of them at once */
 	produces: string;
 }
@@ -25,7 +33,11 @@ export interface RequiredArtifact {
 export const REQUIRED_ARTIFACTS: readonly RequiredArtifact[] = [
 	// core's own crawler contract. TRACKED rather than generated, which is why nothing produces it:
 	// a checkout already has it and a payload carries it so a hydrate cannot leave it behind
-	{ path: 'assets/robots.txt', produces: 'tracked in the repository; a checkout already has it' },
+	{
+		path: 'assets/robots.txt',
+		tracked: true,
+		produces: 'tracked in the repository; a checkout already has it'
+	},
 	{ path: 'assets/driver.json', produces: 'bun run assets:driver' },
 	{
 		path: 'assets/prefill.json',

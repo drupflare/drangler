@@ -124,7 +124,15 @@ describe.skipIf(skip)('a live clone of drupflare/worker', () => {
 		expect(report.failed).toEqual(['artifacts']);
 
 		const missing = report.checks.find((c) => c.id === 'artifacts')?.detail ?? '';
-		for (const artifact of REQUIRED_ARTIFACTS) expect(missing).toContain(artifact.path);
+		for (const artifact of REQUIRED_ARTIFACTS) {
+			// a tracked artifact ships in the clone, so a report naming it would be the bug
+			if (artifact.tracked === true) {
+				expect(ctx.files.exists(inWorkspace(workspace, artifact.path))).toBe(true);
+				expect(missing).not.toContain(artifact.path);
+			} else {
+				expect(missing).toContain(artifact.path);
+			}
+		}
 
 		const interpreter = interpreterFiles(ctx.files, workspace);
 		expect(interpreter.length, 'the shipped config aliases no php-binary seam').toBeGreaterThan(
