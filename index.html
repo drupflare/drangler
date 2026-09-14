@@ -94,7 +94,7 @@ it went.</p>
 </tr>
 <tr>
 <td><code>--site-name &lt;n&gt;</code></td>
-<td>the Durable Object identity inside that site</td>
+<td>the Durable Object identity, when the site does not resolve it</td>
 </tr>
 <tr>
 <td><code>--profile &lt;name&gt;</code></td>
@@ -123,7 +123,9 @@ it went.</p>
 </tbody>
 </table>
 <p><code>--site</code> takes an origin and refuses a bare word by naming <code>--site-name</code>, which is the Durable
-Object identity.</p>
+Object identity. It has no default. A site resolves its own identity from the host it was reached
+on, and <code>/firstrun</code> ignores the parameter, so a name drangler supplied would put the claim and every
+owner call after it on different objects.</p>
 <hr>
 <h2 id="site-lifecycle" class="tsd-anchor-link">Site Lifecycle<a href="#site-lifecycle" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p>What happens between a <code>deploy</code> and a site you can log in to. The same sequence runs for
