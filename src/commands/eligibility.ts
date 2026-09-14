@@ -175,7 +175,8 @@ async function readEnvelope(
 	const origin = opts.globals.config.site.value;
 	if (origin === null) return null;
 	const url = new URL('/export', normaliseTarget(origin));
-	url.searchParams.set('site', opts.globals.config.siteName.value ?? 'site');
+	const siteName = opts.globals.config.siteName.value;
+	if (siteName !== null) url.searchParams.set('site', siteName);
 	const token = opts.token ?? opts.globals.config.token.value ?? '';
 	try {
 		const response = await ctx.fetch(url.toString(), {

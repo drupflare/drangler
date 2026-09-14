@@ -251,13 +251,14 @@ export function resolveConfig(host: ConfigHost, opts: ConfigDiscovery = {}): Res
 		profile,
 		sources,
 		site,
+		// NO BUILT-IN DEFAULT. `?site=` is honoured by the worker only on a route that is not
+		// public, so a name nobody asked for splits the claim from every owner call that follows it
 		siteName: settle(
 			opts.siteName,
 			'--site-name',
 			[{ name: 'DRANGLER_SITE_NAME', value: host.env.DRANGLER_SITE_NAME }],
 			sources,
-			(c) => c.site?.name,
-			'site'
+			(c) => c.site?.name
 		),
 		workspace: settle(
 			opts.workspace,

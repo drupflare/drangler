@@ -99,7 +99,7 @@ These flags are inherited by every command:
 | `--quiet`, `-q`     | suppress progress on stderr; the report still prints           |
 | `--verbose`, `-v`   | every subprocess argv and every request line, on stderr        |
 | `--site <origin>`   | the site to act on, always an origin                           |
-| `--site-name <n>`   | the Durable Object identity inside that site                   |
+| `--site-name <n>`   | the Durable Object identity, when the site does not resolve it |
 | `--profile <name>`  | which config block to read                                     |
 | `--config-file <p>` | a config file, which replaces the search                       |
 | `--yes`, `-y`       | consent for anything that writes to a live site                |
@@ -108,7 +108,9 @@ These flags are inherited by every command:
 | `--token <token>`   | the owner token; also read from `DRUPFLARE_OWNER_TOKEN`        |
 
 `--site` takes an origin and refuses a bare word by naming `--site-name`, which is the Durable
-Object identity.
+Object identity. It has no default. A site resolves its own identity from the host it was reached
+on, and `/firstrun` ignores the parameter, so a name drangler supplied would put the claim and every
+owner call after it on different objects.
 
 ---
 

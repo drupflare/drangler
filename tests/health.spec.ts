@@ -53,6 +53,12 @@ describe('serveUrl', () => {
 	it('adds edge=0 only when asked', () => {
 		expect(serveUrl('https://x.dev', '/', 'site', true)).toContain('edge=0');
 	});
+
+	// the site resolves its own identity from the host; a name drangler invented would address a
+	// different Durable Object than the claim that minted the token did
+	it('omits the site entirely when the caller named none', () => {
+		expect(serveUrl('https://x.dev', '/', null, false)).toBe('https://x.dev/serve?path=%2F');
+	});
 });
 
 describe('classify', () => {
@@ -92,7 +98,7 @@ describe('probeSite', () => {
 	it('reads every x-cfw header off a worker response', async () => {
 		const fetch = workerFetch();
 		const result = await probeSite({ fetch, now: () => 0 }, { target: 'x.dev' });
-		expect(fetch.urls[0]).toBe('https://x.dev/serve?path=%2F&site=site');
+		expect(fetch.urls[0]).toBe('https://x.dev/serve?path=%2F');
 		expect(result).toMatchObject({
 			kind: 'worker',
 			verdict: 'ok',
@@ -215,11 +221,13 @@ describe('probeClaim', () => {
 
 	it('reads an unclaimed site off the public /firstrun report', async () => {
 		const fetch = firstrun({ ok: true, configured: false, firstRunAt: null });
-		expect(await probeClaim({ fetch }, 'https://x.dev', 'site', 1000)).toEqual({
+		expect(await probeClaim({ fetch }, 'https://x.dev', null, 1000)).toEqual({
 			state: 'unclaimed',
 			firstRunAt: null
 		});
-		expect(fetch.urls[0]).toBe('https://x.dev/firstrun?site=site');
+		// `/firstrun` is public, so the worker ignores `?site=` there; sending one only makes the
+		// claim and the owner calls after it disagree about which object holds the token
+		expect(fetch.urls[0]).toBe('https://x.dev/firstrun');
 	});
 
 	it('reads a claimed site and the timestamp it reports', async () => {

@@ -6,7 +6,7 @@ import { probeClaim, probeSite, type ClaimState } from '../health/probe';
 
 export interface StatusOptions {
 	path?: string;
-	site?: string;
+	site?: string | null;
 	timeoutMs?: number;
 	/** a wrangler config to read the deploy's own identity from, when the user has one */
 	config?: string;
@@ -94,7 +94,7 @@ export async function runStatus(
 			'no site to report on; pass it as an argument, as --site, or put it in a drangler.json'
 		);
 	}
-	const site = opts.site ?? 'site';
+	const site = opts.site ?? null;
 	const timeoutMs = opts.timeoutMs ?? 15_000;
 	const result = await probeSite(
 		{ fetch: ctx.fetch },

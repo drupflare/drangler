@@ -514,7 +514,7 @@ describe('migrate export', () => {
 		expect(await run(ctx, ['migrate', 'export', '--url', 'x.dev', '--out', '/w.sql'])).toBe(
 			EXIT.OK
 		);
-		expect(fetch.urls[0]).toBe('https://x.dev/export?body=1&site=site');
+		expect(fetch.urls[0]).toBe('https://x.dev/export?body=1');
 		expect(files.written.get('/w.sql')).toBe(body.sql);
 		expect(ctx.io.text()).toContain('structure only (3)');
 	});

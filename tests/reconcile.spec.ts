@@ -65,7 +65,8 @@ describe('reconcile status', () => {
 		expect(call.method).toBe('GET');
 		expect(new URL(call.url).pathname).toBe('/reconcile');
 		expect(call.authorization).toBe(`Bearer ${TOKEN}`);
-		expect(new URL(call.url).searchParams.get('site')).toBe('site');
+		// nothing names the site, so the deployment resolves the object the claim minted the token on
+		expect(new URL(call.url).searchParams.get('site')).toBeNull();
 
 		const report = ctx.io.json<ReconcileReport>();
 		expect(report).toMatchObject({ version: 2, packVersion: 2, behind: 0, owed: 0 });

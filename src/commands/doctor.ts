@@ -278,7 +278,7 @@ async function scoreSite(ctx: Context, opts: DoctorOptions): Promise<SiteReport>
 		timeoutMs: opts.timeoutMs ?? 15_000
 	};
 	const origin = normaliseTarget(opts.site as string);
-	const siteName = opts.siteName ?? 'site';
+	const siteName = opts.siteName ?? null;
 	const timeoutMs = globals.timeoutMs;
 	const probe = await probeSite(
 		{ fetch: ctx.fetch },

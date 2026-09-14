@@ -37,7 +37,8 @@ export interface ClaimOptions {
 
 export interface SiteClaimReport {
 	site: string;
-	siteName: string;
+	/** null when the caller named none, which is the normal case */
+	siteName: string | null;
 	claimed: boolean;
 	/** somebody claimed it before this run did */
 	alreadyClaimed: boolean;
@@ -70,7 +71,7 @@ export async function runSiteClaim(
 	const origin = siteOriginOf(globals, target);
 	const owner: OwnerTarget = {
 		origin,
-		site: globals.config.siteName.value ?? 'site',
+		site: globals.config.siteName.value,
 		token: globals.config.token.value ?? '',
 		timeoutMs: globals.timeoutMs
 	};
@@ -177,7 +178,7 @@ async function saveToken(
 function renderClaim(report: SiteClaimReport): string[] {
 	const rows: [string, string][] = [
 		['site', report.site],
-		['site name', report.siteName],
+		['site name', report.siteName ?? 'derived by the site from its host'],
 		['claimed', report.claimed ? 'yes, by this run' : report.alreadyClaimed ? 'already' : 'no']
 	];
 	if (report.adminPass !== null) rows.push(['admin password', report.adminPass]);

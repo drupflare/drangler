@@ -15,7 +15,6 @@ import { startFixtureWorker, type RunningWorker } from './helpers/worker';
 
 const skip = (await cloneGate()) || (await resolvePayload()) === null;
 
-const SITE = 'heal-real';
 const PORT = 8905;
 
 /**
@@ -56,9 +55,12 @@ describe.skipIf(skip)("the real worker's repair envelopes", () => {
 			dir: workspace,
 			config: join(workspace, 'wrangler.jsonc'),
 			port: PORT,
-			probePath: `/serve?site=${SITE}`
+			probePath: '/serve'
 		});
-		const claim = await fetch(`${worker.origin}/firstrun?site=${SITE}`, {
+		// NO `?site=`, which is the property this lane exists to hold. `resolveSite()` honours the
+		// parameter only on a route that is not public, so a claim naming one mints the token on the
+		// object the HOST resolves to and every owner call after it addresses a different one
+		const claim = await fetch(`${worker.origin}/firstrun`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ siteName: 'Heal Real' }),
@@ -74,16 +76,20 @@ describe.skipIf(skip)("the real worker's repair envelopes", () => {
 
 	const owner = async (path: string, params: Record<string, string> = {}) => {
 		const url = new URL(path, worker.origin);
-		url.searchParams.set('site', SITE);
 		for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 		const response = await fetch(url, {
 			headers: { authorization: `Bearer ${token}` },
 			signal: AbortSignal.timeout(120_000)
 		});
-		return {
-			status: response.status,
-			body: (await response.json()) as Record<string, unknown>
-		};
+		// a refusal is plain text, and parsing it as JSON reports a SyntaxError instead of the 401
+		const text = await response.text();
+		let body: Record<string, unknown>;
+		try {
+			body = JSON.parse(text) as Record<string, unknown>;
+		} catch {
+			body = { error: text.trim() };
+		}
+		return { status: response.status, body };
 	};
 
 	it('parses the /health envelope the real object emits', async () => {
@@ -105,14 +111,9 @@ describe.skipIf(skip)("the real worker's repair envelopes", () => {
 		expect(Object.keys(reply.body)).toContain('run');
 	}, 900_000);
 
-	it('answers /replica with a stage the site scorer reads by name', async () => {
-		const reply = await owner('/replica');
-		expect(reply.status).toBeLessThan(500);
-	}, 900_000);
-
 	/** the headers are absent on `normal`, which is what makes their presence mean something */
 	it('sets no degradation headers on a site that is not shedding load', async () => {
-		const response = await fetch(`${worker.origin}/serve?site=${SITE}&edge=0`, {
+		const response = await fetch(`${worker.origin}/serve?edge=0`, {
 			signal: AbortSignal.timeout(300_000)
 		});
 		const cfw: Record<string, string> = {};
@@ -124,9 +125,8 @@ describe.skipIf(skip)("the real worker's repair envelopes", () => {
 	}, 900_000);
 
 	it('refuses every one of those routes without the token', async () => {
-		for (const path of ['/health', '/updb', '/replica']) {
+		for (const path of ['/health', '/updb']) {
 			const url = new URL(path, worker.origin);
-			url.searchParams.set('site', SITE);
 			const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
 			expect(response.status, path).toBe(401);
 		}

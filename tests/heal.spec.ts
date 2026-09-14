@@ -413,9 +413,9 @@ describe('the write repairs', () => {
 			bump: true,
 			globals: globalsFor(ctx, { yes: true })
 		});
-		expect(fetch.calls).toContain('POST /migrate?site=site');
-		expect(fetch.calls).toContain('POST /armfill?site=site');
-		expect(fetch.calls.join(' ')).toContain('POST /bump?site=site&reason=drangler+heal');
+		expect(fetch.calls).toContain('POST /migrate');
+		expect(fetch.calls).toContain('POST /armfill');
+		expect(fetch.calls.join(' ')).toContain('POST /bump?reason=drangler+heal');
 	});
 
 	// a bump re-renders the whole site, and reading that afterwards is reading it too late
@@ -493,7 +493,7 @@ describe('the write repairs', () => {
 		await expect(
 			runHeal(ctx, ORIGIN, { armfill: true, globals: globalsFor(ctx, { yes: true }) })
 		).rejects.toThrow(/rows-written/);
-		expect(fetch.calls).not.toContain('POST /armfill?site=site');
+		expect(fetch.calls).not.toContain('POST /armfill');
 	});
 });
 

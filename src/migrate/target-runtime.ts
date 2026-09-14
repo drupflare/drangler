@@ -86,7 +86,7 @@ export function isOlderThan(source: string, target: string): boolean {
 export async function probeTargetPhp(
 	fetchFn: typeof fetch,
 	origin: string,
-	site = 'site',
+	site: string | null = null,
 	timeoutMs = 15_000
 ): Promise<TargetRuntime | null> {
 	const base = origin.startsWith('http') ? origin : `https://${origin}`;
@@ -96,7 +96,7 @@ export async function probeTargetPhp(
 	} catch {
 		return null;
 	}
-	url.searchParams.set('site', site);
+	if (site !== null && site !== '') url.searchParams.set('site', site);
 	try {
 		const res = await fetchFn(url.toString(), { signal: AbortSignal.timeout(timeoutMs) });
 		if (!res.ok) return null;

@@ -136,7 +136,14 @@ describe('probeTargetPhp', () => {
 		);
 		const target = await probeTargetPhp(fetch, 'x.dev');
 		expect(target).toMatchObject({ php: '8.5.2', source: 'probed' });
-		expect(fetch.urls[0]).toBe('https://x.dev/php?site=site');
+		// no `?site=`, so the deployment resolves its own object rather than one drangler named
+		expect(fetch.urls[0]).toBe('https://x.dev/php');
+	});
+
+	it('names the site only when the caller does', async () => {
+		const fetch = fakeFetch(() => new Response(JSON.stringify({ version: '8.5.2' })));
+		await probeTargetPhp(fetch, 'x.dev', 'blog');
+		expect(fetch.urls[0]).toBe('https://x.dev/php?site=blog');
 	});
 
 	it('returns null on the gated 404, because that is the correct posture', async () => {

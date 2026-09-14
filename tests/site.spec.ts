@@ -89,6 +89,36 @@ describe('site claim', () => {
 		});
 	});
 
+	/**
+	 * The claim and every owner call after it must address ONE Durable Object.
+	 *
+	 * `resolveSite()` on the worker honours `?site=` only on a route that is not public. `/firstrun`
+	 * is public, so a claim naming a site mints the token on the object the HOST resolves to, while
+	 * `/health` and `/modify` are told the name and address a different one -- which answers 401 for
+	 * a token that is perfectly valid. A built-in default of `'site'` therefore worked against
+	 * `wrangler dev` on localhost, whose host derives to the same fallback, and broke every
+	 * deployment. The e2e lane measured it the first time a release payload existed to run against.
+	 */
+	it('names no site of its own, so the claim and the owner calls reach one object', async () => {
+		const fetch = recorder(() => json({ ok: true, ownerToken: 'minted-token' }));
+		const ctx = ctxFor(fetch);
+		await runSiteClaim(ctx, undefined, { globals: globalsFor(ctx) });
+		expect(new URL((fetch.calls[0] as Recorded).url).searchParams.has('site')).toBe(false);
+	});
+
+	it('sends the site only when the caller named one', async () => {
+		const fetch = recorder(() => json({ ok: true, ownerToken: 'minted-token' }));
+		const ctx = ctxFor(fetch);
+		await runSiteClaim(ctx, undefined, {
+			globals: testGlobals({ json: true }, ctx, {
+				site: ORIGIN,
+				token: TOKEN,
+				siteName: 'blog'
+			})
+		});
+		expect(new URL((fetch.calls[0] as Recorded).url).searchParams.get('site')).toBe('blog');
+	});
+
 	it('writes the token restricted, keyed by origin, and keeps the ones already there', async () => {
 		const files = memoryFiles({
 			[GLOBAL]: JSON.stringify({ sites: { 'https://other.example': { ownerToken: 'keep' } } })

@@ -153,7 +153,7 @@ export function buildProgram(ctx: Context): Command {
 			const bound = bind(command);
 			await runStatus(bound.ctx, target ?? bound.globals.config.site.value, {
 				path: opts.path,
-				site: bound.globals.config.siteName.value ?? 'site',
+				site: bound.globals.config.siteName.value,
 				timeoutMs: bound.globals.timeoutMs,
 				json: bound.globals.json,
 				...(opts.config === undefined ? {} : { config: opts.config })
@@ -344,7 +344,7 @@ export function buildProgram(ctx: Context): Command {
 			const bound = bind(command);
 			await runHealth(bound.ctx, target ?? bound.globals.config.site.value, {
 				path: opts.path,
-				site: bound.globals.config.siteName.value ?? 'site',
+				site: bound.globals.config.siteName.value,
 				kind: opts.kind,
 				skipEdge: opts.skipEdge === true,
 				diagnostics: opts.diagnostics === true,
@@ -1058,7 +1058,7 @@ export function buildProgram(ctx: Context): Command {
 			await runExportCommand(bound.ctx, {
 				...opts,
 				json: bound.globals.json,
-				site: bound.globals.config.siteName.value ?? 'site',
+				site: bound.globals.config.siteName.value,
 				...(opts.url === undefined && bound.globals.config.site.value !== null
 					? { url: bound.globals.config.site.value }
 					: {}),

@@ -268,7 +268,7 @@ export async function runExportCommand(ctx: Context, opts: ExportOptions): Promi
 	}
 	const url = new URL('/export', opts.url.startsWith('http') ? opts.url : `https://${opts.url}`);
 	url.searchParams.set('body', '1');
-	url.searchParams.set('site', opts.site ?? 'site');
+	if (opts.site !== undefined && opts.site !== null) url.searchParams.set('site', opts.site);
 	if (opts.all === true) url.searchParams.set('all', '1');
 
 	const token = opts.token ?? ctx.env.DRUPFLARE_OWNER_TOKEN ?? '';

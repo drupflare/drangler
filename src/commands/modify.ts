@@ -113,8 +113,8 @@ export async function runModifyInit(ctx: Context, opts: ModifyInitOptions): Prom
 		next: []
 	};
 
+	const siteName = globals.config.siteName.value;
 	if (report.site !== null) {
-		const siteName = globals.config.siteName.value ?? 'site';
 		try {
 			const probe = await probeSite(
 				{ fetch: ctx.fetch },
@@ -145,7 +145,9 @@ export async function runModifyInit(ctx: Context, opts: ModifyInitOptions): Prom
 				: {
 						site: {
 							origin: report.site,
-							name: globals.config.siteName.value ?? 'site'
+							// only when the caller named one; a written default is read back as a
+							// setting the user chose, and an invented one addresses the wrong object
+							...(siteName === null ? {} : { name: siteName })
 						}
 					}),
 			module: { root: '.', package: pkg.name }

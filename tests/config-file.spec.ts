@@ -115,9 +115,11 @@ describe('precedence', () => {
 		});
 	});
 
-	it('falls back to the built-in default, and reports unset when there is none', () => {
+	// no built-in default for either: `?site=` is honoured only on a route that is not public, so a
+	// name nobody asked for splits `site claim` from every owner call that follows it
+	it('reports unset rather than inventing a site or a site name', () => {
 		const resolved = resolveConfig(host({}));
-		expect(resolved.siteName).toMatchObject({ value: 'site', origin: 'default' });
+		expect(resolved.siteName).toMatchObject({ value: null, origin: 'unset' });
 		expect(resolved.site).toMatchObject({ value: null, origin: 'unset' });
 	});
 });

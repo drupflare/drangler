@@ -487,8 +487,8 @@ describe('drangler dev --modify', () => {
 		Object.assign(ctx, { fetch: site.fetch, runner: slowSpawn(ctx.runner) });
 		expect(await run(ctx, ['dev', '--modify', MODULE, '--interval', '0'])).toBe(EXIT.OK);
 		expect(lines(ctx.runner)).toEqual(['bunx wrangler dev -c wrangler.jsonc']);
-		expect(site.calls[0]).toBe('GET /firstrun?site=dev');
-		expect(site.calls).toContain('POST /firstrun?site=dev');
+		expect(site.calls[0]).toBe('GET /firstrun');
+		expect(site.calls).toContain('POST /firstrun');
 		expect(site.calls.join(' ')).toContain('action=commit&package=mantle2');
 	});
 

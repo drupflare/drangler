@@ -48,8 +48,8 @@ export interface ProbeOptions {
 	target: string;
 	/** the Drupal path, which on a worker becomes `?path=` and on a VPS becomes the URL path */
 	path?: string;
-	/** worker site identity, which selects the Durable Object */
-	site?: string;
+	/** worker site identity; null or absent lets the site resolve its own from the host */
+	site?: string | null;
 	kind?: 'auto' | 'worker' | 'vps';
 	/** bypass the edge tier so the probe reaches the object; `/serve?edge=0` */
 	skipEdge?: boolean;
@@ -134,11 +134,28 @@ export function normaliseTarget(target: string): string {
 	return url.origin + url.pathname.replace(/\/+$/, '');
 }
 
-/** The URL a worker probe issues: the public `/serve` route, never a diagnostic one. */
-export function serveUrl(origin: string, path: string, site: string, skipEdge: boolean): string {
+/** `/stats`, which is PW_DIAGNOSTICS-gated; a probe reads its status rather than its body */
+function statsUrl(origin: string, site: string | null): string {
+	const url = new URL(`${origin}/stats`);
+	if (site !== null && site !== '') url.searchParams.set('site', site);
+	return url.toString();
+}
+
+/**
+ * The URL a worker probe issues: the public `/serve` route, never a diagnostic one.
+ *
+ * A null site is the normal case; see {@link OwnerTarget.site} for why naming one drangler invented
+ * splits a claim from the owner calls after it.
+ */
+export function serveUrl(
+	origin: string,
+	path: string,
+	site: string | null,
+	skipEdge: boolean
+): string {
 	const url = new URL(`${origin}/serve`);
 	url.searchParams.set('path', path);
-	url.searchParams.set('site', site);
+	if (site !== null && site !== '') url.searchParams.set('site', site);
 	if (skipEdge) url.searchParams.set('edge', '0');
 	return url.toString();
 }
@@ -255,7 +272,7 @@ async function get(
 export async function probeSite(deps: ProbeDeps, opts: ProbeOptions): Promise<ProbeResult> {
 	const origin = normaliseTarget(opts.target);
 	const path = opts.path ?? '/';
-	const site = opts.site ?? 'site';
+	const site = opts.site ?? null;
 	const timeoutMs = opts.timeoutMs ?? 15_000;
 	const wanted = opts.kind ?? 'auto';
 
@@ -333,11 +350,7 @@ export async function probeSite(deps: ProbeDeps, opts: ProbeOptions): Promise<Pr
 	}
 
 	if (opts.diagnostics) {
-		const stats = await get(
-			deps,
-			`${origin}/stats?site=${encodeURIComponent(site)}`,
-			timeoutMs
-		);
+		const stats = await get(deps, statsUrl(origin, site), timeoutMs);
 		result.diagnostics = stats.response.status === 404 ? 'gated' : 'open';
 		if (result.diagnostics === 'open') {
 			result.notes.push(
@@ -374,11 +387,11 @@ export interface ClaimReport {
 export async function probeClaim(
 	deps: ProbeDeps,
 	origin: string,
-	site: string,
+	site: string | null,
 	timeoutMs: number
 ): Promise<ClaimReport> {
 	const url = new URL(`${origin}/firstrun`);
-	url.searchParams.set('site', site);
+	if (site !== null && site !== '') url.searchParams.set('site', site);
 	let body: unknown;
 	try {
 		const { response } = await get(deps, url.toString(), timeoutMs);

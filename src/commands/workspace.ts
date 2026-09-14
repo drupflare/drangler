@@ -207,9 +207,6 @@ export const DEV_PORT = 8787;
 /** how often a `--watch` mount re-reads the local tree */
 export const DEV_WATCH_INTERVAL_MS = 2_000;
 
-/** the Durable Object identity a local dev site uses */
-export const DEV_SITE = 'dev';
-
 /**
  * Boots a local Drupal, building the workspace first if there is not one.
  *
@@ -368,7 +365,8 @@ async function mountModules(
 	if (token === null) return;
 	const owner: OwnerTarget = {
 		origin: opts.origin,
-		site: DEV_SITE,
+		// the site names itself; `wrangler dev` serves localhost, which resolves to its own fallback
+		site: null,
 		token,
 		timeoutMs: opts.timeoutMs
 	};
@@ -400,7 +398,7 @@ async function mountModules(
 
 /** waits for the port, then claims the dev site, or reports why nothing could be mounted */
 async function claimDevSite(ctx: Context, opts: MountOptions): Promise<string | null> {
-	const url = `${opts.origin}/firstrun?site=${DEV_SITE}`;
+	const url = `${opts.origin}/firstrun`;
 	for (;;) {
 		if (opts.stop.stopped()) return null;
 		try {

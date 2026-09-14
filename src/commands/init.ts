@@ -39,7 +39,8 @@ export interface InitOptions {
 export interface InitReport {
 	intent: InitIntent;
 	site: string | null;
-	siteName: string;
+	/** null when the caller named none, which is the normal case */
+	siteName: string | null;
 	/** the probe's verdict on the origin, when one was given */
 	reachable: boolean | null;
 	drupflare: boolean | null;
@@ -122,7 +123,7 @@ export async function runInit(ctx: Context, opts: InitOptions): Promise<void> {
 	const report: InitReport = {
 		intent: intent as InitIntent,
 		site: null,
-		siteName: globals.config.siteName.value ?? 'site',
+		siteName: globals.config.siteName.value,
 		reachable: null,
 		drupflare: null,
 		tier: null,
@@ -219,6 +220,11 @@ async function resolveAccount(ctx: Context, globals: GlobalOptions): Promise<str
 	);
 }
 
+/** a name only when the caller gave one; a written default is read back as a choice they made */
+function namePart(name: string | null): { name?: string } {
+	return name === null ? {} : { name };
+}
+
 function writeAnswers(ctx: Context, report: InitReport, globals: GlobalOptions): void {
 	if (report.write === 'none') return;
 
@@ -227,7 +233,7 @@ function writeAnswers(ctx: Context, report: InitReport, globals: GlobalOptions):
 		const project: DranglerConfig = {
 			...(report.site === null
 				? {}
-				: { site: { origin: report.site, name: report.siteName } }),
+				: { site: { origin: report.site, ...namePart(report.siteName) } }),
 			...(globals.config.workspace.value === null
 				? {}
 				: { workspace: globals.config.workspace.value })
@@ -245,7 +251,7 @@ function writeAnswers(ctx: Context, report: InitReport, globals: GlobalOptions):
 	const merged: DranglerConfig = {
 		...existing,
 		...(report.write === 'global' && report.site !== null
-			? { site: { origin: report.site, name: report.siteName } }
+			? { site: { origin: report.site, ...namePart(report.siteName) } }
 			: {}),
 		...(report.account === null ? {} : { account: report.account }),
 		...(token === null || report.site === null
@@ -291,7 +297,7 @@ function render(report: InitReport): string[] {
 	if (report.site !== null) {
 		rows.push(
 			['site', report.site],
-			['site name', report.siteName],
+			['site name', report.siteName ?? 'derived by the site from its host'],
 			[
 				'answered',
 				report.reachable === false

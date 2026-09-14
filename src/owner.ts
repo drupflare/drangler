@@ -18,8 +18,16 @@ export interface OwnerReply {
 /** everything an owner-authenticated request needs, resolved once per command */
 export interface OwnerTarget {
 	origin: string;
-	/** the Durable Object identity inside that origin */
-	site: string;
+	/**
+	 * The Durable Object identity inside that origin, or null to let the site resolve its own.
+	 *
+	 * NULL IS THE NORMAL CASE and a name drangler invents is the bug. `resolveSite()` on the worker
+	 * honours `?site=` only on a route that is not public, so `/firstrun` -- which is public --
+	 * resolves from the host and mints the token on THAT object, while every owner route after it
+	 * would be told a different name and answer 401. A default of `'site'` therefore worked on
+	 * localhost, where the host derives to the same fallback, and broke every deployed site.
+	 */
+	site: string | null;
 	token: string;
 	timeoutMs: number;
 }
@@ -58,7 +66,7 @@ export function ownerTarget(globals: GlobalOptions, target?: string | null): Own
 	}
 	return {
 		origin,
-		site: globals.config.siteName.value ?? 'site',
+		site: globals.config.siteName.value,
 		token,
 		timeoutMs: globals.timeoutMs
 	};
@@ -70,7 +78,7 @@ export function ownerUrl(
 	params: OwnerCallOptions['params'] = {}
 ): string {
 	const url = new URL(`${owner.origin}${path}`);
-	url.searchParams.set('site', owner.site);
+	if (owner.site !== null && owner.site !== '') url.searchParams.set('site', owner.site);
 	for (const [key, value] of Object.entries(params)) {
 		if (value !== undefined) url.searchParams.set(key, String(value));
 	}

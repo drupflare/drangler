@@ -17,7 +17,6 @@ import { startFixtureWorker, type RunningWorker } from './helpers/worker';
 const skip = (await cloneGate()) || (await resolvePayload()) === null;
 
 const PORT = 8901;
-const SITE = 'modify-e2e';
 const PACKAGE = 'cfw_modify_probe';
 
 /**
@@ -74,11 +73,13 @@ describe.skipIf(skip)('an upload into a real dev site', () => {
 			dir: workspace,
 			config: join(workspace, 'wrangler.jsonc'),
 			port: PORT,
-			probePath: `/serve?site=${SITE}`
+			probePath: '/serve'
 		});
 
-		// claimed the way a user claims one: a POST with a JSON body, and the token rides the reply
-		const claim = await fetch(`${worker.origin}/firstrun?site=${SITE}`, {
+		// claimed the way a user claims one: a POST with a JSON body, and the token rides the reply.
+		// NO `?site=`: the parameter is honoured only on a route that is not public, so a claim that
+		// names one mints the token on a different object than every owner call would address
+		const claim = await fetch(`${worker.origin}/firstrun`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ siteName: 'Modify E2E' }),
@@ -104,7 +105,6 @@ describe.skipIf(skip)('an upload into a real dev site', () => {
 		const ctx = ctxWith(io, project);
 		const globals = testGlobals({ json: true }, ctx, {
 			site: worker.origin,
-			siteName: SITE,
 			token
 		});
 
@@ -117,7 +117,6 @@ describe.skipIf(skip)('an upload into a real dev site', () => {
 		await runModifyStatus(ctxWith(statusIo, project), {
 			globals: testGlobals({ json: true }, ctxWith(statusIo, project), {
 				site: worker.origin,
-				siteName: SITE,
 				token
 			})
 		});
@@ -140,7 +139,6 @@ describe.skipIf(skip)('an upload into a real dev site', () => {
 		await runModifyUpload(ctx, {
 			globals: testGlobals({ json: true }, ctx, {
 				site: worker.origin,
-				siteName: SITE,
 				token
 			})
 		});
