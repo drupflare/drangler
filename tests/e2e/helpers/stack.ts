@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { COMPOSE_FILE, sh, shOrThrow } from './docker';
+import { brokenUpArgs, COMPOSE_FILE, sh, shOrThrow, type Fault } from './docker';
 
 /** where a run's throwaway ssh keypair and scratch files live */
 export const SCRATCH = join(tmpdir(), 'drangler-e2e');
@@ -76,15 +76,53 @@ export async function stackUp(timeoutMs = 900_000): Promise<void> {
 	}
 }
 
-/** Tears the stack down, volumes included, so the next run installs Drupal from nothing. */
+/**
+ * Tears the stack down, volumes included, so the next run installs Drupal from nothing.
+ *
+ * `--profile broken` because the arm is not in the default set and was left RUNNING by a teardown
+ * that did not name it. It shares the `db` service with the healthy container, and its entrypoint
+ * installs into the same database, so a survivor reinstalls over the site the next run measures --
+ * which is how `survey.nodes` came back as zero on a stack that had just been torn down.
+ */
 export async function stackDown(): Promise<void> {
-	await sh('docker', ['compose', '-f', COMPOSE_FILE, 'down', '-v', '--remove-orphans'], {
-		timeoutMs: 180_000
-	});
+	await sh(
+		'docker',
+		['compose', '-f', COMPOSE_FILE, '--profile', 'broken', 'down', '-v', '--remove-orphans'],
+		{ timeoutMs: 180_000 }
+	);
 	rmSync(SCRATCH, { recursive: true, force: true });
 }
 
 /** The env `docker compose` needs; the public key is interpolated into the service definition. */
 export async function composeEnv(): Promise<NodeJS.ProcessEnv> {
 	return { ...process.env, DRANGLER_E2E_SSH_PUBKEY: await mintKeypair() };
+}
+
+/**
+ * Brings the broken arm up, healthy, with no fault planted.
+ *
+ * HERE RATHER THAN IN `docker.ts` because the service interpolates `DRANGLER_E2E_SSH_PUBKEY` and
+ * its entrypoint exits 1 on an empty one, so every compose call against this profile has to go
+ * through {@link composeEnv} -- and the keypair lives in this file. A raw `docker compose` in the
+ * workflow and a `plantFault` spreading a bare `process.env` both brought it up with no key.
+ */
+export async function brokenUp(): Promise<void> {
+	await shOrThrow('docker', [...brokenUpArgs(), 'vps-broken'], {
+		env: await composeEnv(),
+		timeoutMs: 900_000
+	});
+}
+
+/**
+ * Restarts the broken arm with one fault planted.
+ *
+ * Recreated rather than reconfigured, because the fault is read once at container start and a
+ * running container carrying the previous one would have every spec after the first scoring the
+ * wrong site.
+ */
+export async function plantFault(fault: Fault): Promise<void> {
+	await shOrThrow('docker', [...brokenUpArgs(), '--force-recreate', 'vps-broken'], {
+		env: { ...(await composeEnv()), DRANGLER_FAULT: fault },
+		timeoutMs: 900_000
+	});
 }

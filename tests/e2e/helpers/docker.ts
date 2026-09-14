@@ -146,28 +146,7 @@ export const FAULTS = [
 
 export type Fault = (typeof FAULTS)[number];
 
-/**
- * Restarts the broken arm with one fault planted.
- *
- * Recreated rather than reconfigured, because the fault is read once at container start and a
- * running container carrying the previous one would have every spec after the first scoring the
- * wrong site.
- */
-export async function plantFault(fault: Fault): Promise<void> {
-	await shOrThrow(
-		'docker',
-		[
-			'compose',
-			'-f',
-			join(E2E_DIR, '..', '..', 'docker', 'compose.yml'),
-			'--profile',
-			'broken',
-			'up',
-			'-d',
-			'--wait',
-			'--force-recreate',
-			'vps-broken'
-		],
-		{ env: { ...process.env, DRANGLER_FAULT: fault }, timeoutMs: 900_000 }
-	);
+/** `docker compose --profile broken up -d --wait`, shared by the bring-up and every fault plant */
+export function brokenUpArgs(): string[] {
+	return ['compose', '-f', COMPOSE_FILE, '--profile', 'broken', 'up', '-d', '--wait'];
 }

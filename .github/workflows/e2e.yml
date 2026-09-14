@@ -111,9 +111,7 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
       - name: Bring Up the Broken Arm
-        run: |
-          bun tests/e2e/stack.ts up
-          docker compose -f docker/compose.yml --profile broken up -d --wait vps-broken
+        run: bun tests/e2e/stack.ts broken
       - name: Run the Source Doctor Suite
         run: bunx vitest run --project=e2e tests/e2e/doctor-source.spec.ts
       - name: Dump Container Logs on Failure
