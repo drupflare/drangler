@@ -45,6 +45,7 @@
 		"docs:serve": "typedoc --watch"
 	},
 	"dependencies": {
+		"@drupflare/workforce": "^0.1.0",
 		"commander": "^15.0.0"
 	},
 	"devDependencies": {
