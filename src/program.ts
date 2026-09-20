@@ -1,5 +1,17 @@
 import { Command, Option } from 'commander';
 import { runCpu, runWhoami, runWorkers } from './commands/cf';
+import {
+	runAssets,
+	runBindings,
+	runDelete,
+	runDeploy,
+	runFork,
+	runPlane,
+	runRollback,
+	runSecret,
+	runSettings,
+	runVersions
+} from './commands/cf-worker';
 import { runConfigCheck, runConfigLevers, runConfigWhere } from './commands/config';
 import { runDoctor } from './commands/doctor';
 import { runEligibility } from './commands/eligibility';
@@ -909,7 +921,7 @@ export function buildProgram(ctx: Context): Command {
 			runConfigWhere(bound.ctx, bound.globals.config, { json: bound.globals.json });
 		});
 
-	const cf = program.command('cf').description('Read-only Cloudflare account operations');
+	const cf = program.command('cf').description('Cloudflare account and Worker operations');
 	cf.command('whoami')
 		.description('Report which Cloudflare credential drangler would use')
 		.action(async (_opts, command) => {
@@ -936,6 +948,102 @@ export function buildProgram(ctx: Context): Command {
 		.action(async (capture: string, _opts, command) => {
 			const bound = bind(command);
 			await runCpu(bound.ctx, capture, { json: bound.globals.json });
+		});
+
+	const withAccount = (
+		command: Parameters<typeof bind>[0],
+		opts: Record<string, unknown> = {}
+	) => {
+		const bound = bind(command);
+		const account = bound.globals.config.account.value;
+		return {
+			ctx: bound.ctx,
+			opts: {
+				...opts,
+				json: bound.globals.json,
+				...(account === null ? {} : { account })
+			}
+		};
+	};
+
+	cf.command('plane')
+		.description('Report which plane this credential reaches, and what it cannot do')
+		.action(async (_opts, command) => {
+			const { ctx, opts } = withAccount(command);
+			await runPlane(ctx, opts);
+		});
+	cf.command('deploy')
+		.argument('<worker>', 'the worker to upload to')
+		.description('Upload a built Worker; the module set is replaced whole')
+		.option('--directory <dir>', 'the built Worker to upload', 'dist')
+		.option('--compatibility-date <date>', 'the compatibility date to record')
+		.action(async (worker: string, o, command) => {
+			const { ctx, opts } = withAccount(command, o);
+			await runDeploy(ctx, worker, opts);
+		});
+	cf.command('delete')
+		.argument('<worker>', 'the worker to remove')
+		.description('Delete a Worker from the account')
+		.action(async (worker: string, _o, command) => {
+			const { ctx, opts } = withAccount(command);
+			await runDelete(ctx, worker, opts);
+		});
+	cf.command('fork')
+		.argument('<source>', 'the worker to copy configuration from')
+		.argument('<destination>', 'the worker to create')
+		.description('Copy a Worker configuration onto a new name')
+		.option('--directory <dir>', 'the built Worker to upload', 'dist')
+		.option('--durable-objects <mode>', 'fresh or shared', 'fresh')
+		.action(async (source: string, destination: string, o, command) => {
+			const { ctx, opts } = withAccount(command, o);
+			await runFork(ctx, source, destination, opts);
+		});
+	cf.command('settings')
+		.argument('<worker>', 'the worker to read')
+		.description('Report a Worker compatibility settings, tags and bindings')
+		.action(async (worker: string, _o, command) => {
+			const { ctx, opts } = withAccount(command);
+			await runSettings(ctx, worker, opts);
+		});
+	cf.command('bindings')
+		.argument('<worker>', 'the worker to read')
+		.description('List a Worker bindings')
+		.action(async (worker: string, _o, command) => {
+			const { ctx, opts } = withAccount(command);
+			await runBindings(ctx, worker, opts);
+		});
+	cf.command('secret')
+		.argument('<worker>', 'the worker to act on')
+		.argument('<action>', 'list, put or delete')
+		.argument('[name]', 'the secret name, for put and delete')
+		.description('List, set or remove a Worker secret; values are never printed')
+		.option('--value <value>', 'the value to set, instead of being asked')
+		.action(async (worker: string, action: string, name: string | undefined, o, command) => {
+			const { ctx, opts } = withAccount(command, o);
+			await runSecret(ctx, worker, action, name, opts);
+		});
+	cf.command('assets')
+		.argument('<worker>', 'the worker to sync assets onto')
+		.description('Upload a whole asset tree; a path left out of it is deleted')
+		.option('--directory <dir>', 'the asset tree to upload', 'public')
+		.action(async (worker: string, o, command) => {
+			const { ctx, opts } = withAccount(command, o);
+			await runAssets(ctx, worker, opts);
+		});
+	cf.command('versions')
+		.argument('<worker>', 'the worker to read')
+		.description('List the versions the platform still holds')
+		.action(async (worker: string, _o, command) => {
+			const { ctx, opts } = withAccount(command);
+			await runVersions(ctx, worker, opts);
+		});
+	cf.command('rollback')
+		.argument('<worker>', 'the worker to re-point')
+		.argument('<version>', 'the version to serve')
+		.description('Re-point a Worker at a version it already holds, creating no new version')
+		.action(async (worker: string, version: string, _o, command) => {
+			const { ctx, opts } = withAccount(command);
+			await runRollback(ctx, worker, version, opts);
 		});
 
 	const secrets = program
