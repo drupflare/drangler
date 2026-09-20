@@ -1,45 +1,9 @@
-import { AuthError, DranglerError } from '../errors';
-import type { FetchLike } from '../health/probe';
-
-export const API_BASE = 'https://api.cloudflare.com/client/v4';
+import type { CloudflareTarget } from './client';
 
 export interface WorkerScript {
 	id: string;
 	createdOn: string | null;
 	modifiedOn: string | null;
-}
-
-interface ApiEnvelope<T> {
-	success?: boolean;
-	errors?: { code?: number; message?: string }[];
-	result?: T;
-}
-
-/**
- * Reads one Cloudflare API envelope.
- *
- * A 200 with `success: false` is the normal way this API reports a permission problem, so the status
- * code alone is not the check; treating it as one is how a "no workers" answer gets confused with a
- * token that cannot list them.
- */
-export async function readEnvelope<T>(response: Response, what: string): Promise<T> {
-	let body: ApiEnvelope<T>;
-	try {
-		body = (await response.json()) as ApiEnvelope<T>;
-	} catch {
-		throw new DranglerError('api', `${what}: HTTP ${response.status} with a non-JSON body`);
-	}
-	if (response.status === 401 || response.status === 403) {
-		throw new AuthError(`${what}: HTTP ${response.status}; the token was rejected`);
-	}
-	if (body.success === false || body.result === undefined) {
-		const detail = (body.errors ?? []).map((e) => e.message ?? String(e.code)).join('; ');
-		throw new DranglerError(
-			'api',
-			`${what}: ${detail === '' ? `HTTP ${response.status}` : detail}`
-		);
-	}
-	return body.result;
 }
 
 /** what the account is actually entitled to, as far as the subscription list shows */
@@ -79,45 +43,21 @@ export function readWorkersPlan(
 	return { plan: paid ? 'paid' : 'free', evidence };
 }
 
-export interface CloudflareApi {
-	listWorkers(accountId: string): Promise<WorkerScript[]>;
-	workersPlan(accountId: string): Promise<PlanReading>;
+/** The account's scripts, named and sorted the way drangler reports them. */
+export async function listWorkers(t: CloudflareTarget): Promise<WorkerScript[]> {
+	const summaries = await t.client.plane.list();
+	return summaries
+		.map((s) => ({ id: s.name, createdOn: s.createdOn, modifiedOn: s.modifiedOn }))
+		.filter((s) => s.id !== '')
+		.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** The REST surface drangler uses. Read-only: nothing here writes, deploys or deletes. */
-export function cloudflareApi(
-	fetchFn: FetchLike,
-	token: string,
-	base: string = API_BASE
-): CloudflareApi {
-	return {
-		async listWorkers(accountId) {
-			const response = await fetchFn(`${base}/accounts/${accountId}/workers/scripts`, {
-				headers: { authorization: `Bearer ${token}`, accept: 'application/json' }
-			});
-			const result = await readEnvelope<
-				{ id?: string; created_on?: string; modified_on?: string }[]
-			>(response, 'listing workers');
-			return result
-				.map((r) => ({
-					id: String(r.id ?? ''),
-					createdOn: r.created_on ?? null,
-					modifiedOn: r.modified_on ?? null
-				}))
-				.filter((r) => r.id !== '')
-				.sort((a, b) => a.id.localeCompare(b.id));
-		},
-
-		async workersPlan(accountId) {
-			const response = await fetchFn(`${base}/accounts/${accountId}/subscriptions`, {
-				headers: { authorization: `Bearer ${token}`, accept: 'application/json' }
-			});
-			const result = await readEnvelope<
-				{ rate_plan?: { id?: string; public_name?: string } }[]
-			>(response, 'reading the account plan');
-			return readWorkersPlan(result);
-		}
-	};
+/** Workers has no plan endpoint, so this reads the account subscriptions through the raw client. */
+export async function workersPlan(t: CloudflareTarget): Promise<PlanReading> {
+	const result = await t.client.raw.request<
+		{ rate_plan?: { id?: string; public_name?: string } }[]
+	>(`/accounts/${t.account}/subscriptions`);
+	return readWorkersPlan(result);
 }
 
 export interface BaselineDiff {

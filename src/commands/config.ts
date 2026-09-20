@@ -1,5 +1,5 @@
-import { cloudflareApi, type WorkersPlan } from '../cloudflare/api';
-import { requireAccount, resolveAuth } from '../cloudflare/auth';
+import { workersPlan, type WorkersPlan } from '../cloudflare/api';
+import { target } from '../cloudflare/client';
 import {
 	checkConfig,
 	otherVars,
@@ -51,9 +51,9 @@ export async function resolvePlanFacts(
 			source: 'not checked (no CLOUDFLARE_API_TOKEN; pass --plan to check offline)'
 		};
 	}
-	const auth = await resolveAuth(ctx.runner, ctx.env);
-	const account = requireAccount(auth, opts.account ?? null);
-	const reading = await cloudflareApi(ctx.fetch, token).workersPlan(account);
+	const t = await target(ctx, opts.account ?? null);
+	const account = t.account;
+	const reading = await workersPlan(t);
 	return {
 		facts: { workersPlan: reading.plan },
 		source:

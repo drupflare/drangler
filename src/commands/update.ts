@@ -1,5 +1,5 @@
-import { cloudflareApi } from '../cloudflare/api';
-import { requireAccount, requireToken, resolveAuth } from '../cloudflare/auth';
+import { listWorkers } from '../cloudflare/api';
+import { target } from '../cloudflare/client';
 import type { GlobalOptions } from '../config/globals';
 import type { Context } from '../context';
 import { DranglerError, UsageError } from '../errors';
@@ -191,9 +191,9 @@ async function assertDeployed(
 	worker: string,
 	opts: UpdateCommandOptions
 ): Promise<void> {
-	const auth = await resolveAuth(ctx.runner, ctx.env);
-	const account = requireAccount(auth, opts.account ?? null);
-	const scripts = await cloudflareApi(ctx.fetch, requireToken(ctx.env)).listWorkers(account);
+	const t = await target(ctx, opts.account ?? null);
+	const account = t.account;
+	const scripts = await listWorkers(t);
 	if (scripts.some((s) => s.id === worker)) return;
 	throw new UsageError(
 		`no worker named \`${worker}\` on account ${account}, so there is nothing to update. ` +

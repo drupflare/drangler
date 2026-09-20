@@ -1,5 +1,6 @@
-import { cloudflareApi, compareWorkers } from '../cloudflare/api';
-import { requireAccount, requireToken, resolveAuth } from '../cloudflare/auth';
+import { compareWorkers, listWorkers } from '../cloudflare/api';
+import { resolveAuth } from '../cloudflare/auth';
+import { target } from '../cloudflare/client';
 import { captureCommand, parseTailCapture, summariseCpu } from '../cloudflare/tail';
 import type { Context } from '../context';
 import { FindingError, UsageError } from '../errors';
@@ -45,10 +46,9 @@ export interface WorkersOptions extends JsonOption {
  * exactly its prior state afterwards. Done by eye that step gets skipped; done here it exits 3.
  */
 export async function runWorkers(ctx: Context, opts: WorkersOptions): Promise<void> {
-	const auth = await resolveAuth(ctx.runner, ctx.env);
-	const account = requireAccount(auth, opts.account ?? null);
-	const api = cloudflareApi(ctx.fetch, requireToken(ctx.env));
-	const workers = await api.listWorkers(account);
+	const t = await target(ctx, opts.account ?? null);
+	const account = t.account;
+	const workers = await listWorkers(t);
 	const names = workers.map((w) => w.id);
 
 	if (opts.save !== undefined) {
