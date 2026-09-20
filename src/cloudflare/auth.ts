@@ -122,7 +122,7 @@ export async function resolveAuth(
 
 /** The credential an API call needs, or a named refusal saying which of the two ways to supply it. */
 export function requireToken(env: NodeJS.ProcessEnv): string {
-	const token = env.CLOUDFLARE_API_TOKEN ?? env.CF_API_TOKEN ?? '';
+	const token = env.CLOUDFLARE_API_TOKEN ?? env.CLOUDFLARE_AUTH_TOKEN ?? env.CF_API_TOKEN ?? '';
 	if (token === '') {
 		throw new AuthError(
 			'no CLOUDFLARE_API_TOKEN in the environment; the REST API needs a token, and `wrangler login` stores an OAuth credential this cannot read'
