@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	API_BASE,
-	cloudflareApi,
-	compareWorkers,
-	readEnvelope,
-	readWorkersPlan
-} from '../src/cloudflare/api';
+import { compareWorkers, listWorkers, readWorkersPlan, workersPlan } from '../src/cloudflare/api';
 import { parseWhoami, requireAccount, requireToken, resolveAuth } from '../src/cloudflare/auth';
 import {
 	checkConfig,
@@ -20,16 +14,29 @@ import {
 import { captureCommand, parseTailCapture, summariseCpu } from '../src/cloudflare/tail';
 import { runCpu, runWhoami, runWorkers } from '../src/commands/cf';
 import {
+	runAssets,
+	runBindings,
+	runDelete,
+	runDeploy,
+	runFork,
+	runPlane,
+	runRollback,
+	runSecret,
+	runSettings,
+	runVersions
+} from '../src/commands/cf-worker';
+import {
 	resolvePlanFacts,
 	runConfigCheck,
 	runConfigLevers,
 	type ConfigLeversReport
 } from '../src/commands/config';
 import { checkTools, parseVersion, runDoctor, TOOLS } from '../src/commands/doctor';
-import { AuthError, DranglerError, FindingError, UsageError } from '../src/errors';
+import { AuthError, FindingError, UsageError } from '../src/errors';
+import type { FetchLike } from '../src/health/probe';
 import { scriptedRunner } from '../src/host/exec';
 import { memoryFiles } from '../src/host/files';
-import { fail, fakeFetch, ok, testContext } from './helpers';
+import { fail, fakeFetch, fakeTarget, ok, testContext } from './helpers';
 
 const WHOAMI = [
 	'Getting User settings...',
@@ -128,45 +135,8 @@ describe('requireToken and requireAccount', () => {
 	});
 });
 
-describe('readEnvelope', () => {
-	it('reads a successful envelope', async () => {
-		const result = await readEnvelope<number[]>(
-			new Response(JSON.stringify({ success: true, result: [1] })),
-			'x'
-		);
-		expect(result).toEqual([1]);
-	});
-
-	it('treats a 200 with success:false as a failure and quotes the message', async () => {
-		await expect(
-			readEnvelope(
-				new Response(JSON.stringify({ success: false, errors: [{ message: 'nope' }] })),
-				'listing workers'
-			)
-		).rejects.toThrow(/listing workers: nope/);
-	});
-
-	it('names an auth failure separately', async () => {
-		await expect(readEnvelope(new Response('{}', { status: 403 }), 'x')).rejects.toThrow(
-			AuthError
-		);
-	});
-
-	it('refuses a non-JSON body', async () => {
-		await expect(readEnvelope(new Response('<html>', { status: 500 }), 'x')).rejects.toThrow(
-			DranglerError
-		);
-	});
-
-	it('reports a missing result with the status', async () => {
-		await expect(readEnvelope(new Response('{}', { status: 500 }), 'x')).rejects.toThrow(
-			/HTTP 500/
-		);
-	});
-});
-
-describe('cloudflareApi', () => {
-	it('calls the scripts endpoint with the bearer token and sorts the result', async () => {
+describe('listWorkers', () => {
+	it('lists the account scripts through the library and sorts them by name', async () => {
 		const fetch = fakeFetch(
 			() =>
 				new Response(
@@ -180,8 +150,8 @@ describe('cloudflareApi', () => {
 					})
 				)
 		);
-		const workers = await cloudflareApi(fetch, 'tok').listWorkers('acct');
-		expect(fetch.urls[0]).toBe(`${API_BASE}/accounts/acct/workers/scripts`);
+		const workers = await listWorkers(fakeTarget(fetch));
+		expect(fetch.urls[0]).toContain('/accounts/acct/workers/scripts');
 		expect(workers.map((w) => w.id)).toEqual(['alpha', 'zeta']);
 		expect(workers[0]?.modifiedOn).toBeNull();
 	});
@@ -414,10 +384,8 @@ describe('readWorkersPlan', () => {
 					})
 				)
 		);
-		expect(await cloudflareApi(fetch, 'tok').workersPlan('acct')).toMatchObject({
-			plan: 'paid'
-		});
-		expect(fetch.urls[0]).toBe(`${API_BASE}/accounts/acct/subscriptions`);
+		expect(await workersPlan(fakeTarget(fetch))).toMatchObject({ plan: 'paid' });
+		expect(fetch.urls[0]).toContain('/accounts/acct/subscriptions');
 	});
 });
 
@@ -900,5 +868,137 @@ describe('doctor command', () => {
 		expect(report.missing).toEqual([]);
 		expect(report.tools.length).toBeGreaterThan(0);
 		expect(JSON.stringify(report)).not.toContain('workspace');
+	});
+});
+
+describe('cf worker commands', () => {
+	const ENV = { CLOUDFLARE_API_TOKEN: 'tok', CLOUDFLARE_ACCOUNT_ID: 'acct' };
+
+	function routed(routes: Record<string, unknown>) {
+		return fakeFetch((url) => {
+			for (const [fragment, result] of Object.entries(routes)) {
+				if (url.includes(fragment)) {
+					return new Response(JSON.stringify({ success: true, result }));
+				}
+			}
+			return new Response(JSON.stringify({ success: true, result: {} }));
+		});
+	}
+
+	function ctxWith(fetch: FetchLike, seed: Record<string, string> = {}) {
+		return testContext({ runner: wrangler(), env: ENV, files: memoryFiles(seed), fetch });
+	}
+
+	it('deploy uploads every file under the directory', async () => {
+		const ctx = ctxWith(routed({ '/workers/scripts/api': { id: 'api', etag: 'e1' } }), {
+			'/dist/index.js': 'export default {};',
+			'/dist/lib/util.js': 'export const a = 1;'
+		});
+		await runDeploy(ctx, 'api', { directory: '/dist' });
+		expect(ctx.io.text()).toContain('modules');
+		expect(ctx.io.text()).toContain('2');
+	});
+
+	it('deploy refuses a directory with nothing in it, rather than emptying the worker', async () => {
+		const ctx = ctxWith(routed({}), { '/dist/.keep': '' });
+		await expect(runDeploy(ctx, 'api', { directory: '/nope' })).rejects.toThrow(UsageError);
+	});
+
+	it('delete refuses a worker the account does not have', async () => {
+		const ctx = ctxWith(routed({ 'scripts-search': [] }));
+		await expect(runDelete(ctx, 'ghost', {})).rejects.toThrow(/no worker named/);
+	});
+
+	it('settings reports the bindings', async () => {
+		const ctx = ctxWith(
+			routed({
+				'/settings': {
+					bindings: [{ type: 'kv_namespace', name: 'CACHE', namespace_id: 'n' }],
+					compatibility_date: '2026-08-01'
+				}
+			})
+		);
+		await runSettings(ctx, 'api', {});
+		expect(ctx.io.text()).toContain('CACHE');
+		expect(ctx.io.text()).toContain('kv_namespace');
+	});
+
+	it('secret put refuses without a value when there is nobody to ask', async () => {
+		const ctx = testContext({
+			runner: wrangler(),
+			env: ENV,
+			files: memoryFiles({}),
+			fetch: routed({}),
+			ask: async () => null
+		});
+		await expect(runSecret(ctx, 'api', 'put', 'TOKEN', {})).rejects.toThrow(/pass --value/);
+	});
+
+	it('secret list names them without printing a value', async () => {
+		const ctx = ctxWith(routed({ '/secrets': [{ name: 'TOKEN', type: 'secret_text' }] }));
+		await runSecret(ctx, 'api', 'list', undefined, {});
+		expect(ctx.io.text()).toContain('TOKEN');
+		expect(ctx.io.text()).not.toContain('secret_value');
+	});
+
+	it('secret refuses an action it does not have', async () => {
+		const ctx = ctxWith(routed({}));
+		await expect(runSecret(ctx, 'api', 'rotate', 'TOKEN', {})).rejects.toThrow(/list, put or/);
+	});
+
+	it('versions lists what the platform still holds', async () => {
+		const ctx = ctxWith(
+			routed({
+				'/versions': { items: [{ id: 'v1', metadata: { created_on: '2026-01-01' } }] }
+			})
+		);
+		await runVersions(ctx, 'api', {});
+		expect(ctx.io.text()).toContain('v1');
+	});
+
+	it('rollback says it creates no new version', async () => {
+		const ctx = ctxWith(routed({ '/versions': { items: [{ id: 'v1' }] } }));
+		await runRollback(ctx, 'api', 'v1', {});
+		expect(ctx.io.text()).toContain('creates no new version');
+	});
+
+	it('plane reports what the credential reaches', async () => {
+		const ctx = ctxWith(routed({}));
+		await runPlane(ctx, {});
+		expect(ctx.io.text()).toContain('cloudflare');
+		expect(ctx.io.text()).toContain('versions');
+	});
+
+	it('bindings lists them on their own', async () => {
+		const ctx = ctxWith(
+			routed({ '/settings': { bindings: [{ type: 'r2_bucket', name: 'FRAMES' }] } })
+		);
+		await runBindings(ctx, 'api', {});
+		expect(ctx.io.text()).toContain('FRAMES');
+	});
+
+	it('assets uploads the whole tree, since an omission is a deletion', async () => {
+		const ctx = ctxWith(
+			routed({
+				'assets-upload-session': { jwt: 'j', buckets: [] }
+			}),
+			{ '/public/index.html': '<!doctype html>' }
+		);
+		await runAssets(ctx, 'api', { directory: '/public' });
+		expect(ctx.io.text()).toContain('files');
+	});
+
+	it('fork refuses transfer, which moves data and cannot be undone', async () => {
+		const ctx = ctxWith(routed({}));
+		await expect(
+			runFork(ctx, 'api', 'api-dev', { durableObjects: 'transfer' })
+		).rejects.toThrow(/not reversible/);
+	});
+
+	it('fork refuses a mode that is not one of the three', async () => {
+		const ctx = ctxWith(routed({}));
+		await expect(runFork(ctx, 'api', 'api-dev', { durableObjects: 'clone' })).rejects.toThrow(
+			/must be one of/
+		);
 	});
 });

@@ -1,3 +1,5 @@
+import { cloudflare, workforce } from '@drupflare/workforce';
+import type { CloudflareTarget } from '../src/cloudflare/client';
 import { resolveConfig, type ConfigDiscovery } from '../src/config/file';
 import { DEFAULT_TIMEOUT_MS, type GlobalOptions } from '../src/config/globals';
 import type { Context } from '../src/context';
@@ -60,6 +62,14 @@ export function fakeFetch(
 		return await handler(url);
 	};
 	return Object.assign(fn, { urls }) as unknown as FetchLike & { urls: string[] };
+}
+
+/** A Cloudflare target backed by a stubbed fetch, so no `cf` spec reaches the network. */
+export function fakeTarget(fetch: FetchLike, account = 'acct'): CloudflareTarget {
+	return {
+		account,
+		client: workforce({ plane: cloudflare({ accountId: account, token: 'tok', fetch }) })
+	};
 }
 
 export const ok = (stdout: string): CommandResult => ({ code: 0, stdout, stderr: '' });
