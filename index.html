@@ -1,5 +1,5 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>drupflare/drangler - v0.1.0</title><meta name="description" content="Documentation for drupflare/drangler"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script><script async src="assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
-<div class="tsd-toolbar-contents container"><a href="index.html" class="title">drupflare/drangler - v0.1.0</a>
+<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>drupflare/drangler - v0.2.0</title><meta name="description" content="Documentation for drupflare/drangler"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script><script async src="assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<div class="tsd-toolbar-contents container"><a href="index.html" class="title">drupflare/drangler - v0.2.0</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
 <div id="tsd-search-status" aria-live="polite" aria-atomic="true">
@@ -7,7 +7,7 @@
 <div class="container container-main">
 <div class="col-content">
 <div class="tsd-page-title">
-<h1>drupflare/drangler - v0.1.0</h1></div>
+<h1>drupflare/drangler - v0.2.0</h1></div>
 <div class="tsd-panel tsd-typography"><h1 id="drangler" class="tsd-anchor-link">drangler<a href="#drangler" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1>
 <blockquote>
 <p>Start, maintain and migrate a drupflare site, in either direction</p>
@@ -809,6 +809,46 @@ a line saying <code>--verbose</code> prints the rest.</p>
 <td>Summarise a <code>wrangler tail</code> capture, refusing an untrustworthy one</td>
 </tr>
 <tr>
+<td><code>cf plane</code></td>
+<td>Which plane the credential reaches, and what it cannot do</td>
+</tr>
+<tr>
+<td><code>cf deploy &lt;worker&gt;</code></td>
+<td>Upload a built Worker; the module set is replaced whole</td>
+</tr>
+<tr>
+<td><code>cf delete &lt;worker&gt;</code></td>
+<td>Delete a Worker from the account</td>
+</tr>
+<tr>
+<td><code>cf fork &lt;src&gt; &lt;dest&gt;</code></td>
+<td>Copy a Worker configuration onto a new name</td>
+</tr>
+<tr>
+<td><code>cf settings &lt;worker&gt;</code></td>
+<td>Compatibility settings, tags and bindings</td>
+</tr>
+<tr>
+<td><code>cf bindings &lt;worker&gt;</code></td>
+<td>List a Worker bindings</td>
+</tr>
+<tr>
+<td><code>cf secret &lt;worker&gt; …</code></td>
+<td>List, set or remove a secret; values are never printed</td>
+</tr>
+<tr>
+<td><code>cf assets &lt;worker&gt;</code></td>
+<td>Upload a whole asset tree; a path left out of it is deleted</td>
+</tr>
+<tr>
+<td><code>cf versions &lt;worker&gt;</code></td>
+<td>List the versions the platform still holds</td>
+</tr>
+<tr>
+<td><code>cf rollback &lt;worker&gt; &lt;v&gt;</code></td>
+<td>Re-point a Worker at a version it already holds</td>
+</tr>
+<tr>
 <td><code>secrets scan &lt;paths...&gt;</code></td>
 <td>Find credentials in a dump or a tree, without printing them</td>
 </tr>
@@ -1203,6 +1243,19 @@ first, then the <code>wrangler login</code> OAuth session. When there is neither
 
 <p>It exits 3 when the list differs, naming what was added and what went missing. The REST call needs a
 token; the OAuth credential <code>wrangler login</code> writes cannot be read by anything but wrangler.</p>
+<p>The Worker operations run on <a href="https://github.com/drupflare/workforce"><code>@drupflare/workforce</code></a>, which
+owns the envelope reading, the retry and the account-wide request budget.</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">cf</span><span class="hl-1"> </span><span class="hl-2">plane</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">cf</span><span class="hl-1"> </span><span class="hl-2">deploy</span><span class="hl-1"> </span><span class="hl-2">api</span><span class="hl-1"> </span><span class="hl-3">--directory</span><span class="hl-1"> </span><span class="hl-2">dist</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">cf</span><span class="hl-1"> </span><span class="hl-2">settings</span><span class="hl-1"> </span><span class="hl-2">api</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">cf</span><span class="hl-1"> </span><span class="hl-2">secret</span><span class="hl-1"> </span><span class="hl-2">api</span><span class="hl-1"> </span><span class="hl-2">put</span><span class="hl-1"> </span><span class="hl-2">TOKEN</span><span class="hl-1"> </span><span class="hl-3">--value</span><span class="hl-1"> </span><span class="hl-2">&quot;</span><span class="hl-6">$TOKEN</span><span class="hl-2">&quot;</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">cf</span><span class="hl-1"> </span><span class="hl-2">versions</span><span class="hl-1"> </span><span class="hl-2">api</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">cf</span><span class="hl-1"> </span><span class="hl-2">rollback</span><span class="hl-1"> </span><span class="hl-2">api</span><span class="hl-1"> &lt;</span><span class="hl-2">version-i</span><span class="hl-1">d&gt;</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>cf rollback</code> re-points the deployment at a version the platform still holds and creates no new
+version. Only the 100 most recent are reachable, and a rollback across a Durable Object lifecycle
+change is refused rather than attempted.</p>
+<p><code>cf assets</code> uploads a whole tree. There is no partial form: a manifest that omits a path carries it
+forward instead of deleting it, so a tree is the only shape that can express a removal.</p>
+<p><code>cf fork</code> copies a Worker's compatibility settings and bindings onto a new name, with the modules
+taken from a local build. Secrets are never carried, because the API returns no value for one; the
+report names the ones the fork will not have.</p>
 <p><code>cf cpu</code> reads a saved <code>wrangler tail --format json</code> capture and summarises cpuTime per execution
 model, reporting the spread rather than a median alone. It refuses a capture holding stateless events
 and no <code>durableObject</code> event: tail has been measured dropping those silently while the Workers
@@ -1368,7 +1421,7 @@ checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <li><a href="#related-repositories"><span>Related <wbr/>Repositories</span></a></li>
 <li><a href="#license"><span>License</span></a></li></ul></div></details></div>
 <div class="site-menu">
-<nav class="tsd-navigation"><a href="modules.html">drupflare/drangler - v0.1.0</a>
+<nav class="tsd-navigation"><a href="modules.html">drupflare/drangler - v0.2.0</a>
 <ul class="tsd-small-nested-navigation" id="tsd-nav-container">
 <li>Loading...</li></ul></nav></div></div></div><footer>
 <p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer>
