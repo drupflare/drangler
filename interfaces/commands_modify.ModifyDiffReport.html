@@ -13,7 +13,7 @@
 <h1>Interface ModifyDiffReport</h1></div>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">ModifyDiffReport</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#changes">changes</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">kind</span><span class="tsd-signature-symbol">:</span> <a href="../types/commands_modify.DiffKind.html" class="tsd-signature-type tsd-kind-type-alias">DiffKind</a><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#clean">clean</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#comparedto">comparedTo</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#counts">counts</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/commands_modify.DiffKind.html" class="tsd-signature-type tsd-kind-type-alias">DiffKind</a><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#files">files</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#notes">notes</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#outgoing">outgoing</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#package">package</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#rowswritten">rowsWritten</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L330">src/commands/modify.ts:330</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L330">src/commands/modify.ts:330</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -40,51 +40,51 @@
 <div class="tsd-comment tsd-typography"><p>every path that differs, with what would happen to it</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L336">src/commands/modify.ts:336</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L336">src/commands/modify.ts:336</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="clean"><span>clean</span><a href="#clean" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">clean</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L341">src/commands/modify.ts:341</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L341">src/commands/modify.ts:341</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="comparedto"><span>compared<wbr/>To</span><a href="#comparedto" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">comparedTo</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>what the local tree was compared against</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L333">src/commands/modify.ts:333</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L333">src/commands/modify.ts:333</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="counts"><span>counts</span><a href="#counts" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">counts</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><a href="../types/commands_modify.DiffKind.html" class="tsd-signature-type tsd-kind-type-alias">DiffKind</a><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L339">src/commands/modify.ts:339</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L339">src/commands/modify.ts:339</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="files"><span>files</span><a href="#files" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">files</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L334">src/commands/modify.ts:334</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L334">src/commands/modify.ts:334</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="notes"><span>notes</span><a href="#notes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">notes</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L342">src/commands/modify.ts:342</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L342">src/commands/modify.ts:342</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="outgoing"><span>outgoing</span><a href="#outgoing" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">outgoing</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div>
 <div class="tsd-comment tsd-typography"><p>paths whose BYTES the site does not hold, which is what an upload would send</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L338">src/commands/modify.ts:338</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L338">src/commands/modify.ts:338</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="package"><span>package</span><a href="#package" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">package</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L331">src/commands/modify.ts:331</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L331">src/commands/modify.ts:331</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="rowswritten"><span>rows<wbr/>Written</span><a href="#rowswritten" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">rowsWritten</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/f4654df8c181f169bb4fc2e2f03e371994072879/src/commands/modify.ts#L340">src/commands/modify.ts:340</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/bc1ff06432e9081d1183429548114cfe47c00ed5/src/commands/modify.ts#L340">src/commands/modify.ts:340</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
