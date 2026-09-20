@@ -38,7 +38,9 @@ export const REQUIRED_ARTIFACTS: readonly RequiredArtifact[] = [
 		tracked: true,
 		produces: 'tracked in the repository; a checkout already has it'
 	},
-	{ path: 'assets/driver.json', produces: 'bun run assets:driver' },
+	// tracked since worker's `fix: hydrate overwrote files the repository owns`; still regenerable,
+	// which is why it keeps its producer where robots.txt has none
+	{ path: 'assets/driver.json', tracked: true, produces: 'bun run assets:driver' },
 	{
 		path: 'assets/prefill.json',
 		produces: 'bun scripts/lift-prefill.ts (needs a running worker)'
