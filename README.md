@@ -663,42 +663,52 @@ a line saying `--verbose` prints the rest.
 
 ## Commands
 
-| Command                   | What it does                                                       |
-| ------------------------- | ------------------------------------------------------------------ |
-| `init`                    | Connect this machine to a site and write down where it went        |
-| `build`                   | Clone `drupflare/worker` and build it into a deployable tree       |
-| `validate`                | Everything that has to hold before `dev` or `deploy` will work     |
-| `dev`                     | Build if needed, check, then run a local Drupal                    |
-| `deploy`                  | Build if needed, check, then deploy to your Cloudflare account     |
-| `update [worker]`         | Move a checkout to another version, and the worker running it      |
-| `status <target>`         | What is deployed: plan, generation, claim state, diagnostics       |
-| `doctor`                  | Preflight the toolchain, the credential and the config resolution  |
-| `health <target>`         | Probe a deployed worker or a VPS Drupal and report what answered   |
-| `heal <target>`           | Report the repair ladder, and perform the repairs a route allows   |
-| `reconcile <target>`      | What a site still owes the shipping pack, and drive the steps      |
-| `sweep <target>`          | Coverage of the addressable space, and what the governor decided   |
-| `site claim <target>`     | Mint the administrator password and the owner token                |
-| `site updb <target>`      | Read the Drupal update chain, and drive one beat of it             |
-| `site invalidate`         | Purge a site cache, by tag or by bumping the generation            |
-| `site upgrade <target>`   | Deploy, wait for the replay, then run the update chain             |
-| `modify …`                | Develop a module against a site, one revision at a time            |
-| `config check <file>`     | Score a wrangler config against known-bad deployments              |
-| `config levers <file>`    | The optional levers a config declares, and the state of each       |
-| `config where`            | Which file supplied each setting, and which files were searched    |
-| `cf whoami`               | Which Cloudflare credential drangler would use                     |
-| `cf workers`              | List the account workers, and compare against a saved baseline     |
-| `cf cpu <capture>`        | Summarise a `wrangler tail` capture, refusing an untrustworthy one |
-| `secrets scan <paths...>` | Find credentials in a dump or a tree, without printing them        |
-| `migrate eligibility`     | Can this site move in this direction today, and what would change  |
-| `migrate delta`           | The second dump table set, and the re-seed that fails silently     |
-| `migrate cutover`         | The steps a human confirms, ticked by nobody                       |
-| `migrate files`           | Write the managed files in a dump back onto a filesystem           |
-| `migrate survey`          | Read a VPS Drupal over SSH: versions, database, modules, files     |
-| `migrate plan`            | Score a survey and order the work, in either direction             |
-| `migrate export`          | Pull a deployed site's database out through `/export`              |
-| `migrate convert`         | Convert a SQL dump between MySQL and SQLite                        |
-| `migrate install`         | Land a migrated database or asset in a workspace, with a backup    |
-| `migrate restore`         | Put a backup set back where it came from                           |
+| Command                    | What it does                                                       |
+| -------------------------- | ------------------------------------------------------------------ |
+| `init`                     | Connect this machine to a site and write down where it went        |
+| `build`                    | Clone `drupflare/worker` and build it into a deployable tree       |
+| `validate`                 | Everything that has to hold before `dev` or `deploy` will work     |
+| `dev`                      | Build if needed, check, then run a local Drupal                    |
+| `deploy`                   | Build if needed, check, then deploy to your Cloudflare account     |
+| `update [worker]`          | Move a checkout to another version, and the worker running it      |
+| `status <target>`          | What is deployed: plan, generation, claim state, diagnostics       |
+| `doctor`                   | Preflight the toolchain, the credential and the config resolution  |
+| `health <target>`          | Probe a deployed worker or a VPS Drupal and report what answered   |
+| `heal <target>`            | Report the repair ladder, and perform the repairs a route allows   |
+| `reconcile <target>`       | What a site still owes the shipping pack, and drive the steps      |
+| `sweep <target>`           | Coverage of the addressable space, and what the governor decided   |
+| `site claim <target>`      | Mint the administrator password and the owner token                |
+| `site updb <target>`       | Read the Drupal update chain, and drive one beat of it             |
+| `site invalidate`          | Purge a site cache, by tag or by bumping the generation            |
+| `site upgrade <target>`    | Deploy, wait for the replay, then run the update chain             |
+| `modify …`                 | Develop a module against a site, one revision at a time            |
+| `config check <file>`      | Score a wrangler config against known-bad deployments              |
+| `config levers <file>`     | The optional levers a config declares, and the state of each       |
+| `config where`             | Which file supplied each setting, and which files were searched    |
+| `cf whoami`                | Which Cloudflare credential drangler would use                     |
+| `cf workers`               | List the account workers, and compare against a saved baseline     |
+| `cf cpu <capture>`         | Summarise a `wrangler tail` capture, refusing an untrustworthy one |
+| `cf plane`                 | Which plane the credential reaches, and what it cannot do          |
+| `cf deploy <worker>`       | Upload a built Worker; the module set is replaced whole            |
+| `cf delete <worker>`       | Delete a Worker from the account                                   |
+| `cf fork <src> <dest>`     | Copy a Worker configuration onto a new name                        |
+| `cf settings <worker>`     | Compatibility settings, tags and bindings                          |
+| `cf bindings <worker>`     | List a Worker bindings                                             |
+| `cf secret <worker> …`     | List, set or remove a secret; values are never printed             |
+| `cf assets <worker>`       | Upload a whole asset tree; a path left out of it is deleted        |
+| `cf versions <worker>`     | List the versions the platform still holds                         |
+| `cf rollback <worker> <v>` | Re-point a Worker at a version it already holds                    |
+| `secrets scan <paths...>`  | Find credentials in a dump or a tree, without printing them        |
+| `migrate eligibility`      | Can this site move in this direction today, and what would change  |
+| `migrate delta`            | The second dump table set, and the re-seed that fails silently     |
+| `migrate cutover`          | The steps a human confirms, ticked by nobody                       |
+| `migrate files`            | Write the managed files in a dump back onto a filesystem           |
+| `migrate survey`           | Read a VPS Drupal over SSH: versions, database, modules, files     |
+| `migrate plan`             | Score a survey and order the work, in either direction             |
+| `migrate export`           | Pull a deployed site's database out through `/export`              |
+| `migrate convert`          | Convert a SQL dump between MySQL and SQLite                        |
+| `migrate install`          | Land a migrated database or asset in a workspace, with a backup    |
+| `migrate restore`          | Put a backup set back where it came from                           |
 
 Every command takes `--json` and prints the same object its text render is built from.
 
@@ -928,6 +938,29 @@ drangler cf workers --compare baseline.json
 
 It exits 3 when the list differs, naming what was added and what went missing. The REST call needs a
 token; the OAuth credential `wrangler login` writes cannot be read by anything but wrangler.
+
+The Worker operations run on [`@drupflare/workforce`](https://github.com/drupflare/workforce), which
+owns the envelope reading, the retry and the account-wide request budget.
+
+```sh
+drangler cf plane
+drangler cf deploy api --directory dist
+drangler cf settings api
+drangler cf secret api put TOKEN --value "$TOKEN"
+drangler cf versions api
+drangler cf rollback api <version-id>
+```
+
+`cf rollback` re-points the deployment at a version the platform still holds and creates no new
+version. Only the 100 most recent are reachable, and a rollback across a Durable Object lifecycle
+change is refused rather than attempted.
+
+`cf assets` uploads a whole tree. There is no partial form: a manifest that omits a path carries it
+forward instead of deleting it, so a tree is the only shape that can express a removal.
+
+`cf fork` copies a Worker's compatibility settings and bindings onto a new name, with the modules
+taken from a local build. Secrets are never carried, because the API returns no value for one; the
+report names the ones the fork will not have.
 
 `cf cpu` reads a saved `wrangler tail --format json` capture and summarises cpuTime per execution
 model, reporting the spread rather than a median alone. It refuses a capture holding stateless events
