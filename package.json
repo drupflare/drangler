@@ -45,7 +45,7 @@
 		"docs:serve": "typedoc --watch"
 	},
 	"dependencies": {
-		"@drupflare/workforce": "^0.1.0",
+		"@drupflare/workforce": "^0.2.0",
 		"commander": "^15.0.0"
 	},
 	"devDependencies": {
@@ -56,7 +56,7 @@
 		"lint-staged": "^17.3.0",
 		"prettier": "^3.9.6",
 		"prettier-plugin-organize-imports": "^4.3.0",
-		"prettier-plugin-sh": "^0.19.0",
+		"prettier-plugin-sh": "^0.20.0",
 		"typedoc": "^0.28.20",
 		"typescript": "^5.9.3",
 		"vitest": "^4.1.0",
