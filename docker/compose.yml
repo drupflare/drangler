@@ -19,7 +19,7 @@ services:
       - '127.0.0.1:33306:3306'
 
   drupal:
-    image: drupal@sha256:bae0ec3d22c3ba81e2c86807a08fc3706963654c71bd95aad841880bd0d255b7
+    image: drupal@sha256:93b9653d96ca5e3877682a533f05b21faf12bfeda71dc5b0336c8c06a64a71ad
     depends_on:
       db:
         condition: service_healthy
@@ -45,7 +45,7 @@ services:
 
   vps-broken:
     profiles: ['broken']
-    image: drupal@sha256:bae0ec3d22c3ba81e2c86807a08fc3706963654c71bd95aad841880bd0d255b7
+    image: drupal@sha256:93b9653d96ca5e3877682a533f05b21faf12bfeda71dc5b0336c8c06a64a71ad
     depends_on:
       db:
         condition: service_healthy
