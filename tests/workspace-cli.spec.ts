@@ -10,6 +10,8 @@ import { fail, ok, testContext, workerTree, WORKSPACE, type TestContext } from '
 const DRY_RUN = `bunx wrangler deploy -c wrangler.jsonc --dry-run --outdir ${WORKSPACE}/dist/dry-run`;
 const SCRUB = 'bun run assets:scrub:check';
 const CLONE = `git clone --branch master /src/worker ${WORKSPACE}`;
+// asked before a clone; unscripted here, so the clone keeps the default branch
+const TAGS = 'git ls-remote --tags --refs /src/worker';
 
 const SOURCE_ENV = { DRANGLER_WORKSPACE: WORKSPACE, DRANGLER_WORKER_SOURCE: '/src/worker' };
 
@@ -57,7 +59,7 @@ describe('drangler build', () => {
 	it('clones, installs and hydrates an empty workspace, in that order', async () => {
 		const ctx = ctxFor({});
 		expect(await run(ctx, ['build'])).toBe(EXIT.OK);
-		expect(lines(ctx.runner)).toEqual([CLONE, 'bun install', 'bun run hydrate']);
+		expect(lines(ctx.runner)).toEqual([TAGS, CLONE, 'bun install', 'bun run hydrate']);
 	});
 
 	it('is resumable: a second build on a finished workspace runs no subprocess', async () => {
@@ -191,6 +193,7 @@ describe('drangler dev', () => {
 		const ctx = ctxFor({});
 		expect(await run(ctx, ['dev'])).toBe(EXIT.OK);
 		expect(lines(ctx.runner)).toEqual([
+			TAGS,
 			CLONE,
 			'bun install',
 			'bun run hydrate',

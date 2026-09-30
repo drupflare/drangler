@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { UsageError } from '../src/errors';
+import { scriptedRunner } from '../src/host/exec';
 import { memoryFiles } from '../src/host/files';
 import {
 	assertUsable,
@@ -13,6 +14,8 @@ import {
 	cloneArgs,
 	DEFAULT_WORKER_REF,
 	DEFAULT_WORKER_SOURCE,
+	latestRelease,
+	pinRelease,
 	resolveSource
 } from '../src/workspace/source';
 import { testContext, workerTree, WORKSPACE } from './helpers';
@@ -152,6 +155,35 @@ describe('assertUsable', () => {
 
 	it('allows an existing checkout', () => {
 		expect(() => assertUsable(readState(memoryFiles(workerTree()), WORKSPACE))).not.toThrow();
+	});
+});
+
+describe('pinRelease', () => {
+	const listing = [
+		'a\trefs/tags/v1.0.2',
+		'b\trefs/tags/v1.0.10',
+		'c\trefs/tags/v1.0.3-rc1',
+		'd\trefs/tags/nightly',
+		'e\trefs/tags/v0.9.0'
+	].join('\n');
+
+	it('picks the highest vX.Y.Z by number, never a pre-release or an odd name', () => {
+		expect(latestRelease(listing)).toBe('v1.0.10');
+		expect(latestRelease('')).toBeNull();
+	});
+
+	it('pins an unstated ref and leaves a stated one alone', async () => {
+		const runner = scriptedRunner({
+			'git ls-remote --tags --refs /src/worker': { code: 0, stdout: listing, stderr: '' }
+		});
+		const source = resolveSource({}, '/src/worker');
+		expect((await pinRelease(runner, source, false)).ref).toBe('v1.0.10');
+		expect((await pinRelease(runner, { ...source, ref: 'next' }, true)).ref).toBe('next');
+	});
+
+	it('keeps the default branch when the remote does not answer', async () => {
+		const source = resolveSource({}, '/src/worker');
+		expect((await pinRelease(scriptedRunner({}), source, false)).ref).toBe(DEFAULT_WORKER_REF);
 	});
 });
 

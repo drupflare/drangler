@@ -12,7 +12,7 @@ import {
 	resolveWorkspace,
 	type WorkspaceOptions
 } from '../workspace/layout';
-import { resolveSource } from '../workspace/source';
+import { pinRelease, resolveSource } from '../workspace/source';
 import {
 	DEFAULT_CONFIG,
 	GATES,
@@ -37,9 +37,13 @@ export interface BuildCommandOptions extends WorkspaceOptions, BuildOptions {
  */
 export async function runBuildCommand(ctx: Context, opts: BuildCommandOptions): Promise<void> {
 	const location = resolveWorkspace(ctx, opts, opts.globals.config);
-	const source = resolveSource(ctx.env, opts.source, opts.ref);
 	const state = readState(ctx.files, location.path);
 	assertUsable(state);
+	const stated = opts.ref !== undefined || ctx.env.DRANGLER_WORKER_REF !== undefined;
+	const source =
+		opts.globals.dryRun || (state.checkout && opts.refresh !== true)
+			? resolveSource(ctx.env, opts.source, opts.ref)
+			: await pinRelease(ctx.runner, resolveSource(ctx.env, opts.source, opts.ref), stated);
 
 	const steps = planBuild(state, source, opts);
 	if (opts.globals.dryRun) {
@@ -247,9 +251,12 @@ async function runWrangler(
 	opts: RunCommandOptions
 ): Promise<void> {
 	const location = resolveWorkspace(ctx, opts, opts.globals.config);
-	const source = resolveSource(ctx.env, opts.source, opts.ref);
 	const state = readState(ctx.files, location.path);
 	assertUsable(state);
+	const stated = opts.ref !== undefined || ctx.env.DRANGLER_WORKER_REF !== undefined;
+	const source = state.checkout
+		? resolveSource(ctx.env, opts.source, opts.ref)
+		: await pinRelease(ctx.runner, resolveSource(ctx.env, opts.source, opts.ref), stated);
 
 	if (opts.build !== false) {
 		const steps = planBuild(state, source, {

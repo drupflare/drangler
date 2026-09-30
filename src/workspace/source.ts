@@ -1,4 +1,5 @@
 import { UsageError } from '../errors';
+import type { CommandRunner } from '../host/exec';
 
 /**
  * Where a workspace is cloned from when nothing says otherwise.
@@ -63,4 +64,35 @@ export function cloneArgs(source: WorkerSource, into: string): string[] {
 		source.url,
 		into
 	];
+}
+
+/** `vX.Y.Z` tags only, highest first; a pre-release or an odd name is never picked */
+export function latestRelease(lsRemote: string): string | null {
+	const tags = [...lsRemote.matchAll(/refs\/tags\/(v(\d+)\.(\d+)\.(\d+))$/gm)].map((m) => ({
+		tag: m[1]!,
+		v: [Number(m[2]), Number(m[3]), Number(m[4])]
+	}));
+	tags.sort((a, b) => b.v[0]! - a.v[0]! || b.v[1]! - a.v[1]! || b.v[2]! - a.v[2]!);
+	return tags[0]?.tag ?? null;
+}
+
+/**
+ * Pins an unstated ref to the newest release tag before a clone.
+ *
+ * The default branch carries the next version's number from the day it is bumped, and `hydrate`
+ * looks for a payload under that number, so a clone of it finds none until the release ships and
+ * falls back to building from source. A release tag always has its payload. A remote that answers
+ * with no tags, or does not answer, keeps the default branch.
+ */
+export async function pinRelease(
+	runner: CommandRunner,
+	source: WorkerSource,
+	stated: boolean
+): Promise<WorkerSource> {
+	if (stated) return source;
+	const listed = await runner.run('git', ['ls-remote', '--tags', '--refs', source.url], {
+		timeoutMs: 60_000
+	});
+	const tag = listed.code === 0 ? latestRelease(listed.stdout) : null;
+	return tag === null ? source : { ...source, ref: tag };
 }
