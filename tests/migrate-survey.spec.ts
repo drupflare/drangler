@@ -89,6 +89,9 @@ describe('parsers', () => {
 	});
 
 	it('returns null for output that is not a JSON object', () => {
+		expect(
+			parseDrushStatus('{"drupal-version":"11.0.0","private":"../private"}')?.privatePath
+		).toBe('../private');
 		expect(parseDrushStatus('command not found')).toBeNull();
 		expect(parseDrushStatus('[1,2]')).toBeNull();
 	});
@@ -352,7 +355,8 @@ describe('the ssh retry', () => {
 				attempts++;
 				return { code: 255, stdout: '', stderr: 'Connection refused' };
 			},
-			spawn: async () => 0
+			spawn: async () => 0,
+			runToFile: async () => ({ code: 0, stderr: '', bytes: 0 })
 		};
 		await expect(sshTransport(refusing, target).exec('php -v')).rejects.toThrow(TransportError);
 		expect(attempts).toBe(SSH_ATTEMPTS);
@@ -367,11 +371,42 @@ describe('the ssh retry', () => {
 					? { code: 255, stdout: '', stderr: 'kex_exchange_identification' }
 					: { code: 0, stdout: 'PHP 8.2.15', stderr: '' };
 			},
-			spawn: async () => 0
+			spawn: async () => 0,
+			runToFile: async () => ({ code: 0, stderr: '', bytes: 0 })
 		};
 		const result = await sshTransport(flaky, target).exec('php -v');
 		expect(result.stdout).toBe('PHP 8.2.15');
 		expect(attempts).toBe(2);
+	});
+
+	it('retries a download on the same rule and hands back the byte count', async () => {
+		let attempts = 0;
+		const runner = {
+			run: async () => ({ code: 0, stdout: '', stderr: '' }),
+			spawn: async () => 0,
+			runToFile: async (_f: string, args: readonly string[], out: string) => {
+				attempts++;
+				expect(args.at(-1)).toBe('tar -cf - -C /var/www/html/sites/default files');
+				expect(out).toBe('/tmp/files.tar');
+				return attempts === 1
+					? { code: 255, stderr: 'Connection reset', bytes: 0 }
+					: { code: 0, stderr: '', bytes: 4096 };
+			}
+		};
+		const got = await sshTransport(runner, target).download(
+			'tar -cf - -C /var/www/html/sites/default files',
+			'/tmp/files.tar'
+		);
+		expect(got).toEqual({ code: 0, stderr: '', bytes: 4096 });
+		expect(attempts).toBe(2);
+
+		const dead = {
+			...runner,
+			runToFile: async () => ({ code: 255, stderr: 'no route', bytes: 0 })
+		};
+		await expect(sshTransport(dead, target).download('php -v', '/tmp/x')).rejects.toThrow(
+			TransportError
+		);
 	});
 
 	// a non-zero exit that is not 255 is the command's own answer and must not be retried
@@ -382,7 +417,8 @@ describe('the ssh retry', () => {
 				attempts++;
 				return { code: 127, stdout: '', stderr: 'drush: command not found' };
 			},
-			spawn: async () => 0
+			spawn: async () => 0,
+			runToFile: async () => ({ code: 0, stderr: '', bytes: 0 })
 		};
 		const result = await sshTransport(runner, target).exec('drush status');
 		expect(result.code).toBe(127);

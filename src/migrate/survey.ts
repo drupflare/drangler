@@ -25,7 +25,8 @@ export interface SiteSurvey {
 		root: string | null;
 	};
 	database: { driver: string | null; name: string | null; bytes: number | null };
-	files: { kb: number | null; count: number | null };
+	/** `private` is the private files directory drush reports, as written in settings.php */
+	files: { kb: number | null; count: number | null; private?: string | null };
 	/**
 	 * Whether the database answered a trivial query, and how many `file_managed` rows it holds.
 	 *
@@ -176,6 +177,7 @@ export interface DrushStatusFields {
 	profile: string | null;
 	/** the root drush bootstrapped, which is not always the one `--root` named */
 	root: string | null;
+	privatePath: string | null;
 }
 
 /** Parses `drush status --format=json`, tolerating both key spellings and a non-JSON body. */
@@ -194,7 +196,8 @@ export function parseDrushStatus(stdout: string): DrushStatusFields | null {
 		dbName: statusField(status, 'db-name', 'dbName'),
 		uri: statusField(status, 'uri'),
 		profile: statusField(status, 'install-profile', 'installProfile'),
-		root: statusField(status, 'root', 'drupal-root', 'drupalRoot')
+		root: statusField(status, 'root', 'drupal-root', 'drupalRoot'),
+		privatePath: statusField(status, 'private', 'file-private-path', 'filePrivatePath')
 	};
 }
 
@@ -362,6 +365,7 @@ export function applyStep(survey: SiteSurvey, id: string, stdout: string): void 
 			survey.drupal.root = status.root;
 			survey.database.driver = status.dbDriver;
 			survey.database.name = status.dbName;
+			if (status.privatePath !== null) survey.files.private = status.privatePath;
 			return;
 		}
 		case 'modules':
