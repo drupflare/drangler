@@ -1,6 +1,6 @@
 import { ConvertError, UsageError } from '../errors';
 
-export type Dialect = 'mysql' | 'sqlite';
+export type Dialect = 'mysql' | 'sqlite' | 'pgsql';
 
 export interface ConvertOptions {
 	from: Dialect;
@@ -811,8 +811,485 @@ function keepWidth(state: ConvertState, table: string, line: string): boolean {
 
 // #endregion
 
+// #region PostgreSQL
+
+/** one statement of a pg_dump, with the data lines when it is a `COPY ... FROM stdin` */
+export interface PgStatement {
+	sql: string;
+	copy?: string[];
+}
+
 /**
- * Converts a whole dump between MySQL and SQLite.
+ * Splits a plain-format pg_dump into statements.
+ *
+ * Two things a MySQL splitter gets wrong here. A function body is dollar-quoted (`$$ ... $$` or
+ * `$tag$ ... $tag$`) and full of semicolons. And `COPY ... FROM stdin;` is followed by raw
+ * tab-separated rows up to a line holding only `\.`, which are data rather than SQL.
+ */
+export function splitPgStatements(sql: string): PgStatement[] {
+	const out: PgStatement[] = [];
+	let current = '';
+	let i = 0;
+	const finish = () => {
+		const text = current.trim();
+		current = '';
+		if (text === '') return;
+		const statement: PgStatement = { sql: text };
+		out.push(statement);
+		if (/^COPY\b[\s\S]*\bFROM\s+stdin$/i.test(text)) {
+			const eol = sql.indexOf('\n', i);
+			let at = eol === -1 ? sql.length : eol + 1;
+			const rows: string[] = [];
+			while (at < sql.length) {
+				const next = sql.indexOf('\n', at);
+				const line = sql.slice(at, next === -1 ? sql.length : next).replace(/\r$/, '');
+				at = next === -1 ? sql.length : next + 1;
+				if (line === '\\.') break;
+				rows.push(line);
+			}
+			statement.copy = rows;
+			i = at;
+		}
+	};
+	while (i < sql.length) {
+		const ch = sql[i] as string;
+		const next = sql[i + 1];
+		if (ch === '-' && next === '-') {
+			while (i < sql.length && sql[i] !== '\n') i++;
+			continue;
+		}
+		if (ch === '/' && next === '*') {
+			const end = sql.indexOf('*/', i + 2);
+			i = end === -1 ? sql.length : end + 2;
+			continue;
+		}
+		if (ch === '$') {
+			const tag = /^\$[A-Za-z_]*\$/.exec(sql.slice(i, i + 64))?.[0];
+			if (tag !== undefined) {
+				const end = sql.indexOf(tag, i + tag.length);
+				const stop = end === -1 ? sql.length : end + tag.length;
+				current += sql.slice(i, stop);
+				i = stop;
+				continue;
+			}
+		}
+		if (ch === "'" || ch === '"') {
+			// E'...' is the only form that reads backslashes; a plain dump keeps standard strings
+			const escaped = ch === "'" && /[eE]$/.test(current) && !/\w[eE]$/.test(current);
+			const { text, end } = readQuoted(sql, i, ch, escaped);
+			current += text;
+			i = end;
+			continue;
+		}
+		if (ch === ';') {
+			i++;
+			finish();
+			continue;
+		}
+		current += ch;
+		i++;
+	}
+	finish();
+	return out;
+}
+
+/** Decodes one field of COPY's text format; `\N` is NULL. */
+export function decodeCopyField(raw: string): string | null {
+	if (raw === '\\N') return null;
+	let out = '';
+	for (let i = 0; i < raw.length; i++) {
+		const ch = raw[i] as string;
+		if (ch !== '\\') {
+			out += ch;
+			continue;
+		}
+		const esc = raw[++i];
+		if (esc === undefined) break;
+		const map: Record<string, string> = {
+			b: '\b',
+			f: '\f',
+			n: '\n',
+			r: '\r',
+			t: '\t',
+			v: '\v'
+		};
+		if (esc in map) out += map[esc];
+		else if (/[0-7]/.test(esc)) {
+			const oct = /^[0-7]{1,3}/.exec(raw.slice(i))?.[0] ?? esc;
+			out += String.fromCharCode(Number.parseInt(oct, 8));
+			i += oct.length - 1;
+		} else if (esc === 'x' && /^[0-9a-fA-F]/.test(raw[i + 1] ?? '')) {
+			const hex = /^[0-9a-fA-F]{1,2}/.exec(raw.slice(i + 1))?.[0] ?? '';
+			out += String.fromCharCode(Number.parseInt(hex, 16));
+			i += hex.length;
+		} else out += esc;
+	}
+	return out;
+}
+
+/**
+ * The bytes of a `bytea` value in either output format, as hex.
+ *
+ * pg_dump writes `\x6162` (the default hex format since 9.0) or the older escape format, where a
+ * byte outside printable ASCII is `\ooo` and a backslash is `\\`. The string passed in has already
+ * had its COPY or literal escaping removed.
+ */
+export function byteaHex(value: string): string {
+	if (/^\\x[0-9a-fA-F]*$/.test(value)) return value.slice(2).toLowerCase();
+	let hex = '';
+	for (let i = 0; i < value.length; i++) {
+		const ch = value[i] as string;
+		if (ch === '\\' && value[i + 1] === '\\') {
+			hex += '5c';
+			i++;
+		} else if (ch === '\\' && /^[0-7]{3}/.test(value.slice(i + 1))) {
+			hex += Number.parseInt(value.slice(i + 1, i + 4), 8)
+				.toString(16)
+				.padStart(2, '0');
+			i += 3;
+		} else {
+			hex += [...Buffer.from(ch, 'latin1')]
+				.map((b) => b.toString(16).padStart(2, '0'))
+				.join('');
+		}
+	}
+	return hex;
+}
+
+const PG_TYPE_MAP: readonly (readonly [RegExp, string])[] = [
+	[/^(smallint|integer|int|int2|int4|int8|bigint|smallserial|serial|bigserial)\b/i, 'INTEGER'],
+	[/^bool(ean)?\b/i, 'INTEGER'],
+	[/^(numeric|decimal)\b/i, 'NUMERIC'],
+	[/^(double precision|real|float4|float8)\b/i, 'REAL'],
+	[/^bytea\b/i, 'BLOB'],
+	[
+		/^(character varying|varchar|character|char|text|citext|uuid|jsonb?|xml|inet|cidr)\b/i,
+		'TEXT'
+	],
+	[/^(timestamp|date|time|interval)\b/i, 'TEXT']
+];
+
+/** PostgreSQL declared type to a SQLite storage class, or null for one with no honest mapping. */
+export function pgTypeToSqlite(declared: string): string | null {
+	const bare = declared.trim().replace(/\[\]$/, '');
+	if (bare !== declared.trim()) return null;
+	for (const [pattern, mapped] of PG_TYPE_MAP) {
+		if (pattern.test(bare)) return mapped;
+	}
+	return null;
+}
+
+/** `public.node` -> `node`, and a quoted identifier unquoted */
+/** a `::type` cast, including the two-word types pg_dump spells out */
+const PG_CAST =
+	/::(?:character varying|double precision|(?:timestamp|time)(?:\(\d+\))? with(?:out)? time zone|"(?:[^"]|"")*"|[\w.]+)(?:\(\d+(?:,\d+)?\))?(?:\[\])?/gi;
+
+/** removes every `::type` cast outside a string literal, so a value holding `::` survives */
+export function stripPgCasts(text: string): string {
+	let out = '';
+	let i = 0;
+	while (i < text.length) {
+		if (text[i] === "'") {
+			const { text: quoted, end } = readQuoted(text, i, "'", false);
+			out += quoted;
+			i = end;
+			continue;
+		}
+		const next = text.indexOf("'", i);
+		const stop = next === -1 ? text.length : next;
+		out += text.slice(i, stop).replace(PG_CAST, '');
+		i = stop;
+	}
+	return out;
+}
+
+const pgName = (raw: string): string => {
+	const parts = raw.trim().match(/"(?:[^"]|"")*"|[^.]+/g) ?? [raw];
+	const last = (parts[parts.length - 1] ?? raw).trim();
+	return last.startsWith('"') ? last.slice(1, -1).split('""').join('"') : last;
+};
+
+interface PgTable {
+	name: string;
+	columns: { name: string; type: string; rest: string; declared: string }[];
+	primary: string[] | null;
+	unique: string[][];
+	serial: Set<string>;
+}
+
+/** A standard or E'' string literal's value, or null when the text is not one. */
+function pgStringLiteral(text: string): string | null {
+	const m = /^([eE])?'((?:[^']|'')*)'$/.exec(stripPgCasts(text.trim()));
+	if (m === null) return null;
+	const body = (m[2] ?? '').split("''").join("'");
+	return m[1] ? (decodeCopyField(body) ?? '') : body;
+}
+
+/** One INSERT value as a SQLite literal, typed by the column it lands in. */
+function pgValue(raw: string, type: string | undefined): string {
+	const text = stripPgCasts(raw.trim());
+	if (/^NULL$/i.test(text)) return 'NULL';
+	if (/^true$/i.test(text)) return '1';
+	if (/^false$/i.test(text)) return '0';
+	const literal = pgStringLiteral(raw);
+	if (literal !== null) return sqliteValue(literal, type);
+	return text;
+}
+
+/** A decoded value as the SQLite literal its column wants. */
+function sqliteValue(value: string | null, type: string | undefined): string {
+	if (value === null) return 'NULL';
+	if (type === 'BLOB') return `x'${byteaHex(value)}'`;
+	if (type === 'INTEGER' && (value === 't' || value === 'f')) return value === 't' ? '1' : '0';
+	if (
+		(type === 'INTEGER' || type === 'REAL' || type === 'NUMERIC') &&
+		/^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(value)
+	) {
+		return value;
+	}
+	return encodeSqliteString(value);
+}
+
+/**
+ * Converts a plain-format pg_dump into SQLite.
+ *
+ * pg_dump states a table's shape across several statements: the columns in `CREATE TABLE`, the
+ * serial default in `ALTER TABLE ... SET DEFAULT nextval(...)`, the keys in `ALTER TABLE ... ADD
+ * CONSTRAINT`. SQLite needs all of it in the one `CREATE TABLE`, so the dump is read whole before
+ * anything is written. Sequences are not carried: an `AUTOINCREMENT` column continues from the
+ * largest id already stored, which is where a restored sequence would continue too.
+ */
+function convertPg(state: ConvertState, input: string): string[] {
+	const statements = splitPgStatements(input);
+	const tables = new Map<string, PgTable>();
+	const order: string[] = [];
+	const indexes: string[] = [];
+	const data: string[] = [];
+
+	for (const { sql } of statements) {
+		const create = /^CREATE\s+(?:UNLOGGED\s+)?TABLE\s+((?:"(?:[^"]|"")*"|[\w.])+)\s*\(/i.exec(
+			sql
+		);
+		if (create) {
+			const name = pgName(create[1] as string);
+			const open = sql.indexOf('(', create[0].length - 1);
+			const close = matchingParen(sql, open);
+			const table: PgTable = {
+				name,
+				columns: [],
+				primary: null,
+				unique: [],
+				serial: new Set()
+			};
+			for (const item of splitTopLevel(sql.slice(open + 1, close))) {
+				if (
+					/^(CONSTRAINT|PRIMARY\s+KEY|UNIQUE|CHECK|FOREIGN\s+KEY|EXCLUDE)\b/i.test(item)
+				) {
+					const pk = /PRIMARY\s+KEY\s*\(([^)]*)\)/i.exec(item);
+					const uq = /UNIQUE\s*\(([^)]*)\)/i.exec(item);
+					if (pk) table.primary = splitTopLevel(pk[1] as string).map(pgName);
+					else if (uq) table.unique.push(splitTopLevel(uq[1] as string).map(pgName));
+					else
+						state.lossy.push(
+							`${name}: dropped \`${preview(item)}\`; SQLite is not given the constraint`
+						);
+					continue;
+				}
+				const col = /^("(?:[^"]|"")*"|\S+)\s+(.*)$/s.exec(item.trim());
+				if (!col) {
+					unsupported(state, item, `column definition in ${name} could not be parsed`);
+					continue;
+				}
+				const colName = pgName(col[1] as string);
+				let rest = (col[2] as string).trim();
+				const typeMatch =
+					/^(character varying|double precision|timestamp(?:\s*\(\d+\))?\s+with(?:out)?\s+time\s+zone|time(?:\s*\(\d+\))?\s+with(?:out)?\s+time\s+zone|[\w.]+)(\s*\([^)]*\))?(\[\])?/i.exec(
+						rest
+					);
+				const declared = typeMatch?.[0] ?? rest;
+				rest = rest.slice(declared.length).trim();
+				const type = pgTypeToSqlite(declared);
+				if (type === null) {
+					unsupported(
+						state,
+						item,
+						`no SQLite storage class for the type \`${declared}\` in ${name}`
+					);
+					continue;
+				}
+				if (/nextval\(/i.test(rest)) table.serial.add(colName);
+				rest = stripPgCasts(rest)
+					.replace(/\bDEFAULT\s+nextval\([^)]*\)/gi, '')
+					.replace(/\bCONSTRAINT\s+\S+\s+CHECK\s*\((?:[^()]|\([^()]*\))*\)/gi, '')
+					.replace(/\bCHECK\s*\((?:[^()]|\([^()]*\))*\)/gi, '')
+					.replace(/\bCOLLATE\s+\S+/gi, '')
+					.replace(/\s{2,}/g, ' ')
+					.trim();
+				if (type === 'INTEGER' && /^bool/i.test(declared)) {
+					rest = rest
+						.replace(/\bDEFAULT\s+true\b/i, 'DEFAULT 1')
+						.replace(/\bDEFAULT\s+false\b/i, 'DEFAULT 0');
+				}
+				table.columns.push({ name: colName, type, rest, declared });
+			}
+			tables.set(name, table);
+			order.push(name);
+			continue;
+		}
+		const alter = /^ALTER\s+TABLE\s+(?:ONLY\s+)?((?:"(?:[^"]|"")*"|[\w.])+)\s+(.*)$/is.exec(
+			sql
+		);
+		if (alter) {
+			const table = tables.get(pgName(alter[1] as string));
+			const action = alter[2] as string;
+			if (/OWNER\s+TO|ENABLE\s+ROW|REPLICA\s+IDENTITY|SET\s+\(/i.test(action)) continue;
+			const serial =
+				/ALTER\s+COLUMN\s+("(?:[^"]|"")*"|\S+)\s+SET\s+DEFAULT\s+nextval\(/i.exec(action);
+			if (serial && table) {
+				table.serial.add(pgName(serial[1] as string));
+				continue;
+			}
+			const pk = /ADD\s+CONSTRAINT\s+\S+\s+PRIMARY\s+KEY\s*\(([^)]*)\)/i.exec(action);
+			if (pk && table) {
+				table.primary = splitTopLevel(pk[1] as string).map(pgName);
+				continue;
+			}
+			const uq = /ADD\s+CONSTRAINT\s+\S+\s+UNIQUE\s*\(([^)]*)\)/i.exec(action);
+			if (uq && table) {
+				table.unique.push(splitTopLevel(uq[1] as string).map(pgName));
+				continue;
+			}
+			if (
+				/ADD\s+CONSTRAINT\s+\S+\s+(FOREIGN\s+KEY|CHECK)/i.test(action) ||
+				/ALTER\s+COLUMN\s+\S+\s+ADD\s+GENERATED/i.test(action)
+			) {
+				state.lossy.push(`${table?.name ?? '?'}: dropped \`${preview(action)}\``);
+				continue;
+			}
+			unsupported(state, sql, 'ALTER TABLE is not converted beyond keys and serial defaults');
+			continue;
+		}
+		const index =
+			/^CREATE\s+(UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?("(?:[^"]|"")*"|\S+)\s+ON\s+(?:ONLY\s+)?((?:"(?:[^"]|"")*"|[\w.])+)\s+(?:USING\s+\w+\s*)?\(([\s\S]*)\)\s*(WHERE[\s\S]*)?$/i.exec(
+				sql
+			);
+		if (index) {
+			const table = pgName(index[3] as string);
+			const parts = splitTopLevel(index[4] as string).map((p) =>
+				p.trim().replace(/\s+(ASC|DESC|NULLS\s+(FIRST|LAST))\b/gi, '')
+			);
+			if (parts.some((p) => !/^("(?:[^"]|"")*"|\w+)$/.test(p)) || index[5]) {
+				state.lossy.push(
+					`${table}: dropped the expression or partial index ${pgName(index[2] as string)}`
+				);
+				continue;
+			}
+			const name = pgName(index[2] as string);
+			indexes.push(
+				`CREATE ${index[1] ? 'UNIQUE ' : ''}INDEX ${ident(name.startsWith(`${table}__`) ? name : `${table}__${name}`, 'sqlite')} ON ${ident(table, 'sqlite')} (${parts.map((p) => ident(pgName(p), 'sqlite')).join(', ')});`
+			);
+			state.indexes++;
+			continue;
+		}
+		if (/^(COPY|INSERT)\b/i.test(sql)) continue;
+		if (
+			/^(SET|SELECT\s+pg_catalog\.(set_config|setval)|CREATE\s+SCHEMA|ALTER\s+SCHEMA|COMMENT\s+ON|GRANT|REVOKE|ALTER\s+DEFAULT\s+PRIVILEGES|CREATE\s+EXTENSION|ALTER\s+EXTENSION|CREATE\s+SEQUENCE|ALTER\s+SEQUENCE|BEGIN|COMMIT|\\connect|\\restrict|\\unrestrict)\b/i.test(
+				sql
+			)
+		) {
+			continue;
+		}
+		if (/^CREATE\s+(OR\s+REPLACE\s+)?(FUNCTION|PROCEDURE|AGGREGATE)\b/i.test(sql)) {
+			// Drupal's pgsql driver installs compatibility functions (`greatest`, `rand`, `concat`, ...);
+			// the SQLite driver registers its own, so these carry nothing a site's data depends on
+			const fn =
+				/(?:FUNCTION|PROCEDURE|AGGREGATE)\s+((?:"(?:[^"]|"")*"|[\w.])+)/i.exec(sql)?.[1] ??
+				'?';
+			state.lossy.push(`dropped the function ${pgName(fn)}; its body is PL/pgSQL`);
+			continue;
+		}
+		unsupported(state, sql, 'unrecognised statement');
+	}
+
+	const schemaOut: string[] = [];
+	for (const name of order) {
+		const table = tables.get(name) as PgTable;
+		const serialPk =
+			table.primary?.length === 1 && table.serial.has(table.primary[0] as string)
+				? (table.primary[0] as string)
+				: null;
+		for (const col of table.serial) {
+			if (col !== serialPk)
+				state.lossy.push(
+					`${name}.${col}: a sequence default that is not the whole primary key became a plain INTEGER`
+				);
+		}
+		const lines = table.columns.map((c) =>
+			c.name === serialPk
+				? `${ident(c.name, 'sqlite')} INTEGER PRIMARY KEY AUTOINCREMENT`
+				: `${ident(c.name, 'sqlite')} ${c.type}${c.rest === '' ? '' : ` ${c.rest}`}`
+		);
+		if (table.primary && serialPk === null) {
+			lines.push(`PRIMARY KEY (${table.primary.map((c) => ident(c, 'sqlite')).join(', ')})`);
+		}
+		for (const cols of table.unique)
+			lines.push(`UNIQUE (${cols.map((c) => ident(c, 'sqlite')).join(', ')})`);
+		schemaOut.push(`CREATE TABLE ${ident(name, 'sqlite')} (\n\t${lines.join(',\n\t')}\n);`);
+		state.schema.set(name, {
+			name,
+			columns: new Map(table.columns.map((c) => [c.name, c.type]))
+		});
+		state.tables.push(name);
+	}
+
+	for (const { sql, copy } of statements) {
+		if (copy) {
+			const m =
+				/^COPY\s+((?:"(?:[^"]|"")*"|[\w.])+)\s*(?:\(([^)]*)\))?\s+FROM\s+stdin$/i.exec(sql);
+			const name = pgName(m?.[1] ?? '');
+			const table = tables.get(name);
+			const cols = m?.[2]
+				? splitTopLevel(m[2]).map(pgName)
+				: (table?.columns.map((c) => c.name) ?? []);
+			const types = cols.map((c) => table?.columns.find((x) => x.name === c)?.type);
+			const head = `INSERT INTO ${ident(name, 'sqlite')} (${cols.map((c) => ident(c, 'sqlite')).join(', ')}) VALUES`;
+			for (const line of copy) {
+				const values = line
+					.split('\t')
+					.map((field, k) => sqliteValue(decodeCopyField(field), types[k]));
+				state.rows++;
+				const stmt = `${head} (${values.join(', ')});`;
+				if (keepWidth(state, name, stmt)) data.push(stmt);
+			}
+			continue;
+		}
+		const insert =
+			/^INSERT\s+INTO\s+((?:"(?:[^"]|"")*"|[\w.])+)\s*(?:\(([^)]*)\))?\s*VALUES\s*([\s\S]*)$/i.exec(
+				sql
+			);
+		if (!insert) continue;
+		const name = pgName(insert[1] as string);
+		const table = tables.get(name);
+		const cols = insert[2]
+			? splitTopLevel(insert[2]).map(pgName)
+			: (table?.columns.map((c) => c.name) ?? []);
+		const types = cols.map((c) => table?.columns.find((x) => x.name === c)?.type);
+		const head = `INSERT INTO ${ident(name, 'sqlite')} (${cols.map((c) => ident(c, 'sqlite')).join(', ')}) VALUES`;
+		for (const group of splitTopLevel(insert[3] as string)) {
+			const inner = group.trim().replace(/^\(/, '').replace(/\)$/, '');
+			const values = splitTopLevel(inner).map((v, k) => pgValue(v, types[k]));
+			state.rows++;
+			const stmt = `${head} (${values.join(', ')});`;
+			if (keepWidth(state, name, stmt)) data.push(stmt);
+		}
+	}
+	return [...schemaOut, ...data, ...indexes];
+}
+
+// #endregion
+
+/**
+ * Converts a whole dump between MySQL and SQLite, or from a PostgreSQL pg_dump into SQLite.
  *
  * Refuses rather than guesses. Anything it cannot represent is a `ConvertError` naming the statement,
  * and `--skip-unsupported` downgrades that to a recorded skip; a converter that silently dropped a
@@ -849,8 +1326,15 @@ export function convertDump(input: string, opts: ConvertOptions): ConvertResult 
 					: null
 	};
 
-	const out: string[] = [];
-	for (const statement of splitStatements(input, opts.from === 'mysql')) {
+	if (opts.from === 'pgsql' && to !== 'sqlite') {
+		throw new UsageError('a PostgreSQL dump converts to sqlite only');
+	}
+	if (to === 'pgsql')
+		throw new UsageError('pgsql is a source dialect only; convert to sqlite or mysql');
+	const out: string[] = opts.from === 'pgsql' ? convertPg(state, input) : [];
+	for (const statement of opts.from === 'pgsql'
+		? []
+		: splitStatements(input, opts.from === 'mysql')) {
 		if (NOISE.test(statement)) continue;
 
 		if (/^CREATE\s+(TEMPORARY\s+)?TABLE\b/i.test(statement)) {

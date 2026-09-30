@@ -4,14 +4,19 @@ import { runConvertCommand } from '../src/commands/migrate';
 import { ConvertError, FindingError, UsageError } from '../src/errors';
 import { memoryFiles } from '../src/host/files';
 import {
+	byteaHex,
 	convertDump,
+	decodeCopyField,
 	decodeMysqlString,
 	encodeMysqlString,
 	encodeSqliteString,
 	mysqlTypeToSqlite,
+	pgTypeToSqlite,
 	rewriteIdentifiers,
+	splitPgStatements,
 	splitStatements,
 	splitTopLevel,
+	stripPgCasts,
 	tokenize
 } from '../src/migrate/convert';
 import { testContext } from './helpers';
@@ -465,6 +470,173 @@ describe('the converted dump replays into a real SQLite', () => {
 	});
 });
 
+describe('PostgreSQL to SQLite', () => {
+	const fromPg = (sql: string, over = {}) =>
+		convertDump(sql, { from: 'pgsql', to: 'sqlite', ...over });
+
+	// the shape pg_dump 16 writes for a Drupal site, trimmed to one table of each kind
+	const DUMP = [
+		'--',
+		'-- PostgreSQL database dump',
+		'--',
+		'SET statement_timeout = 0;',
+		"SELECT pg_catalog.set_config('search_path', '', false);",
+		'CREATE FUNCTION public.greatest(numeric, numeric) RETURNS numeric',
+		'    LANGUAGE sql AS $$SELECT CASE WHEN $1 > $2 THEN $1 ELSE $2 END;$$;',
+		'SET default_table_access_method = heap;',
+		'CREATE TABLE public.node_field_data (',
+		'    nid integer NOT NULL,',
+		"    title character varying(255) DEFAULT ''::character varying NOT NULL,",
+		'    status smallint DEFAULT 1 NOT NULL,',
+		'    promote boolean DEFAULT true,',
+		'    weight numeric(10,2),',
+		'    CONSTRAINT node_field_data_nid_check CHECK ((nid >= 0))',
+		');',
+		'ALTER TABLE public.node_field_data OWNER TO drupal;',
+		'CREATE SEQUENCE public.node_field_data_nid_seq',
+		'    AS integer START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;',
+		'ALTER SEQUENCE public.node_field_data_nid_seq OWNED BY public.node_field_data.nid;',
+		'CREATE TABLE public.cache_default (',
+		'    cid character varying(255) NOT NULL,',
+		'    data bytea,',
+		'    expire integer DEFAULT 0 NOT NULL,',
+		'    tags text',
+		');',
+		"ALTER TABLE ONLY public.node_field_data ALTER COLUMN nid SET DEFAULT nextval('public.node_field_data_nid_seq'::regclass);",
+		'COPY public.node_field_data (nid, title, status, promote, weight) FROM stdin;',
+		"1\tIt's here; ok\t1\tt\t1.50",
+		'2\ttwo\\nlines\t0\tf\t\\N',
+		'\\.',
+		'COPY public.cache_default (cid, data, expire, tags) FROM stdin;',
+		'x\t\\\\x610062\t-1\tnode_list',
+		'\\.',
+		"SELECT pg_catalog.setval('public.node_field_data_nid_seq', 2, true);",
+		'ALTER TABLE ONLY public.node_field_data',
+		'    ADD CONSTRAINT node_field_data____pkey PRIMARY KEY (nid);',
+		'ALTER TABLE ONLY public.cache_default',
+		'    ADD CONSTRAINT cache_default____pkey PRIMARY KEY (cid);',
+		'CREATE INDEX node_field_data__title__idx ON public.node_field_data USING btree (title);',
+		'CREATE INDEX node_field_data__lower ON public.node_field_data USING btree (lower((title)::text));',
+		''
+	].join('\n');
+
+	it('splits a dollar-quoted body and a COPY block without reading either as SQL', () => {
+		const parts = splitPgStatements(DUMP);
+		const fn = parts.find((p) => p.sql.startsWith('CREATE FUNCTION'));
+		expect(fn?.sql).toContain('ELSE $2 END;$$');
+		const copy = parts.find((p) => p.sql.startsWith('COPY public.node_field_data'));
+		expect(copy?.copy).toEqual(["1\tIt's here; ok\t1\tt\t1.50", '2\ttwo\\nlines\t0\tf\t\\N']);
+		// the row text never leaks into the statement after the block
+		expect(parts.some((p) => p.sql.includes('two\\nlines') && !p.copy)).toBe(false);
+	});
+
+	it('replays into a real SQLite with the serial key, the bytes and the booleans intact', () => {
+		const out = fromPg(DUMP);
+		const db = new DatabaseSync(':memory:');
+		try {
+			db.exec(out.sql);
+			expect(
+				db
+					.prepare(
+						'SELECT nid, title, status, promote, weight FROM node_field_data ORDER BY nid'
+					)
+					.all()
+			).toEqual([
+				{ nid: 1, title: "It's here; ok", status: 1, promote: 1, weight: 1.5 },
+				{ nid: 2, title: 'two\nlines', status: 0, promote: 0, weight: null }
+			]);
+			expect(
+				db.prepare('SELECT typeof(data) AS t, hex(data) AS h FROM cache_default').get()
+			).toEqual({
+				t: 'blob',
+				h: '610062'
+			});
+			// the next insert continues the sequence, which is what the dropped setval was for
+			db.exec("INSERT INTO node_field_data (title) VALUES ('three')");
+			expect(
+				db.prepare("SELECT nid FROM node_field_data WHERE title = 'three'").get()
+			).toEqual({ nid: 3 });
+			expect(
+				db
+					.prepare(
+						"SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'"
+					)
+					.all()
+			).toEqual([{ name: 'node_field_data__title__idx' }]);
+		} finally {
+			db.close();
+		}
+		expect(out.sql).toContain('"nid" INTEGER PRIMARY KEY AUTOINCREMENT');
+		expect(out.tables).toEqual(['node_field_data', 'cache_default']);
+		expect(out.rows).toBe(3);
+		expect(out.lossy.some((l) => l.includes('greatest'))).toBe(true);
+		expect(out.lossy.some((l) => l.includes('node_field_data__lower'))).toBe(true);
+	});
+
+	it('reads the --inserts form, E strings and bytea casts', () => {
+		const out = fromPg(
+			[
+				'CREATE TABLE public.kv (name text NOT NULL, value bytea, ok boolean);',
+				"INSERT INTO public.kv VALUES ('a', '\\x6869'::bytea, true), (E'b\\tc', NULL, false);",
+				"INSERT INTO public.kv (name, value, ok) VALUES ('it''s', '\\x'::bytea, NULL);"
+			].join('\n')
+		);
+		const db = new DatabaseSync(':memory:');
+		try {
+			db.exec(out.sql);
+			expect(
+				db.prepare('SELECT name, hex(value) AS v, ok FROM kv ORDER BY rowid').all()
+			).toEqual([
+				{ name: 'a', v: '6869', ok: 1 },
+				{ name: 'b\tc', v: '', ok: 0 },
+				{ name: "it's", v: '', ok: null }
+			]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it('strips casts but not a :: inside a value', () => {
+		expect(stripPgCasts("'a::b'::character varying")).toBe("'a::b'");
+		expect(stripPgCasts("DEFAULT ''::character varying NOT NULL")).toBe("DEFAULT '' NOT NULL");
+		expect(stripPgCasts('0::double precision')).toBe('0');
+	});
+
+	it('decodes COPY escapes and both bytea formats', () => {
+		expect(decodeCopyField('\\N')).toBeNull();
+		expect(decodeCopyField('a\\tb\\\\c\\101\\x41')).toBe('a\tb\\cAA');
+		expect(byteaHex('\\x00FF')).toBe('00ff');
+		expect(byteaHex('a\\000\\\\')).toBe('61005c');
+	});
+
+	it('maps the types Drupal and common modules declare, and refuses an array', () => {
+		expect(pgTypeToSqlite('character varying(255)')).toBe('TEXT');
+		expect(pgTypeToSqlite('bigint')).toBe('INTEGER');
+		expect(pgTypeToSqlite('double precision')).toBe('REAL');
+		expect(pgTypeToSqlite('timestamp without time zone')).toBe('TEXT');
+		expect(pgTypeToSqlite('jsonb')).toBe('TEXT');
+		expect(pgTypeToSqlite('bytea')).toBe('BLOB');
+		expect(pgTypeToSqlite('integer[]')).toBeNull();
+		expect(() => fromPg('CREATE TABLE t (tags text[]);')).toThrow(ConvertError);
+	});
+
+	it('refuses a target other than SQLite, and pgsql as a target', () => {
+		expect(() => convertDump('', { from: 'pgsql', to: 'mysql' })).toThrow(UsageError);
+		expect(() => convertDump('', { from: 'mysql', to: 'pgsql' })).toThrow(UsageError);
+	});
+
+	it('refuses a statement it does not know rather than dropping it', () => {
+		expect(() =>
+			fromPg('CREATE TRIGGER t BEFORE INSERT ON x FOR EACH ROW EXECUTE FUNCTION f();')
+		).toThrow(ConvertError);
+		expect(
+			fromPg('CREATE TRIGGER t BEFORE INSERT ON x EXECUTE FUNCTION f();', {
+				skipUnsupported: true
+			}).skipped
+		).toHaveLength(1);
+	});
+});
+
 describe('convert command', () => {
 	const dump = 'CREATE TABLE `t` (`a` int(11) NOT NULL);\nINSERT INTO `t` VALUES (1),(2);';
 
@@ -494,10 +666,20 @@ describe('convert command', () => {
 		expect(ctx.io.text()).toContain('mysql');
 	});
 
+	it('reaches the pgsql converter from the command, under every spelling drush and people use', async () => {
+		const pg = 'CREATE TABLE public.t (a integer NOT NULL);\nINSERT INTO public.t VALUES (1);';
+		for (const from of ['pgsql', 'postgres', 'postgresql']) {
+			const files = memoryFiles({ '/in.sql': pg });
+			const ctx = testContext({ files });
+			await runConvertCommand(ctx, { in: '/in.sql', out: '/out.sql', from, to: 'sqlite' });
+			expect(files.written.get('/out.sql')).toContain('CREATE TABLE "t"');
+		}
+	});
+
 	it('refuses an unknown dialect and a missing input', async () => {
 		const ctx = testContext({ files: memoryFiles({ '/in.sql': dump }) });
 		await expect(
-			runConvertCommand(ctx, { in: '/in.sql', from: 'postgres', to: 'sqlite' })
+			runConvertCommand(ctx, { in: '/in.sql', from: 'oracle', to: 'sqlite' })
 		).rejects.toThrow(/unknown dialect/);
 		await expect(
 			runConvertCommand(ctx, { in: '/none.sql', from: 'mysql', to: 'sqlite' })
