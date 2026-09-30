@@ -1,8 +1,15 @@
 import { sourceFindings } from '../health/source';
 import { DO_STATEMENT_CHARS } from './convert';
+import {
+	declaredExtensions,
+	EXTENSION_CALLS,
+	modulesWithout11,
+	scanExtensionCalls,
+	type SourceCode
+} from './source-code';
 import { SUBSTITUTIONS } from './substitutions';
 import type { SiteSurvey } from './survey';
-import { isOlderThan, type TargetRuntime } from './target-runtime';
+import { isOlderThan, SHIPPED_DRUPAL, versionParts, type TargetRuntime } from './target-runtime';
 
 export type Direction = 'to-worker' | 'to-vps';
 
@@ -56,11 +63,15 @@ export interface Rule {
 	 *
 	 * `envelope` is what a real `/export` said. A `to-vps` rule that ignores it is scoring a
 	 * paragraph rather than a site.
+	 *
+	 * `source` is the source's own files when a tree was streamed or named. A rule that needs it
+	 * returns null without one, so the plan reports nothing about code nobody read.
 	 */
 	evaluate(
 		survey: SiteSurvey,
 		target: TargetRuntime,
-		envelope?: ExportEnvelope | null
+		envelope?: ExportEnvelope | null,
+		source?: SourceCode | null
 	): Finding | null;
 }
 
@@ -113,6 +124,9 @@ export const LIMITS = {
 /** MySQL family, which the bundled converter reads. */
 const CONVERTIBLE_DRIVERS = ['mysql', 'mysqli', 'mariadb', 'pdo_mysql'];
 
+/** PostgreSQL, which the bundled converter reads into SQLite from a plain-format pg_dump. */
+const POSTGRES_DRIVERS = ['pgsql', 'postgres', 'postgresql', 'pdo_pgsql'];
+
 /**
  * Modules that cannot work on the worker, with the mechanism for each.
  *
@@ -121,13 +135,32 @@ const CONVERTIBLE_DRIVERS = ['mysql', 'mysqli', 'mariadb', 'pdo_mysql'];
  * guess belongs in `SERVICE_MODULES` at warning severity instead.
  */
 export const INCOMPATIBLE_MODULES: Record<string, string> = {
-	memcache: 'wants ext-memcached or ext-memcache, and the wasm build carries neither',
-	memcache_storage: 'wants ext-memcached or ext-memcache, and the wasm build carries neither',
-	mongodb: 'its driver is a native extension the wasm build does not carry',
-	imagemagick: 'shells out to `convert`; the wasm build cannot spawn a process',
-	imageapi_optimize_binaries:
-		'shells out to image binaries; the wasm build cannot spawn a process'
+	memcache:
+		'wants ext-memcached or ext-memcache, which the wasm build does not carry; uninstall it before migrating, since the worker chooses its own cache backends',
+	memcache_storage:
+		'wants ext-memcached or ext-memcache, which the wasm build does not carry; uninstall it before migrating, since the worker chooses its own cache backends',
+	mongodb:
+		'stores entities or key-value data in MongoDB through ext-mongodb, which the wasm build does not carry'
 };
+
+/**
+ * Modules that migrate with a warning, because the worker covers what they do another way.
+ *
+ * Each entry says what changes on the worker, so the warning is something an operator can act on.
+ */
+export const HANDLED_MODULES: Record<string, string> = {
+	imagemagick:
+		'the site is moved to the cfw_images toolkit on its first reconcile, because `convert` cannot run here; image styles are applied at delivery',
+	imageapi_optimize_binaries:
+		'its processors call exec(), which answers as a failed command and records a degradation, so images are stored unoptimised',
+	automatic_updates:
+		'it rewrites the codebase with composer, which the worker cannot run; updates arrive through `drangler update` and reconciliation, so disable it before migrating',
+	project_browser:
+		'it installs modules with composer, which the worker cannot run; modules arrive through `/install` and `drangler modify`, so disable it before migrating'
+};
+
+/** the MongoDB submodules that need nothing beyond logging, which dblog replaces */
+const MONGODB_LOGGING_ONLY = ['mongodb', 'mongodb_watchdog'];
 
 /**
  * Modules that can run but need something the one-click deploy does not provision.
@@ -188,11 +221,20 @@ export const RULES: readonly Rule[] = [
 					'survey.database.driver'
 				);
 			}
+			if (POSTGRES_DRIVERS.includes(driver)) {
+				return found(
+					'db-driver',
+					'note',
+					`${driver} converts to SQLite`,
+					'`drangler migrate convert --from pgsql --to sqlite` reads a plain-format `pg_dump`; the worker has no PostgreSQL',
+					'survey.database.driver'
+				);
+			}
 			return found(
 				'db-driver',
 				'blocker',
 				`no converter for ${driver}`,
-				'the worker runs Durable Object SQLite only, and drangler converts the MySQL family alone; dump through an intermediate tool first',
+				'the worker runs Durable Object SQLite only, and drangler converts the MySQL family and PostgreSQL; dump through an intermediate tool first',
 				'survey.database.driver'
 			);
 		}
@@ -220,17 +262,181 @@ export const RULES: readonly Rule[] = [
 		}
 	},
 	{
+		id: 'drupal-version',
+		direction: 'to-worker',
+		evaluate(survey) {
+			const version = survey.drupal.version;
+			if (version === null) return null;
+			const { major } = versionParts(version);
+			const evidence = 'survey.drupal.version against SHIPPED_DRUPAL';
+			if (major === 11) {
+				if (version === SHIPPED_DRUPAL) return null;
+				return found(
+					'drupal-version',
+					'note',
+					`the source is pinned to Drupal ${version}`,
+					`the worker ships Drupal ${SHIPPED_DRUPAL}; the drupal/core constraint is rewritten to that version and reported`,
+					evidence
+				);
+			}
+			if (major === 10) {
+				return found(
+					'drupal-version',
+					'warning',
+					`the source runs Drupal ${version}`,
+					`the worker runs Drupal ${SHIPPED_DRUPAL}, so this is a major upgrade on the way in. Its update chain runs the schema updates: \`drangler site updb\` drives it, and \`preview\` runs it after a migrated claim. Every enabled contrib module needs a Drupal 11 release; \`--code\` and \`preview\` name the ones that do not declare one`,
+					evidence
+				);
+			}
+			return found(
+				'drupal-version',
+				'blocker',
+				`the source runs Drupal ${version}`,
+				major > 11
+					? `the worker ships Drupal ${SHIPPED_DRUPAL} and a site cannot move to an older major`
+					: `Drupal ${major} is more than one major behind the ${SHIPPED_DRUPAL} the worker ships; upgrade the source to Drupal 10 first, then migrate`,
+				evidence
+			);
+		}
+	},
+	{
+		id: 'module-core-compat',
+		direction: 'to-worker',
+		evaluate(survey, _target, _envelope, source) {
+			if (source === null || source === undefined) return null;
+			if (versionParts(survey.drupal.version ?? '0').major !== 10) return null;
+			const hits = modulesWithout11(survey.modules, source.files);
+			if (hits.length === 0) return null;
+			return found(
+				'module-core-compat',
+				'warning',
+				`${hits.length} enabled module(s) do not declare Drupal 11 support`,
+				`${hits.map((m) => `${m.name} (${m.requirement === null ? 'no core_version_requirement' : `core_version_requirement ${m.requirement}`})`).join('; ')}. Each needs a release with \`^11\` in its .info.yml before the worker can enable it`,
+				'core_version_requirement in the code tree against survey.modules'
+			);
+		}
+	},
+	{
 		id: 'ext-archive',
 		direction: 'to-worker',
 		evaluate(survey) {
 			const present = survey.php.extensions.filter((e) => e === 'zip' || e === 'Phar');
 			if (present.length === 0) return null;
+			if (!present.includes('Phar')) {
+				return found(
+					'ext-archive',
+					'note',
+					'the source loads zip',
+					'`ZipArchive` is served by a stand-in the driver installs, which reads and writes archives; ext-zip itself is not in the build',
+					'survey.php.extensions'
+				);
+			}
 			return found(
 				'ext-archive',
 				'warning',
 				`the source loads ${present.join(' and ')}`,
-				'the wasm interpreter has neither ext-zip nor ext-phar; code that opens an archive must move to a host-side path',
+				'the wasm interpreter has no ext-phar, so code that opens a Phar must move to a host-side path; `ZipArchive` is served by a stand-in',
 				'survey.php.extensions'
+			);
+		}
+	},
+	{
+		id: 'extensions-called',
+		direction: 'to-worker',
+		evaluate(_survey, _target, _envelope, source) {
+			if (source === null || source === undefined) return null;
+			const declared = declaredExtensions(source.files, source.lock);
+			const calls = scanExtensionCalls(source.files);
+			const lines: string[] = [];
+			let severity: Severity = 'warning';
+			for (const [ext, sites] of Object.entries(calls)) {
+				const hard =
+					declared.some((d) => d.extension === ext) && sites.some((s) => !s.guarded);
+				if (hard) severity = 'blocker';
+				const shown = sites
+					.slice(0, 5)
+					.map((s) => `${s.path}:${s.line}${s.guarded ? ' (guarded)' : ''}`);
+				const more = sites.length > 5 ? ` and ${sites.length - 5} more` : '';
+				const build =
+					EXTENSION_CALLS[ext]!.build === 'partial'
+						? 'the build has stand-ins for part of it'
+						: 'the wasm build does not carry it';
+				lines.push(`ext-${ext}, ${build}: ${shown.join(', ')}${more}`);
+			}
+			if (lines.length === 0) return null;
+			return found(
+				'extensions-called',
+				severity,
+				`${lines.length} extension(s) are called that the worker does not carry`,
+				`${lines.join('; ')}. A call that is declared in composer and not guarded blocks; an undeclared or guarded one warns, since the code may have a fallback`,
+				'call sites in the code tree, matched by function and class name'
+			);
+		}
+	},
+	{
+		id: 'extensions-declared',
+		direction: 'to-worker',
+		evaluate(_survey, _target, _envelope, source) {
+			if (source === null || source === undefined) return null;
+			const calls = scanExtensionCalls(source.files);
+			const idle = declaredExtensions(source.files, source.lock).filter(
+				(d) => calls[d.extension] === undefined
+			);
+			if (idle.length === 0) return null;
+			return found(
+				'extensions-declared',
+				'note',
+				`${idle.length} extension requirement(s) are declared and never called`,
+				`${idle.map((d) => `ext-${d.extension} by ${d.by}`).join('; ')}. No call site was found in the code tree, so the requirement alone does not stop the move; a call made through a variable or an alias would not be seen`,
+				'composer ext-* requirements against call sites in the code tree'
+			);
+		}
+	},
+	{
+		id: 'settings-memcache',
+		direction: 'to-worker',
+		evaluate(_survey, _target, _envelope, source) {
+			const names = source?.settings?.memcache ?? [];
+			if (names.length === 0) return null;
+			return found(
+				'settings-memcache',
+				'note',
+				'memcache backends in settings.php are dropped',
+				`${names.join(', ')}: the worker chooses its own cache backends, so these are not carried`,
+				'the settings.php assignments'
+			);
+		}
+	},
+	{
+		id: 'settings-redis',
+		direction: 'to-worker',
+		evaluate(_survey, _target, _envelope, source) {
+			const settings = source?.settings;
+			if (settings === null || settings === undefined || settings.redisNote === null)
+				return null;
+			return found(
+				'settings-redis',
+				settings.redisUrl === null ? 'warning' : 'note',
+				settings.redisUrl === null
+					? 'redis.connection is not carried'
+					: 'redis.connection becomes REDIS_URL',
+				`${settings.redisNote}. The value is written to the workspace .dev.vars and, on deploy, through \`wrangler secret bulk\`; it is not printed`,
+				"the $settings['redis.connection'] assignments"
+			);
+		}
+	},
+	{
+		id: 'settings-s3',
+		direction: 'to-worker',
+		evaluate(_survey, _target, _envelope, source) {
+			const names = source?.settings?.s3 ?? [];
+			if (names.length === 0) return null;
+			return found(
+				'settings-s3',
+				'warning',
+				'the source stores files in S3',
+				`${names.join(', ')}: an s3:// scheme is not translated. Files move into the drupflare file store or an R2 binding, and the module's settings are set by hand`,
+				'the settings.php assignments'
 			);
 		}
 	},
@@ -238,7 +444,12 @@ export const RULES: readonly Rule[] = [
 		id: 'incompatible-modules',
 		direction: 'to-worker',
 		evaluate(survey) {
-			const hits = survey.modules.filter((m) => m in INCOMPATIBLE_MODULES);
+			const mongo = survey.modules.filter((m) => m === 'mongodb' || m.startsWith('mongodb_'));
+			// the logger alone needs MongoDB for logs only, which dblog replaces
+			const loggingOnly = mongo.every((m) => MONGODB_LOGGING_ONLY.includes(m));
+			const hits = survey.modules.filter(
+				(m) => m in INCOMPATIBLE_MODULES && !(m === 'mongodb' && loggingOnly)
+			);
 			if (hits.length === 0) return null;
 			return found(
 				'incompatible-modules',
@@ -246,6 +457,31 @@ export const RULES: readonly Rule[] = [
 				`${hits.length} enabled module(s) cannot run on the worker`,
 				hits.map((m) => `${m}: ${INCOMPATIBLE_MODULES[m]}`).join('; '),
 				'survey.modules against INCOMPATIBLE_MODULES'
+			);
+		}
+	},
+	{
+		id: 'handled-modules',
+		direction: 'to-worker',
+		evaluate(survey) {
+			const mongo = survey.modules.filter((m) => m === 'mongodb' || m.startsWith('mongodb_'));
+			const loggingOnly =
+				mongo.includes('mongodb_watchdog') &&
+				mongo.every((m) => MONGODB_LOGGING_ONLY.includes(m));
+			const hits = survey.modules.filter((m) => m in HANDLED_MODULES);
+			const details = hits.map((m) => `${m}: ${HANDLED_MODULES[m]}`);
+			if (loggingOnly) {
+				details.push(
+					'mongodb_watchdog: it logs into MongoDB, which the worker cannot reach; disable it and mongodb before migrating, and dblog or the host logger takes over'
+				);
+			}
+			if (details.length === 0) return null;
+			return found(
+				'handled-modules',
+				'warning',
+				`${details.length} enabled module(s) migrate, and the worker covers what they do another way`,
+				details.join('; '),
+				'survey.modules against HANDLED_MODULES'
 			);
 		}
 	},
@@ -561,6 +797,16 @@ export const RULES: readonly Rule[] = [
 			);
 		}
 	}
+];
+
+/** Findings that read the source's own files, which preview can only score once they are streamed. */
+export const SOURCE_FINDING_IDS: readonly string[] = [
+	'module-core-compat',
+	'extensions-called',
+	'extensions-declared',
+	'settings-memcache',
+	'settings-redis',
+	'settings-s3'
 ];
 
 /** Rules that apply in one direction, in declaration order. */

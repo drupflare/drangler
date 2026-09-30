@@ -9,6 +9,7 @@ import {
 	isOlderThan,
 	probedTarget,
 	probeTargetPhp,
+	SHIPPED_DRUPAL,
 	statedTarget,
 	versionParts
 } from '../src/migrate/target-runtime';
@@ -82,6 +83,15 @@ describe.skipIf(shipping === null)('the fallback tracks what the worker actually
 			alias?: Record<string, string>;
 		};
 		expect(config.alias?.['./runtime/php-binary.js']).not.toMatch(/php-binary-\d\d\.ts$/);
+	});
+});
+
+const LOCK = resolve(WORKER_DIR, 'src', 'ops', 'shipped-lock.ts');
+
+describe.skipIf(!existsSync(LOCK))('the shipped Drupal tracks the worker lock', () => {
+	it('matches SHIPPED_CORE_VERSION', () => {
+		const shipped = /SHIPPED_CORE_VERSION = "([^"]+)"/.exec(readFileSync(LOCK, 'utf8'))?.[1];
+		expect(SHIPPED_DRUPAL).toBe(shipped);
 	});
 });
 

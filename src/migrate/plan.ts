@@ -1,5 +1,6 @@
 import type { ExportEnvelope } from './rules';
 import { rulesFor, type Direction, type Finding, type Severity } from './rules';
+import type { SourceCode } from './source-code';
 import type { SiteSurvey } from './survey';
 import { assumedTarget, type TargetRuntime } from './target-runtime';
 
@@ -132,11 +133,12 @@ export function buildPlan(
 	survey: SiteSurvey,
 	direction: Direction,
 	target: TargetRuntime = assumedTarget(),
-	envelope: ExportEnvelope | null = null
+	envelope: ExportEnvelope | null = null,
+	source: SourceCode | null = null
 ): MigrationPlan {
 	const findings: Finding[] = [];
 	for (const rule of rulesFor(direction)) {
-		const finding = rule.evaluate(survey, target, envelope);
+		const finding = rule.evaluate(survey, target, envelope, source);
 		if (finding !== null) findings.push(finding);
 	}
 	const counts: Record<Severity, number> = { blocker: 0, warning: 0, note: 0 };

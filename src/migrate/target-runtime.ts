@@ -37,6 +37,9 @@ export interface TargetRuntime {
  */
 export const FALLBACK_TARGET_PHP = '8.5';
 
+/** the Drupal core the worker ships; `tests/target-runtime.spec.ts` compares it to the worker's lock */
+export const SHIPPED_DRUPAL = '11.4.7';
+
 /** the labelled fallback; every caller that has nothing better uses this rather than a literal */
 export function assumedTarget(php: string = FALLBACK_TARGET_PHP): TargetRuntime {
 	return {

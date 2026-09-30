@@ -3,12 +3,20 @@ import { parseDirection, runPlanCommand } from '../src/commands/migrate';
 import { FindingError, UsageError } from '../src/errors';
 import { memoryFiles } from '../src/host/files';
 import { buildPlan, renderPlan } from '../src/migrate/plan';
+import { parseSettings, settingsReport } from '../src/migrate/preview';
 import { LIMITS, RULES, rulesFor, type ExportEnvelope } from '../src/migrate/rules';
+import {
+	allowsDrupal11,
+	declaredExtensions,
+	scanExtensionCalls,
+	type SourceCode
+} from '../src/migrate/source-code';
 import { emptySurvey, type SiteSurvey } from '../src/migrate/survey';
 import {
 	assumedTarget,
 	FALLBACK_TARGET_PHP,
 	probedTarget,
+	SHIPPED_DRUPAL,
 	statedTarget
 } from '../src/migrate/target-runtime';
 import { testContext } from './helpers';
@@ -61,13 +69,22 @@ describe('db-driver', () => {
 		).toBe('note');
 	});
 
-	it('blocks a driver it has no converter for', () => {
+	it('converts PostgreSQL, naming the command', () => {
 		const finding = find(
 			survey({ database: { driver: 'pgsql', name: null, bytes: null } }),
 			'db-driver'
 		);
+		expect(finding?.severity).toBe('note');
+		expect(finding?.detail).toContain('--from pgsql --to sqlite');
+	});
+
+	it('blocks a driver it has no converter for', () => {
+		const finding = find(
+			survey({ database: { driver: 'sqlsrv', name: null, bytes: null } }),
+			'db-driver'
+		);
 		expect(finding?.severity).toBe('blocker');
-		expect(finding?.title).toContain('pgsql');
+		expect(finding?.title).toContain('sqlsrv');
 	});
 });
 
@@ -123,20 +140,61 @@ describe('php-version', () => {
 });
 
 describe('extensions and modules', () => {
-	it('warns when the source loads an archive extension', () => {
-		expect(
-			find(survey({ php: { version: null, extensions: ['zip'] } }), 'ext-archive')?.title
-		).toContain('zip');
+	it('notes zip, which a stand-in serves, and warns about Phar, which nothing serves', () => {
+		const zip = find(survey({ php: { version: null, extensions: ['zip'] } }), 'ext-archive');
+		expect(zip?.severity).toBe('note');
+		expect(zip?.detail).toContain('ZipArchive');
+		const phar = find(
+			survey({ php: { version: null, extensions: ['zip', 'Phar'] } }),
+			'ext-archive'
+		);
+		expect(phar?.severity).toBe('warning');
+		expect(phar?.title).toContain('Phar');
 	});
 
-	it('blocks a module the runtime cannot host, and names the mechanism', () => {
+	it('blocks MongoDB storage, and names the mechanism', () => {
 		const finding = find(
-			survey({ modules: ['node', 'memcache', 'imagemagick'] }),
+			survey({ modules: ['node', 'mongodb', 'mongodb_storage'] }),
 			'incompatible-modules'
 		);
 		expect(finding?.severity).toBe('blocker');
-		expect(finding?.detail).toContain('ext-memcached');
-		expect(finding?.detail).toContain('spawn a process');
+		expect(finding?.detail).toContain('ext-mongodb');
+	});
+
+	it('warns rather than blocks for modules the worker covers, saying what changes', () => {
+		const plan = buildPlan(
+			survey({
+				modules: ['node', 'imagemagick', 'imageapi_optimize_binaries', 'automatic_updates']
+			}),
+			'to-worker'
+		);
+		expect(plan.findings.find((f) => f.id === 'incompatible-modules')).toBeUndefined();
+		const handled = plan.findings.find((f) => f.id === 'handled-modules');
+		expect(handled?.severity).toBe('warning');
+		expect(handled?.detail).toContain('cfw_images');
+		expect(handled?.detail).toContain('exec()');
+		expect(handled?.detail).toContain('drangler update');
+	});
+
+	it('blocks memcache until it is uninstalled, and says why that is enough', () => {
+		for (const m of ['memcache', 'memcache_storage']) {
+			const finding = find(survey({ modules: ['node', m] }), 'incompatible-modules');
+			expect(finding?.severity).toBe('blocker');
+			expect(finding?.detail).toContain('uninstall it before migrating');
+		}
+	});
+
+	it('treats the MongoDB logger alone as a warning, and MongoDB storage as a blocker', () => {
+		const logger = buildPlan(survey({ modules: ['mongodb', 'mongodb_watchdog'] }), 'to-worker');
+		expect(logger.findings.find((f) => f.id === 'incompatible-modules')).toBeUndefined();
+		expect(logger.findings.find((f) => f.id === 'handled-modules')?.detail).toContain('dblog');
+		const storage = buildPlan(
+			survey({ modules: ['mongodb', 'mongodb_watchdog', 'mongodb_storage'] }),
+			'to-worker'
+		);
+		expect(storage.findings.find((f) => f.id === 'incompatible-modules')?.severity).toBe(
+			'blocker'
+		);
 	});
 
 	it('warns about a module that needs an unprovisioned service', () => {
@@ -404,9 +462,9 @@ describe('buildPlan', () => {
 
 describe('renderPlan', () => {
 	it('groups by severity and lists the steps', () => {
-		const text = renderPlan(buildPlan(survey({ modules: ['memcache'] }), 'to-worker')).join(
-			'\n'
-		);
+		const text = renderPlan(
+			buildPlan(survey({ modules: ['mongodb', 'mongodb_storage'] }), 'to-worker')
+		).join('\n');
 		expect(text).toContain('VPS to Worker');
 		expect(text).toContain('BLOCKERS (1)');
 		expect(text).toContain('NOT MEASURED');
@@ -448,7 +506,9 @@ describe('plan command', () => {
 
 	it('exits with a finding when a blocker is present', async () => {
 		const ctx = testContext({
-			files: memoryFiles({ '/s.json': JSON.stringify(survey({ modules: ['memcache'] })) })
+			files: memoryFiles({
+				'/s.json': JSON.stringify(survey({ modules: ['mongodb', 'mongodb_storage'] }))
+			})
 		});
 		await expect(runPlanCommand(ctx, { survey: '/s.json', to: 'workers' })).rejects.toThrow(
 			FindingError
@@ -461,3 +521,330 @@ describe('plan command', () => {
 		).rejects.toThrow(UsageError);
 	});
 });
+
+// #region drupal version and source files
+
+const drupal = (version: string) => ({ version, profile: null, uri: null, root: null });
+
+const sourceOf = (
+	files: { path: string; text: string }[],
+	over: Partial<SourceCode> = {}
+): SourceCode => ({ files, lock: null, settings: null, ...over });
+
+const planWith = (s: SiteSurvey, source: SourceCode) =>
+	buildPlan(s, 'to-worker', assumedTarget(), null, source);
+
+describe('drupal-version', () => {
+	it('warns on Drupal 10 and names the update chain as the way in', () => {
+		const finding = find(survey({ drupal: drupal('10.4.2') }), 'drupal-version');
+		expect(finding?.severity).toBe('warning');
+		expect(finding?.detail).toContain('drangler site updb');
+		expect(finding?.detail).toContain('Drupal 11 release');
+	});
+
+	it('blocks Drupal 9, and anything ahead of the worker', () => {
+		expect(find(survey({ drupal: drupal('9.5.11') }), 'drupal-version')?.severity).toBe(
+			'blocker'
+		);
+		expect(find(survey({ drupal: drupal('12.0.0') }), 'drupal-version')?.severity).toBe(
+			'blocker'
+		);
+	});
+
+	it('notes a different pin on 11.x and says the constraint is rewritten', () => {
+		const finding = find(survey({ drupal: drupal('11.2.0') }), 'drupal-version');
+		expect(finding?.severity).toBe('note');
+		expect(finding?.detail).toContain(`rewritten to that version`);
+		expect(find(survey({ drupal: drupal(SHIPPED_DRUPAL) }), 'drupal-version')).toBeUndefined();
+	});
+
+	it('scores nothing for an unread version', () => {
+		expect(find(survey(), 'drupal-version')).toBeUndefined();
+	});
+});
+
+describe('module-core-compat', () => {
+	const info = (name: string, body: string) => ({
+		path: `modules/contrib/${name}/${name}.info.yml`,
+		text: `name: ${name}\ntype: module\n${body}`
+	});
+
+	it('reads which requirements admit Drupal 11', () => {
+		expect(allowsDrupal11('^10.3 || ^11')).toBe(true);
+		expect(allowsDrupal11('^11')).toBe(true);
+		expect(allowsDrupal11('>=10.3')).toBe(true);
+		expect(allowsDrupal11('^10')).toBe(false);
+		expect(allowsDrupal11('~10.3')).toBe(false);
+		expect(allowsDrupal11('>=10.3 <11')).toBe(false);
+		expect(allowsDrupal11('^9 || ^10')).toBe(false);
+	});
+
+	it('names the enabled modules that do not declare ^11, and only those', () => {
+		const s = survey({
+			drupal: drupal('10.3.1'),
+			modules: ['node', 'old_mod', 'ok_mod', 'bare_mod']
+		});
+		const plan = planWith(
+			s,
+			sourceOf([
+				info('old_mod', 'core_version_requirement: ^10'),
+				info('ok_mod', "core_version_requirement: '^10.3 || ^11'"),
+				info('bare_mod', 'core: 8.x'),
+				info('unused_mod', 'core_version_requirement: ^10')
+			])
+		);
+		const finding = plan.findings.find((f) => f.id === 'module-core-compat');
+		expect(finding?.severity).toBe('warning');
+		expect(finding?.detail).toContain('old_mod (core_version_requirement ^10)');
+		expect(finding?.detail).toContain('bare_mod (no core_version_requirement)');
+		expect(finding?.detail).not.toContain('ok_mod');
+		expect(finding?.detail).not.toContain('unused_mod');
+	});
+
+	it('is silent without a code tree, and for a source already on 11', () => {
+		const s = survey({ drupal: drupal('10.3.1'), modules: ['old_mod'] });
+		expect(idsOf(s)).not.toContain('module-core-compat');
+		const on11 = survey({ drupal: drupal('11.2.0'), modules: ['old_mod'] });
+		const files = [info('old_mod', 'core_version_requirement: ^10')];
+		expect(planWith(on11, sourceOf(files)).findings.map((f) => f.id)).not.toContain(
+			'module-core-compat'
+		);
+	});
+});
+
+describe('declared and called extensions', () => {
+	const php = (path: string, text: string) => ({ path, text });
+	const composer = (require: Record<string, string>) => ({
+		path: 'modules/contrib/farm/composer.json',
+		text: JSON.stringify({ name: 'drupal/farm', require })
+	});
+
+	it('finds calls by function and class name, with file and line', () => {
+		const calls = scanExtensionCalls([
+			php(
+				'modules/custom/a/a.module',
+				[
+					'<?php',
+					'// bcadd is only a word here',
+					'$x = bcadd(1, 2);',
+					'$g = new \\GEOSWKTReader();',
+					'$d = cal_days_in_month(CAL_GREGORIAN, 2, 2020);',
+					'$k = sodium_crypto_secretbox($m, $n, $k);',
+					'$h = sodium_crypto_generichash($m);'
+				].join('\n')
+			)
+		]);
+		expect(calls['bcmath']).toEqual([
+			{ path: 'modules/custom/a/a.module', line: 3, guarded: false }
+		]);
+		expect(calls['geos']?.[0]?.line).toBe(4);
+		expect(calls['calendar']?.[0]?.line).toBe(5);
+		expect(calls['sodium']?.map((c) => c.line)).toEqual([6]);
+	});
+
+	it('marks a call guarded, and skips definitions and polyfills', () => {
+		const calls = scanExtensionCalls([
+			php(
+				'modules/custom/a/a.module',
+				"<?php\nif (function_exists('bcadd')) { $x = bcadd(1, 2); }\n"
+			),
+			php(
+				'modules/custom/b/b.module',
+				"<?php\nif (!function_exists('bcsub')) {\nfunction bcsub($a) {}\n}\n"
+			),
+			php('libraries/polyfill-bcmath/bootstrap.php', '<?php\n$x = bcmul(1, 2);\n')
+		]);
+		expect(calls['bcmath']).toEqual([
+			{ path: 'modules/custom/a/a.module', line: 2, guarded: true }
+		]);
+	});
+
+	it('reads ext-* from a module composer.json and from the lock', () => {
+		const lock = JSON.stringify({
+			packages: [{ name: 'farmos/x', require: { 'ext-geos': '*', 'ext-json': '*' } }]
+		});
+		expect(declaredExtensions([composer({ 'ext-bcmath': '*', php: '>=8' })], lock)).toEqual([
+			{ extension: 'bcmath', by: 'drupal/farm' },
+			{ extension: 'geos', by: 'farmos/x' }
+		]);
+	});
+
+	it('notes a declared extension nothing calls', () => {
+		const plan = planWith(
+			survey(),
+			sourceOf([composer({ 'ext-bcmath': '*', 'ext-calendar': '*' })])
+		);
+		const finding = plan.findings.find((f) => f.id === 'extensions-declared');
+		expect(finding?.severity).toBe('note');
+		expect(finding?.detail).toContain('ext-bcmath by drupal/farm');
+		expect(plan.findings.map((f) => f.id)).not.toContain('extensions-called');
+	});
+
+	it('blocks a declared, unguarded call and names the site', () => {
+		const plan = planWith(
+			survey(),
+			sourceOf([
+				composer({ 'ext-bcmath': '*' }),
+				php('modules/custom/a/a.module', '<?php\n$x = bcadd(1, 2);\n')
+			])
+		);
+		const finding = plan.findings.find((f) => f.id === 'extensions-called');
+		expect(finding?.severity).toBe('blocker');
+		expect(finding?.detail).toContain('modules/custom/a/a.module:2');
+		expect(plan.findings.map((f) => f.id)).not.toContain('extensions-declared');
+	});
+
+	it('only warns on an undeclared call or a guarded one', () => {
+		const call = php('modules/custom/a/a.module', '<?php\n$x = bcadd(1, 2);\n');
+		expect(
+			planWith(survey(), sourceOf([call])).findings.find((f) => f.id === 'extensions-called')
+				?.severity
+		).toBe('warning');
+		const guarded = php(
+			'modules/custom/a/a.module',
+			"<?php\nif (extension_loaded('bcmath')) { $x = bcadd(1, 2); }\n"
+		);
+		expect(
+			planWith(survey(), sourceOf([composer({ 'ext-bcmath': '*' }), guarded])).findings.find(
+				(f) => f.id === 'extensions-called'
+			)?.severity
+		).toBe('warning');
+	});
+
+	it('scores nothing without a code tree', () => {
+		expect(idsOf(survey())).not.toContain('extensions-called');
+		expect(idsOf(survey())).not.toContain('extensions-declared');
+	});
+});
+
+describe('settings translation', () => {
+	const report = (lines: string[]) => settingsReport(parseSettings(lines.join('\n')));
+
+	it('drops memcache settings with a note', () => {
+		const settings = report([
+			"$settings['memcache']['servers'] = ['127.0.0.1:11211' => 'default'];",
+			"$settings['cache']['default'] = 'cache.backend.memcache';"
+		]);
+		expect(settings.memcache).toEqual(['memcache.servers', 'cache.default']);
+		const finding = planWith(survey(), sourceOf([], { settings })).findings.find(
+			(f) => f.id === 'settings-memcache'
+		);
+		expect(finding?.severity).toBe('note');
+	});
+
+	it('translates a literal phpredis connection to REDIS_URL without printing it', () => {
+		const settings = report([
+			"$settings['redis.connection']['interface'] = 'PhpRedis';",
+			"$settings['redis.connection']['host'] = 'cache.internal';",
+			"$settings['redis.connection']['port'] = 6380;",
+			"$settings['redis.connection']['password'] = 'p@ss/w:rd';"
+		]);
+		expect(settings.redisUrl).toBe('redis://:p%40ss%2Fw%3Ard@cache.internal:6380');
+		const plan = planWith(survey(), sourceOf([], { settings }));
+		const finding = plan.findings.find((f) => f.id === 'settings-redis');
+		expect(finding?.severity).toBe('note');
+		expect(JSON.stringify(plan)).not.toContain('p%40ss');
+		expect(JSON.stringify(plan)).not.toContain('p@ss');
+	});
+
+	it('takes the redis defaults only for the port, and lets settings.local.php override', () => {
+		expect(report(["$settings['redis.connection']['host'] = '10.0.0.5';"]).redisUrl).toBe(
+			'redis://10.0.0.5:6379'
+		);
+		expect(
+			report([
+				"$settings['redis.connection']['host'] = '10.0.0.5';",
+				"$settings['redis.connection']['host'] = '10.0.0.9';"
+			]).redisUrl
+		).toBe('redis://10.0.0.9:6379');
+	});
+
+	it('names an expression instead of guessing, and refuses a unix socket', () => {
+		const expr = report([
+			"$settings['redis.connection']['host'] = getenv('REDIS_HOST');",
+			"$settings['redis.connection']['port'] = 6379;"
+		]);
+		expect(expr.redisUrl).toBeNull();
+		expect(expr.redisExpressions).toEqual(['redis.connection.host']);
+		const whole = report(["$settings['redis.connection'] = ['host' => 'x'];"]);
+		expect(whole.redisExpressions).toEqual(['redis.connection']);
+		const socket = report(["$settings['redis.connection']['host'] = '/var/run/redis.sock';"]);
+		expect(socket.redisUrl).toBeNull();
+		expect(socket.redisNote).toContain('unix socket');
+		const finding = planWith(survey(), sourceOf([], { settings: expr })).findings.find(
+			(f) => f.id === 'settings-redis'
+		);
+		expect(finding?.severity).toBe('warning');
+	});
+
+	it('reports s3 settings as needing a file store, and translates none of them', () => {
+		const settings = report([
+			"$settings['s3fs.use_s3_for_public'] = TRUE;",
+			"$config['s3fs.settings']['bucket'] = 'assets';",
+			"$settings['file_public_path'] = 's3://public';"
+		]);
+		expect(settings.s3).toEqual([
+			's3fs.use_s3_for_public',
+			'config:s3fs.settings.bucket',
+			'file_public_path'
+		]);
+		const finding = planWith(survey(), sourceOf([], { settings })).findings.find(
+			(f) => f.id === 'settings-s3'
+		);
+		expect(finding?.severity).toBe('warning');
+		expect(finding?.detail).toContain('R2');
+	});
+
+	it('finds nothing in a settings file with none of these', () => {
+		const settings = report([
+			"$settings['hash_salt'] = 'x';",
+			"$config['system.site']['name'] = 'a';"
+		]);
+		expect(settings).toEqual({
+			memcache: [],
+			redisUrl: null,
+			redisNote: null,
+			redisExpressions: [],
+			s3: []
+		});
+	});
+});
+
+describe('plan --code', () => {
+	it('reads modules, the lock and settings from a local tree', async () => {
+		const ctx = testContext({
+			files: memoryFiles({
+				'/s.json': JSON.stringify(
+					survey({ drupal: drupal('10.3.1'), modules: ['old_mod'] })
+				),
+				'/site/modules/contrib/old_mod/old_mod.info.yml':
+					'name: Old\ncore_version_requirement: ^10\n',
+				'/site/modules/contrib/old_mod/composer.json': JSON.stringify({
+					name: 'drupal/old_mod',
+					require: { 'ext-calendar': '*' }
+				}),
+				'/site/sites/default/settings.php':
+					"<?php\n$settings['memcache']['servers'] = [];\n$settings['redis.connection']['host'] = 'r';\n"
+			})
+		});
+		await runPlanCommand(ctx, { survey: '/s.json', to: 'workers', code: '/site', json: true });
+		const ids = ctx.io.json<{ findings: { id: string }[] }>().findings.map((f) => f.id);
+		expect(ids).toEqual(
+			expect.arrayContaining([
+				'module-core-compat',
+				'extensions-declared',
+				'settings-memcache',
+				'settings-redis'
+			])
+		);
+		expect(ctx.io.text()).not.toContain('redis://');
+	});
+
+	it('refuses a directory that does not exist', async () => {
+		await expect(
+			runPlanCommand(testContext(), { to: 'workers', code: '/none' })
+		).rejects.toThrow(UsageError);
+	});
+});
+
+// #endregion

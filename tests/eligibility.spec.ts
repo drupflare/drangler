@@ -22,7 +22,7 @@ function measured(over: Partial<SiteSurvey> = {}): SiteSurvey {
 		// the same version the destination runs, so nothing warns about being behind it
 		php: { version: FALLBACK_TARGET_PHP, extensions: ['curl', 'pdo_mysql'] },
 		drush: '12.5.1',
-		drupal: { version: '10.3.1', profile: 'standard', uri: null, root: '/var/www/html' },
+		drupal: { version: '11.4.7', profile: 'standard', uri: null, root: '/var/www/html' },
 		database: { driver: 'sqlite', name: 'drupal', bytes: 1_048_576 },
 		files: { kb: 100, count: 4 },
 		dbAlive: true,
@@ -93,7 +93,7 @@ describe('to workers', () => {
 	});
 
 	it('exits 3 with NO when a criterion is a blocker', async () => {
-		const ctx = ctxFor(measured({ modules: ['memcache'] }));
+		const ctx = ctxFor(measured({ modules: ['mongodb', 'mongodb_storage'] }));
 		await expect(
 			runEligibility(ctx, { survey: SURVEY, globals: globalsFor(ctx) })
 		).rejects.toBeInstanceOf(FindingError);
