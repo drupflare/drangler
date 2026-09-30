@@ -14,6 +14,7 @@ import {
 } from './commands/cf-worker';
 import { runConfigCheck, runConfigLevers, runConfigWhere } from './commands/config';
 import { runDoctor } from './commands/doctor';
+import { runDomainAdd, runDomainList, runDomainRemove } from './commands/domain';
 import { runEligibility } from './commands/eligibility';
 import { runHeal } from './commands/heal';
 import { runHealth } from './commands/health';
@@ -43,6 +44,8 @@ import {
 	runModifyStatus,
 	runModifyUpload
 } from './commands/modify';
+import { runPreviewCommand } from './commands/preview';
+import { runProjectBuild } from './commands/project';
 import { runReconcile } from './commands/reconcile';
 import { runRecover } from './commands/recover';
 import { runSecretsScan } from './commands/secrets';
@@ -59,6 +62,7 @@ import {
 } from './commands/workspace';
 import { resolveGlobals, withVerbosity, type GlobalOptions } from './config/globals';
 import type { Context } from './context';
+import { UsageError } from './errors';
 import { VERSION } from './version';
 
 export { VERSION };
@@ -168,6 +172,7 @@ export function buildProgram(ctx: Context): Command {
 				site: bound.globals.config.siteName.value,
 				timeoutMs: bound.globals.timeoutMs,
 				json: bound.globals.json,
+				token: bound.globals.config.token.value,
 				...(opts.config === undefined ? {} : { config: opts.config })
 			});
 		});
@@ -227,8 +232,56 @@ export function buildProgram(ctx: Context): Command {
 		)
 		.option('--refresh', 'fetch and fast-forward an existing checkout; refuses on a dirty tree')
 		.option('--force', 'redo the install and hydrate steps even when their output is present')
+		.option(
+			'--project <dir>',
+			'build a composer project instead of the worker: run composer natively, then upload what the pack lacks'
+		)
+		.option(
+			'--shipped-lock <file>',
+			'with --project: the worker composer.lock to diff against, instead of the checkout or the published one'
+		)
+		.option(
+			'--composer <where>',
+			'with --project: docker (the composer:2 image) or host',
+			'docker'
+		)
+		.option('--image <ref>', 'with --project: the composer image', 'composer:2')
+		.option(
+			'--no-install',
+			'with --project: read the project as it stands, do not run composer'
+		)
+		.option('--no-core', 'with --project: leave patched core files out of the upload')
+		.addHelpText(
+			'after',
+			[
+				'',
+				'Examples:',
+				'  drangler build --workspace ~/drupflare',
+				'  drangler build --project ../mysite --dry-run',
+				'  drangler build --project ../mysite --site https://mysite.example'
+			].join('\n')
+		)
 		.action(async (opts, command) => {
 			const bound = bind(command);
+			if (opts.project !== undefined) {
+				if (opts.composer !== 'docker' && opts.composer !== 'host') {
+					throw new UsageError('--composer takes docker or host');
+				}
+				await runProjectBuild(bound.ctx, {
+					project: opts.project,
+					composer: opts.composer,
+					install: opts.install,
+					core: opts.core,
+					...(opts.shippedLock === undefined ? {} : { shippedLock: opts.shippedLock }),
+					...(opts.image === undefined ? {} : { image: opts.image }),
+					...(opts.ref === undefined ? {} : { ref: opts.ref }),
+					...(bound.globals.config.workspace.value === null
+						? {}
+						: { workspace: bound.globals.config.workspace.value }),
+					globals: bound.globals
+				});
+				return;
+			}
 			await runBuildCommand(bound.ctx, { ...opts, globals: bound.globals });
 		});
 
@@ -340,6 +393,47 @@ export function buildProgram(ctx: Context): Command {
 			await runDeployCommand(bound.ctx, extra ?? [], { ...opts, globals: bound.globals });
 		});
 
+	const withPreview = (command: Command): Command =>
+		command
+			.description(
+				'Make a working duplicate of a VPS site on drupflare, with read-only commands on the VPS'
+			)
+			.requiredOption('--host <target>', 'ssh destination, as [user@]host[:port]')
+			.requiredOption('--root <path>', 'absolute Drupal root on that host')
+			.option('--identity <file>', 'ssh private key, passed to ssh as -i')
+			.option('--out <dir>', 'where the dump, files and preview workspace land')
+			.option('--full', 'run every step after one typed confirmation')
+			.option(
+				'--deploy',
+				'deploy the duplicate as drupflare-preview-<host> instead of running it'
+			)
+			.option('--url <origin>', 'with --deploy, the origin to check once it is up')
+			.option(
+				'--source-url <origin>',
+				'the live site, so each checked page must match its status'
+			)
+			.option('--port <n>', 'the local port for wrangler dev')
+			.option(
+				'--target-php <version>',
+				'the PHP version the destination runs, if you know it'
+			)
+			.addHelpText(
+				'after',
+				[
+					'',
+					'Examples:',
+					'  drangler preview --host deploy@old.example --root /var/www/html',
+					'  drangler preview --host deploy@old.example --root /var/www/html --dry-run',
+					'  drangler preview --host deploy@old.example --root /var/www/html --full --deploy'
+				].join('\n')
+			)
+			.action(async (opts, sub: Command) => {
+				const bound = bind(sub);
+				await runPreviewCommand(bound.ctx, { ...opts, globals: bound.globals });
+			});
+
+	withPreview(program.command('preview'));
+
 	program
 		.command('health')
 		.argument('[target]', 'origin to probe; defaults to --site or the config')
@@ -377,12 +471,18 @@ export function buildProgram(ctx: Context): Command {
 		.option('--admin-mail <address>', "the administrator's email address")
 		.option('--force', 'reconfigure a site that is already claimed; needs the owner token')
 		.option('--save', 'write the owner token to the global config without asking')
+		.option(
+			'--migrated',
+			'mint the owner token and leave a migrated administrator and config alone'
+		)
+		.option('--wait <ms>', "how long to wait for a fresh site's database replay", '600000')
 		.addHelpText(
 			'after',
 			[
 				'',
 				'Examples:',
 				'  drangler site claim https://mysite.example',
+				'  drangler site claim https://migrated.example --migrated --save',
 				'  drangler site claim --title "My Site" --save'
 			].join('\n')
 		)
@@ -598,6 +698,62 @@ export function buildProgram(ctx: Context): Command {
 		.action(async (target: string | undefined, opts, command) => {
 			const bound = bind(command);
 			await runSetupIdentity(bound.ctx, target, { ...opts, globals: bound.globals });
+		});
+
+	const domain = program
+		.command('domain')
+		.description('Hostnames for the site: the host mapping and the Custom Domain route');
+
+	domain
+		.command('add')
+		.argument('<host>', 'the hostname, with a port for a local `wrangler dev`')
+		.argument('[target]', 'the site origin, to read the primary site from; defaults to --site')
+		.description('Map a host to the site and add its Custom Domain route')
+		.option('--local', "write wrangler dev's local KV and leave the routes alone")
+		.option('--persist-to <dir>', 'with --local, the state directory wrangler dev was given')
+		.option('--no-route', 'map the host without adding a route')
+		.option('--config <file>', 'the wrangler config, workspace-relative')
+		.addHelpText(
+			'after',
+			[
+				'',
+				'The site is --site-name, or the deployment primary read with the owner token.',
+				'The mapping is written with your wrangler login. On a zone in this Cloudflare',
+				'account the next deploy creates the DNS record and certificate; a hostname that',
+				'already has a DNS record is refused until it is deleted.',
+				'',
+				'Examples:',
+				'  drangler domain add www.example.org https://example.org',
+				'  drangler domain add alias.localhost:8787 --local --site-name example.org'
+			].join('\n')
+		)
+		.action(async (host: string, target: string | undefined, opts, command) => {
+			const bound = bind(command);
+			await runDomainAdd(bound.ctx, host, target, { ...opts, globals: bound.globals });
+		});
+
+	domain
+		.command('remove')
+		.argument('<host>', 'the hostname')
+		.description("Remove a host's mapping and its route")
+		.option('--local', "write wrangler dev's local KV and leave the routes alone")
+		.option('--persist-to <dir>', 'with --local, the state directory wrangler dev was given')
+		.option('--no-route', 'leave the routes alone')
+		.option('--config <file>', 'the wrangler config, workspace-relative')
+		.action(async (host: string, opts, command) => {
+			const bound = bind(command);
+			await runDomainRemove(bound.ctx, host, { ...opts, globals: bound.globals });
+		});
+
+	domain
+		.command('list')
+		.description('Every mapped host and every route')
+		.option('--local', "read wrangler dev's local KV")
+		.option('--persist-to <dir>', 'with --local, the state directory wrangler dev was given')
+		.option('--config <file>', 'the wrangler config, workspace-relative')
+		.action(async (opts, command) => {
+			const bound = bind(command);
+			await runDomainList(bound.ctx, { ...opts, globals: bound.globals });
 		});
 
 	program
@@ -1090,11 +1246,17 @@ export function buildProgram(ctx: Context): Command {
 			});
 		});
 
+	withPreview(migrate.command('preview'));
+
 	migrate
 		.command('plan')
 		.description('Score a survey against the platform limits and order the work')
 		.option('--survey <file>', 'a survey written by `migrate survey --out`')
 		.option('--target-php <version>', 'the PHP version the destination runs, if you know it')
+		.option(
+			'--code <dir>',
+			'a Drupal root or preview folder; reads modules, composer.lock and settings.php'
+		)
 		.addOption(
 			new Option('--to <where>', 'direction of travel')
 				.choices(['workers', 'vps'])
@@ -1178,11 +1340,13 @@ export function buildProgram(ctx: Context): Command {
 
 	migrate
 		.command('convert')
-		.description('Convert a SQL dump between MySQL and SQLite')
+		.description(
+			'Convert a SQL dump between MySQL and SQLite, or a PostgreSQL pg_dump into SQLite'
+		)
 		.requiredOption('--in <file>', 'the dump to read')
 		.addOption(
 			new Option('--from <dialect>', 'source dialect')
-				.choices(['mysql', 'sqlite'])
+				.choices(['mysql', 'sqlite', 'pgsql'])
 				.makeOptionMandatory()
 		)
 		.addOption(
@@ -1214,6 +1378,10 @@ export function buildProgram(ctx: Context): Command {
 			'Land a migrated database or asset in a workspace, backing up what it replaces'
 		)
 		.option('--db <file>', 'a SQLite database file to install as assets/drupal/site.sqlite')
+		.option(
+			'--code <docroot>',
+			'carry the source modules, themes, profiles and libraries inside the database'
+		)
 		.option(
 			'--asset <from=to>',
 			'any other file, with a workspace-relative destination; repeatable',
