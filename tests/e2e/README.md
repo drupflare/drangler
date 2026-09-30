@@ -133,6 +133,36 @@ No release exists yet, so the payload tests skip and say so. They start running 
 first time a release is cut -- no workflow edit. `REQUIRE_PAYLOAD=1` turns the absence into a
 failure, which is what to set once a release is expected to always be there.
 
+## The Modify Lane
+
+`modify.spec.ts` drives `drangler modify` against a real site under `wrangler dev`, in two halves.
+
+**A module written for the test** carries a route whose controller returns a marker string, so every
+step is checked by what the site serves rather than by what drangler reports:
+
+| step                   | asserted                                                        |
+| ---------------------- | --------------------------------------------------------------- |
+| upload                 | the revision drangler computed is the one the site stored       |
+| enable                 | the route answers 404 before and the v1 marker after            |
+| second upload          | one file sent, and the site serves the v2 marker                |
+| an upload that fatals  | refused, rolled back, v2 still served, the front page still 200 |
+| revisions and rollback | both good revisions listed, and the rollback serves v1 again    |
+
+**Two production modules**, cloned at pinned commits:
+
+- `simple_oauth_21` needs `drupal/simple_oauth` from the registry, so it drives `require`, `upload`
+  and `enable`, and checks that its dashboard route moves from 404 to 403 for an anonymous visitor.
+- `entity_reference_integrity` uploads cleanly and its own routing file makes the enable fail. The
+  spec asserts drangler reports the refusal and the site keeps serving with the module off.
+
+It needs a hydrated worker tree. With no release matching the cloned source, point
+`DRANGLER_E2E_WORKSPACE` at one that `bun run hydrate` or `bun run build:local` completed; it is
+served as it is, with its Durable Object state in a scratch `--persist-to`.
+
+```sh
+DRANGLER_E2E_WORKSPACE=../worker REQUIRE_CLONE=1 bunx vitest run --project=e2e tests/e2e/modify.spec.ts
+```
+
 ## The Broken Arm
 
 `docker/compose.yml` carries a second Drupal behind `profiles: ['broken']`, on the same image digest

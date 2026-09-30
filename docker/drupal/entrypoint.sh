@@ -65,8 +65,12 @@ if ! drush --root=/opt/drupal/web status --field=bootstrap 2> /dev/null | grep -
 		--site-name='drangler e2e' \
 		--site-mail="${DRUPAL_SITE_MAIL:-e2e@example.com}" \
 		--db-url="mysql://${DRUPAL_DB_USER}:${DRUPAL_DB_PASSWORD}@${DRUPAL_DB_HOST}/${DRUPAL_DB_NAME}"
-	# a node and an image style, so the survey's counts are non-zero and its rules have real input
+	# a node and an image style, so the survey's counts are non-zero and its rules have real input;
+	# the type is created when the profile lacks it, or node/1 renders a 500 (eval has no use block)
 	drush --root=/opt/drupal/web php:eval '
+		if (\Drupal\node\Entity\NodeType::load("page") === null) {
+			\Drupal\node\Entity\NodeType::create(["type" => "page", "name" => "Basic page"])->save();
+		}
 		$node = \Drupal\node\Entity\Node::create(["type" => "page", "title" => "e2e front"]);
 		$node->save();
 	'

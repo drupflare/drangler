@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { E2E_DIR } from './docker';
@@ -8,7 +8,8 @@ export const FIXTURE_DIR = join(E2E_DIR, 'fixture-worker');
 
 export interface RunningWorker {
 	origin: string;
-	stop(): void;
+	/** stops wrangler and deletes its state; with `keepLog`, copies dev.log out first and returns where */
+	stop(keepLog?: boolean): string | null;
 }
 
 /**
@@ -86,12 +87,18 @@ export async function startFixtureWorker(
 	dev.stdout?.on('data', append);
 	dev.stderr?.on('data', append);
 
-	const stop = () => {
+	const stop = (keepLog = false): string | null => {
 		logging = false;
 		dev.stdout?.removeAllListeners('data');
 		dev.stderr?.removeAllListeners('data');
 		if (dev.exitCode === null) dev.kill('SIGTERM');
+		let kept: string | null = null;
+		if (keepLog && existsSync(logFile)) {
+			kept = join(tmpdir(), `drangler-e2e-dev-${Date.now().toString(36)}.log`);
+			copyFileSync(logFile, kept);
+		}
 		rmSync(stateDir, { recursive: true, force: true });
+		return kept;
 	};
 
 	const started = Date.now();
