@@ -64,6 +64,73 @@ export interface WranglerConfig {
 	durable_objects?: { bindings?: { name?: unknown; class_name?: unknown }[] };
 	migrations?: { tag?: unknown; new_classes?: unknown; new_sqlite_classes?: unknown }[];
 	triggers?: { crons?: unknown };
+	routes?: WranglerRoute[];
+	workers_dev?: unknown;
+}
+
+export interface WranglerRoute {
+	pattern?: unknown;
+	custom_domain?: unknown;
+	zone_name?: unknown;
+	zone_id?: unknown;
+}
+
+/**
+ * Sets one top-level key of a wrangler config and leaves every other byte of the file alone.
+ *
+ * The file belongs to the user and is usually formatted by their own tooling, so re-serialising
+ * the whole object would rewrite lines this change has nothing to do with.
+ */
+export function setTopLevel(text: string, key: string, value: unknown): string {
+	const indent = /\n([ \t]+)"/.exec(text)?.[1] ?? '\t';
+	const rendered = JSON.stringify(value, null, indent).replace(/\n/g, `\n${indent}`);
+	let depth = 0;
+	let root = -1;
+	let lastKey: string | null = null;
+	let valueStart = -1;
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i]!;
+		if (ch === '"') {
+			const start = i;
+			for (i++; i < text.length && text[i] !== '"'; i++) if (text[i] === '\\') i++;
+			if (depth === 1 && valueStart === -1) lastKey = JSON.parse(text.slice(start, i + 1));
+			continue;
+		}
+		if (ch === '/' && text[i + 1] === '/') {
+			while (i < text.length && text[i] !== '\n') i++;
+			continue;
+		}
+		if (ch === '/' && text[i + 1] === '*') {
+			const end = text.indexOf('*/', i + 2);
+			i = end === -1 ? text.length : end + 1;
+			continue;
+		}
+		if (ch === ':' && depth === 1 && valueStart === -1) {
+			valueStart = i + 1;
+			continue;
+		}
+		if (ch === '{' || ch === '[') {
+			if (depth === 0) root = i;
+			depth++;
+			continue;
+		}
+		if ((ch === ',' && depth === 1) || ((ch === '}' || ch === ']') && depth-- === 1)) {
+			if (valueStart !== -1 && lastKey === key) {
+				const lead = /^\s*/.exec(text.slice(valueStart, i))![0].length;
+				const trail = /\s*$/.exec(text.slice(valueStart, i))![0].length;
+				return text.slice(0, valueStart + lead) + rendered + text.slice(i - trail);
+			}
+			valueStart = -1;
+			lastKey = null;
+			if (depth === 0 && ch === '}') {
+				const body = text.slice(root + 1, i).trimEnd();
+				const sep = body === '' || body.endsWith(',') ? '' : ',';
+				const at = root + 1 + body.length;
+				return `${text.slice(0, at)}${sep}\n${indent}${JSON.stringify(key)}: ${rendered}\n${text.slice(i)}`;
+			}
+		}
+	}
+	throw new UsageError('not a wrangler config: no top-level object');
 }
 
 export function parseWranglerConfig(text: string): WranglerConfig {
