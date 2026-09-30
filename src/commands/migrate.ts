@@ -14,7 +14,10 @@ import { convertDump, DO_STATEMENT_CHARS, type Dialect } from '../migrate/conver
 import { deltaPlan } from '../migrate/delta';
 import { recoverFiles, writeRecovered } from '../migrate/files';
 import { buildPlan, renderPlan } from '../migrate/plan';
+import { codeTree } from '../migrate/preview';
 import type { Direction } from '../migrate/rules';
+import { addCodeRows, emptyCacheBins, unpublishPrefill } from '../migrate/site-db';
+import { readSourceCode } from '../migrate/source-code';
 import { emptySurvey, runSurvey, surveyPlan, type SiteSurvey } from '../migrate/survey';
 import { destination, parseTarget, type SshTarget } from '../migrate/target';
 import {
@@ -151,6 +154,8 @@ export interface PlanOptions {
 	targetPhp?: string;
 	/** a deployment to read the PHP version from; only works where /php is reachable */
 	site?: string;
+	/** a Drupal root or a preview's output folder, read for module, extension and settings findings */
+	code?: string;
 	json?: boolean;
 }
 
@@ -173,7 +178,11 @@ export async function runPlanCommand(ctx: Context, opts: PlanOptions): Promise<v
 		opts.survey === undefined
 			? emptySurvey('<host>', '<drupal-root>')
 			: (JSON.parse(readOrFail(ctx, opts.survey)) as SiteSurvey);
-	const plan = buildPlan(survey, direction, await resolveTarget(ctx, opts));
+	if (opts.code !== undefined && !ctx.files.exists(opts.code)) {
+		throw new UsageError(`no such directory: ${opts.code}`);
+	}
+	const source = opts.code === undefined ? null : readSourceCode(ctx.files, opts.code);
+	const plan = buildPlan(survey, direction, await resolveTarget(ctx, opts), null, source);
 
 	emit(ctx.io, opts.json === true, plan, () => renderPlan(plan));
 
@@ -389,7 +398,8 @@ export interface ConvertCommandOptions {
 function parseDialect(value: string): Dialect {
 	if (value === 'mysql' || value === 'mariadb') return 'mysql';
 	if (value === 'sqlite') return 'sqlite';
-	throw new UsageError(`unknown dialect \`${value}\`; expected mysql or sqlite`);
+	if (value === 'pgsql' || value === 'postgres' || value === 'postgresql') return 'pgsql';
+	throw new UsageError(`unknown dialect \`${value}\`; expected mysql, pgsql or sqlite`);
 }
 
 /** Converts a dump between the dialects the two hosting shapes use. */
@@ -461,6 +471,8 @@ export interface InstallOptions {
 	workspace?: string;
 	/** a SQLite database file, not a SQL dump; `migrate convert` produces the dump that builds one */
 	db?: string;
+	/** a Drupal docroot whose modules, themes, profiles and libraries travel inside the database */
+	code?: string;
 	/** repeated `<from>=<workspace-relative to>` pairs */
 	asset?: string[];
 	/** run `bun run assets:sql` afterwards, which is what makes a landed database ship */
@@ -517,10 +529,19 @@ export async function runInstallCommand(ctx: Context, opts: InstallOptions): Pro
 			: [{ from: opts.db, to: inWorkspace(location.path, SITE_DB_PATH) }]),
 		...(opts.asset ?? []).map((pair) => parseAssetPair(pair, location.path))
 	];
+	if (opts.code !== undefined && opts.db === undefined) {
+		throw new UsageError('--code travels inside the database; pass --db as well');
+	}
 	if (entries.length === 0) {
 		throw new UsageError('nothing to install; pass --db and/or --asset <from>=<to>');
 	}
 
+	const code = opts.code === undefined ? null : codeTree(ctx.files, opts.code);
+	if (code !== null && code.files.length === 0) {
+		throw new UsageError(
+			`${opts.code} has no text files under modules/, themes/, profiles/ or libraries/; pass the Drupal docroot`
+		);
+	}
 	const plan = planCopy(ctx.files, entries);
 	if (opts.globals.dryRun) {
 		emit(ctx.io, opts.globals.json, { workspace: location.path, plan, applied: null }, () =>
@@ -546,6 +567,43 @@ export async function runInstallCommand(ctx: Context, opts: InstallOptions): Pro
 	}
 
 	const result = applyCopy(ctx.files, plan, location.path, ctx.now());
+	if (opts.db !== undefined) {
+		const installed = inWorkspace(location.path, SITE_DB_PATH);
+		const emptied = emptyCacheBins(ctx.files.readBytes(installed));
+		if (emptied !== null) {
+			ctx.files.writeBytes(installed, emptied.bytes);
+			ctx.io.err(
+				`emptied ${emptied.rows} row(s) across ${emptied.tables} cache bin(s); Drupal rebuilds them`
+			);
+		}
+		if (code !== null) {
+			const carried = addCodeRows(
+				ctx.files.readBytes(installed),
+				code.files,
+				ctx.now().getTime()
+			);
+			if (carried !== null) {
+				ctx.files.writeBytes(installed, carried);
+				ctx.io.err(
+					`carried ${code.files.length} code file(s) inside the database` +
+						(code.skipped.length > 0
+							? `; ${code.skipped.length} binary or oversized not carried: ${code.skipped.slice(0, 5).join(', ')}`
+							: '')
+				);
+			}
+		}
+		const ignore = inWorkspace(location.path, 'assets/.assetsignore');
+		if (ctx.files.exists(ignore)) {
+			const before = ctx.files.readText(ignore);
+			const after = unpublishPrefill(before);
+			if (after !== before) {
+				ctx.files.writeText(ignore, after);
+				ctx.io.err(
+					"stopped publishing prefill.json, the shipped site's pages; the site starts cold"
+				);
+			}
+		}
+	}
 	if (result.backupDir !== null) {
 		const base =
 			readCheckpoint(ctx.files, checkpointPath) ??

@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { runInstallCommand } from '../src/commands/migrate';
 import { DranglerError, UsageError } from '../src/errors';
@@ -267,6 +271,152 @@ describe('restoreBackup', () => {
  * put the site back is the one from the first run and nothing else. The checkpoint is what remembers
  * which that was.
  */
+describe('migrate install --db over a migrated database', () => {
+	it('empties the source cache bins and stops publishing the shipped prefill', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'drangler-install-'));
+		const source = new DatabaseSync(join(dir, 'site.sqlite'));
+		source.exec(
+			'CREATE TABLE node (nid INTEGER); INSERT INTO node VALUES (1);' +
+				'CREATE TABLE cache_container (cid TEXT PRIMARY KEY, data BLOB);' +
+				"INSERT INTO cache_container VALUES ('service_container', x'2f6f70742f64727570616c');" +
+				'CREATE TABLE cachetags (tag TEXT PRIMARY KEY, invalidations INTEGER);' +
+				"INSERT INTO cachetags VALUES ('node_list', 3);"
+		);
+		source.close();
+		const files = memoryFiles({
+			...workerTree(),
+			[`${WORKSPACE}/assets/.assetsignore`]:
+				'/*\n\n!/robots.txt\n!/prefill.json\n!/driver.json\n'
+		});
+		files.writeBytes('/in/site.sqlite', new Uint8Array(readFileSync(join(dir, 'site.sqlite'))));
+		const ctx = testContext({ files, runner: scriptedRunner({}), cwd: WORKSPACE });
+		await runInstallCommand(ctx, {
+			db: '/in/site.sqlite',
+			workspace: WORKSPACE,
+			globals: testGlobals({}, ctx)
+		});
+
+		writeFileSync(
+			join(dir, 'installed.sqlite'),
+			files.readBytes(`${WORKSPACE}/assets/drupal/site.sqlite`)
+		);
+		const installed = new DatabaseSync(join(dir, 'installed.sqlite'));
+		expect(installed.prepare('SELECT COUNT(*) AS n FROM cache_container').get()).toEqual({
+			n: 0
+		});
+		expect(installed.prepare('SELECT COUNT(*) AS n FROM node').get()).toEqual({ n: 1 });
+		// cachetags is not a bin; the invalidation counters stay
+		expect(installed.prepare('SELECT COUNT(*) AS n FROM cachetags').get()).toEqual({ n: 1 });
+		installed.close();
+		const ignore = files.readText(`${WORKSPACE}/assets/.assetsignore`);
+		expect(ignore).not.toContain('!/prefill.json');
+		expect(ignore).toContain('!/driver.json');
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it('carries a custom profile inside the database with --code, so the claim can boot it', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'drangler-install-'));
+		const source = new DatabaseSync(join(dir, 'site.sqlite'));
+		source.exec('CREATE TABLE node (nid INTEGER);');
+		source.close();
+		const files = memoryFiles({
+			...workerTree(),
+			'/src/web/profiles/custom/unl/unl.info.yml': 'name: UNL\ntype: profile\n',
+			'/src/web/profiles/custom/unl/unl.profile': '<?php\n',
+			'/src/web/modules/custom/unl_icon/logo.png': '\u0000PNG'
+		});
+		files.writeBytes('/in/site.sqlite', new Uint8Array(readFileSync(join(dir, 'site.sqlite'))));
+		const ctx = testContext({ files, runner: scriptedRunner({}), cwd: WORKSPACE });
+		await runInstallCommand(ctx, {
+			db: '/in/site.sqlite',
+			code: '/src/web',
+			workspace: WORKSPACE,
+			globals: testGlobals({}, ctx)
+		});
+
+		writeFileSync(
+			join(dir, 'installed.sqlite'),
+			files.readBytes(`${WORKSPACE}/assets/drupal/site.sqlite`)
+		);
+		const installed = new DatabaseSync(join(dir, 'installed.sqlite'));
+		expect(
+			installed.prepare('SELECT path, package FROM cfw_module_file ORDER BY path').all()
+		).toEqual([
+			{ path: 'profiles/custom/unl/unl.info.yml', package: 'migrated/unl' },
+			{ path: 'profiles/custom/unl/unl.profile', package: 'migrated/unl' }
+		]);
+		installed.close();
+		expect(ctx.io.stderr.join('\n')).toContain(
+			'carried 2 code file(s) inside the database; 1 binary'
+		);
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it('refuses --code without --db, and a directory with no code in it', async () => {
+		const files = memoryFiles({ ...workerTree(), '/empty/README.md': 'x' });
+		files.writeBytes('/in/site.sqlite', new Uint8Array([1]));
+		const ctx = testContext({ files, runner: scriptedRunner({}), cwd: WORKSPACE });
+		const globals = testGlobals({}, ctx);
+		await expect(
+			runInstallCommand(ctx, { code: '/empty', workspace: WORKSPACE, globals })
+		).rejects.toThrow(/pass --db as well/);
+		await expect(
+			runInstallCommand(ctx, {
+				db: '/in/site.sqlite',
+				code: '/empty',
+				workspace: WORKSPACE,
+				globals
+			})
+		).rejects.toThrow(/pass the Drupal docroot/);
+	});
+
+	it('installs a database Drupal built, whose schema names the NOCASE_UTF8 collation', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'drangler-install-'));
+		const path = join(dir, 'site.sqlite');
+		const source = new DatabaseSync(path);
+		source.exec(
+			'CREATE TABLE users_field_data (uid INTEGER, name TEXT COLLATE NOCASE);' +
+				'CREATE INDEX user_name ON users_field_data (name);' +
+				"INSERT INTO users_field_data VALUES (1, 'admin');" +
+				'CREATE TABLE cache_data (cid TEXT PRIMARY KEY, data BLOB);' +
+				"INSERT INTO cache_data VALUES ('x', x'00');"
+		);
+		// what Drupal's driver writes, which only it can open
+		(source as { enableDefensive?: (on: boolean) => void }).enableDefensive?.(false);
+		const version = Number(
+			(source.prepare('PRAGMA schema_version').get() as { schema_version: number })
+				.schema_version
+		);
+		source.exec('PRAGMA writable_schema=ON');
+		source.exec("UPDATE sqlite_master SET sql = replace(sql, 'NOCASE', 'NOCASE_UTF8')");
+		source.exec(`PRAGMA schema_version=${version + 1}`);
+		source.exec('PRAGMA writable_schema=OFF');
+		source.close();
+		const files = memoryFiles(workerTree());
+		files.writeBytes('/in/site.sqlite', new Uint8Array(readFileSync(path)));
+		const ctx = testContext({ files, runner: scriptedRunner({}), cwd: WORKSPACE });
+		await runInstallCommand(ctx, {
+			db: '/in/site.sqlite',
+			workspace: WORKSPACE,
+			globals: testGlobals({}, ctx)
+		});
+		writeFileSync(
+			join(dir, 'installed.sqlite'),
+			files.readBytes(`${WORKSPACE}/assets/drupal/site.sqlite`)
+		);
+		const installed = new DatabaseSync(join(dir, 'installed.sqlite'));
+		expect(installed.prepare('SELECT COUNT(*) AS n FROM cache_data').get()).toEqual({ n: 0 });
+		expect(
+			installed.prepare("SELECT uid FROM users_field_data WHERE name = 'ADMIN'").get()
+		).toEqual({ uid: 1 });
+		expect(installed.prepare('PRAGMA integrity_check').get()).toEqual({
+			integrity_check: 'ok'
+		});
+		installed.close();
+		rmSync(dir, { recursive: true, force: true });
+	});
+});
+
 describe('migrate install --resume', () => {
 	const DB = `${WORKSPACE}/assets/drupal/site.sqlite`;
 	const CHECKPOINT = '.drangler/migration.json';
