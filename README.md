@@ -34,6 +34,18 @@ install the ones that are not, and which config file supplied each setting.
 
 ## Quick Start
 
+drangler runs on your own computer. It needs `ssh` and `wrangler`, Cloudflare's CLI, and a
+Cloudflare sign-in for anything that deploys. `wrangler login` opens a browser to approve access,
+and `drangler doctor` checks all three and says how to fix what is missing:
+
+```sh
+npm i -g wrangler
+wrangler login
+drangler doctor
+```
+
+On a machine with no browser, such as CI, set `CLOUDFLARE_API_TOKEN` instead of signing in.
+
 A local Drupal to click around in, from nothing:
 
 ```sh
@@ -49,12 +61,18 @@ drangler deploy
 drangler site claim my-site.example
 ```
 
-Moving an existing site starts by reading it:
+Moving an existing site starts by reading it. `--host` is the server as you would type it for
+`ssh`, and `--root` is the directory on it that holds Drupal's `index.php`. drangler runs read-only
+commands there over SSH and copies the answers back:
 
 ```sh
+ssh deploy@old.example 'cd /var/www/html && drush status' # if this works, drangler can read it
 drangler migrate survey --host deploy@old.example --root /var/www/html --out survey.json
 drangler migrate plan --survey survey.json --to workers
 ```
+
+If the site's code is in git, `git status --short` in that root shows edits nobody committed. The
+survey reads them and `preview` copies them, because both read the disk, not the repository.
 
 Check the destination once it is up:
 
@@ -154,10 +172,22 @@ drangler site claim my-site.example --title "My Site" --save
 # token saved to  ~/.config/drangler/config.json
 ```
 
+A claim waits for a fresh site's database replay to finish first, up to `--wait` (ten minutes by
+default). A claim sent during the replay would write rows the replay then collides with, leaving the
+site unable to finish provisioning, so drangler refuses to send one and names the chunk it reached.
+
 The password goes in a JSON body. The route refuses `?pass=` outright, because a query string lands
 in tail, in observability and in every intermediary between the terminal and the object. `--save`
 writes the token to the global config; without it the token is printed and nothing is written, which
 is the right answer in a pipe.
+
+A migrated site already has an administrator, and a normal claim would overwrite uid 1. `--migrated`
+mints the owner token and changes nothing else: no password, mail, name or site title. It needs a
+worker that supports it; an older one refuses the claim.
+
+```sh
+drangler site claim migrated.example --migrated --save
+```
 
 `site claim` exits `3` when the site was already claimed, so a script can tell "I claimed it" from
 "somebody else did". `status` reports the same state before anything is spent:
@@ -235,6 +265,39 @@ The contracts live in
 under **Connecting a Cloudflare Account** and **Onboarding a Sending Domain**. drangler does not
 restate the stage vocabulary; that has one implementation, in the worker.
 
+### Adding a Hostname
+
+```sh
+drangler domain add www.example.org https://example.org
+drangler deploy
+```
+
+`domain add` does two things in your workspace:
+
+- writes a `site:host:www.example.org` entry to the worker's `CONFIG_KV`, naming the site, with your
+  own wrangler login;
+- adds `{ "pattern": "www.example.org", "custom_domain": true }` to `routes` in `wrangler.jsonc`.
+
+The site is `--site-name`, or the deployment's primary, read with the owner token. Links, redirects
+and the login cookie on the new host point at that host, and one login works on every host the site
+answers on.
+
+On a zone in the same Cloudflare account, the deploy creates the DNS record and the certificate. A
+hostname that already has a DNS record is refused until you delete the record. A zone hosted
+elsewhere needs its DNS moved to Cloudflare first.
+
+Adding routes makes wrangler turn off the `workers.dev` URL unless the config says otherwise, so
+`domain add` writes `"workers_dev": true` when the key is absent. Set it to `false` yourself to drop
+that URL.
+
+`domain remove <host>` deletes the entry and the route, and `domain list` shows both. For a local
+`wrangler dev`, pass `--local` (and `--persist-to <dir>` if dev was given one) with a `.localhost`
+host and its port; no route is written:
+
+```sh
+drangler domain add alias.localhost:8787 --local --site-name example.org
+```
+
 ---
 
 ## Modify
@@ -306,14 +369,71 @@ bare module directory, and a directory of patches, which is refused by name. App
 the thing it patches, which lives on the site rather than on the developer's disk; patch the checkout
 and upload the result, or use `composer-patches` in a source tree and upload the patched directory.
 
-Contrib is not uploaded. A package with a registry entry belongs to the registry:
+Contrib is not uploaded by `modify`. A package with a registry entry belongs to the registry:
 
 ```sh
 drangler modify require drupal/key drupal/redis --enable
 ```
 
+A project with patches, private repositories or VCS-only dependencies goes through
+[`build --project`](#build-a-project).
+
 `drangler dev --modify <dir>` mounts a local project into the local dev site and re-uploads on
 change. The dev site's owner token is minted for the process and never written to disk.
+
+---
+
+## Build a Project
+
+`drangler build --project <dir>` takes a composer project the registry cannot resolve on its own
+(patches, a private repository, a VCS-only dependency) and sends the site what its pack lacks.
+
+```console
+$ drangler build --project ../mysite --dry-run
+project       /work/mysite
+shipped lock  https://raw.githubusercontent.com/drupflare/worker/master/composer.lock (core 11.4.7)
+core          11.4.7, patched
+delivered     3
+skipped       2
+
+package          version   why             mount                    files
+---------------  --------  --------------  -----------------------  -----
+drupal/token     1.15.0    missing         modules/contrib/token    41
+acme/widget      1.4.0     missing         vendor/acme/widget       12
+symfony/console  v7.4.21   pack has 7.4.19 vendor/symfony/console   96
+```
+
+1. `composer install` runs in the `composer:2` image, so the project's own plugins apply its patches
+   and `auth.json` or `COMPOSER_AUTH` authenticates private repositories. `--composer host` uses the
+   composer on `PATH`, and `--no-install` reads the project as it stands.
+2. The resulting `composer.lock` is compared with the worker's. The worker checkout named by
+   `--workspace` supplies that lock, then `--shipped-lock <file>`, then the published one at `--ref`.
+3. A package is delivered when the pack lacks it, holds an older version, or holds it unpatched.
+   Extensions mount under `modules/contrib`, `themes/contrib` or `profiles/contrib`, libraries under
+   `libraries/`, everything else under `vendor/<name>`.
+4. Delivered files go up as `modify` revisions: `project_vendor` (with each package's composer
+   autoload, which the site registers before it boots the kernel), `project_contrib`, `project_custom`
+   for the project's own modules, themes and profiles, and `project_core` for patched core. A group
+   over the request limit splits into `project_vendor_2` and so on, and a package is never split. A
+   rebuild replaces each group, so a package dropped from the lock leaves with it, and unchanged
+   files are not sent again.
+
+`--dry-run` reads the lock as it stands and prints the delivery set without running composer or
+contacting the site.
+
+**Patched core is an overlay.** With a core at the pack's version and a patch on it, drangler installs a
+pristine copy in `.drangler/pristine`, diffs the two, and uploads the changed files as `project_core`.
+A site revision shadows the packed file. A changed core `.yml` makes the site drop its cached container
+and plugin discovery, so the next boot pays one rebuild. `--no-core` leaves the overlay out. Files the
+pack rewrites for the interpreter are never overlaid, and a file a patch deletes stays in the pack.
+
+**What the pack keeps.** A project on another minor of core than the pack's gets no core and keeps the pack's
+version of every package the pack already holds. `guzzlehttp/guzzle` is always the pack's, which
+patches it for the interpreter. A package the pack holds at a newer version keeps the pack's copy. One the
+project locks newer is delivered over it, and files that only the pack's version has stay mounted
+beside it.
+
+Set `DRANGLER_DOCKER_ARGS` to change the container limits (default `--memory 4g`).
 
 ---
 
@@ -663,56 +783,62 @@ a line saying `--verbose` prints the rest.
 
 ## Commands
 
-| Command                    | What it does                                                       |
-| -------------------------- | ------------------------------------------------------------------ |
-| `init`                     | Connect this machine to a site and write down where it went        |
-| `build`                    | Clone `drupflare/worker` and build it into a deployable tree       |
-| `validate`                 | Everything that has to hold before `dev` or `deploy` will work     |
-| `dev`                      | Build if needed, check, then run a local Drupal                    |
-| `deploy`                   | Build if needed, check, then deploy to your Cloudflare account     |
-| `update [worker]`          | Move a checkout to another version, and the worker running it      |
-| `status <target>`          | What is deployed: plan, generation, claim state, diagnostics       |
-| `doctor`                   | Preflight the toolchain, the credential and the config resolution  |
-| `health <target>`          | Probe a deployed worker or a VPS Drupal and report what answered   |
-| `heal <target>`            | Report the repair ladder, and perform the repairs a route allows   |
-| `reconcile <target>`       | What a site still owes the shipping pack, and drive the steps      |
-| `sweep <target>`           | Coverage of the addressable space, and what the governor decided   |
-| `site claim <target>`      | Mint the administrator password and the owner token                |
-| `site updb <target>`       | Read the Drupal update chain, and drive one beat of it             |
-| `site invalidate`          | Purge a site cache, by tag or by bumping the generation            |
-| `site upgrade <target>`    | Deploy, wait for the replay, then run the update chain             |
-| `modify …`                 | Develop a module against a site, one revision at a time            |
-| `config check <file>`      | Score a wrangler config against known-bad deployments              |
-| `config levers <file>`     | The optional levers a config declares, and the state of each       |
-| `config where`             | Which file supplied each setting, and which files were searched    |
-| `cf whoami`                | Which Cloudflare credential drangler would use                     |
-| `cf workers`               | List the account workers, and compare against a saved baseline     |
-| `cf cpu <capture>`         | Summarise a `wrangler tail` capture, refusing an untrustworthy one |
-| `cf plane`                 | Which plane the credential reaches, and what it cannot do          |
-| `cf deploy <worker>`       | Upload a built Worker; the module set is replaced whole            |
-| `cf delete <worker>`       | Delete a Worker from the account                                   |
-| `cf fork <src> <dest>`     | Copy a Worker configuration onto a new name                        |
-| `cf settings <worker>`     | Compatibility settings, tags and bindings                          |
-| `cf bindings <worker>`     | List a Worker bindings                                             |
-| `cf secret <worker> …`     | List, set or remove a secret; values are never printed             |
-| `cf assets <worker>`       | Upload a whole asset tree; a path left out of it is deleted        |
-| `cf versions <worker>`     | List the versions the platform still holds                         |
-| `cf rollback <worker> <v>` | Re-point a Worker at a version it already holds                    |
-| `secrets scan <paths...>`  | Find credentials in a dump or a tree, without printing them        |
-| `migrate eligibility`      | Can this site move in this direction today, and what would change  |
-| `migrate delta`            | The second dump table set, and the re-seed that fails silently     |
-| `migrate cutover`          | The steps a human confirms, ticked by nobody                       |
-| `migrate files`            | Write the managed files in a dump back onto a filesystem           |
-| `migrate survey`           | Read a VPS Drupal over SSH: versions, database, modules, files     |
-| `migrate plan`             | Score a survey and order the work, in either direction             |
-| `migrate export`           | Pull a deployed site's database out through `/export`              |
-| `migrate convert`          | Convert a SQL dump between MySQL and SQLite                        |
-| `migrate install`          | Land a migrated database or asset in a workspace, with a backup    |
-| `migrate restore`          | Put a backup set back where it came from                           |
+| Command                    | What it does                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| `init`                     | Connect this machine to a site and write down where it went                  |
+| `build`                    | Clone `drupflare/worker` and build it; `--project` builds a composer project |
+| `validate`                 | Everything that has to hold before `dev` or `deploy` will work               |
+| `dev`                      | Build if needed, check, then run a local Drupal                              |
+| `deploy`                   | Build if needed, check, then deploy to your Cloudflare account               |
+| `update [worker]`          | Move a checkout to another version, and the worker running it                |
+| `status <target>`          | What is deployed: plan, generation, claim state, diagnostics                 |
+| `doctor`                   | Preflight the toolchain, the credential and the config resolution            |
+| `health <target>`          | Probe a deployed worker or a VPS Drupal and report what answered             |
+| `heal <target>`            | Report the repair ladder, and perform the repairs a route allows             |
+| `reconcile <target>`       | What a site still owes the shipping pack, and drive the steps                |
+| `sweep <target>`           | Coverage of the addressable space, and what the governor decided             |
+| `site claim <target>`      | Mint the administrator password and the owner token                          |
+| `site updb <target>`       | Read the Drupal update chain, and drive one beat of it                       |
+| `site invalidate`          | Purge a site cache, by tag or by bumping the generation                      |
+| `site upgrade <target>`    | Deploy, wait for the replay, then run the update chain                       |
+| `modify …`                 | Develop a module against a site, one revision at a time                      |
+| `domain add <host>`        | Map a hostname to the site and add its Custom Domain route                   |
+| `domain remove <host>`     | Remove a hostname's mapping and route                                        |
+| `domain list`              | Every mapped hostname and every route                                        |
+| `config check <file>`      | Score a wrangler config against known-bad deployments                        |
+| `config levers <file>`     | The optional levers a config declares, and the state of each                 |
+| `config where`             | Which file supplied each setting, and which files were searched              |
+| `cf whoami`                | Which Cloudflare credential drangler would use                               |
+| `cf workers`               | List the account workers, and compare against a saved baseline               |
+| `cf cpu <capture>`         | Summarise a `wrangler tail` capture, refusing an untrustworthy one           |
+| `cf plane`                 | Which plane the credential reaches, and what it cannot do                    |
+| `cf deploy <worker>`       | Upload a built Worker; the module set is replaced whole                      |
+| `cf delete <worker>`       | Delete a Worker from the account                                             |
+| `cf fork <src> <dest>`     | Copy a Worker configuration onto a new name                                  |
+| `cf settings <worker>`     | Compatibility settings, tags and bindings                                    |
+| `cf bindings <worker>`     | List a Worker bindings                                                       |
+| `cf secret <worker> …`     | List, set or remove a secret; values are never printed                       |
+| `cf assets <worker>`       | Upload a whole asset tree; a path left out of it is deleted                  |
+| `cf versions <worker>`     | List the versions the platform still holds                                   |
+| `cf rollback <worker> <v>` | Re-point a Worker at a version it already holds                              |
+| `secrets scan <paths...>`  | Find credentials in a dump or a tree, without printing them                  |
+| `preview`                  | Make a working duplicate of a VPS site with read-only commands on the VPS    |
+| `migrate eligibility`      | Can this site move in this direction today, and what would change            |
+| `migrate delta`            | The second dump table set, and the re-seed that fails silently               |
+| `migrate cutover`          | The steps a human confirms, ticked by nobody                                 |
+| `migrate files`            | Write the managed files in a dump back onto a filesystem                     |
+| `migrate survey`           | Read a VPS Drupal over SSH: versions, database, modules, files               |
+| `migrate plan`             | Score a survey and order the work, in either direction                       |
+| `migrate export`           | Pull a deployed site's database out through `/export`                        |
+| `migrate convert`          | Convert a dump between MySQL and SQLite, or PostgreSQL into SQLite           |
+| `migrate install`          | Land a migrated database or asset in a workspace, with a backup              |
+| `migrate restore`          | Put a backup set back where it came from                                     |
 
 Every command takes `--json` and prints the same object its text render is built from.
 
 **What writes, and where.** `build`, `migrate install` and `update` write to a local workspace;
+`domain add` and `domain remove` edit the workspace's `wrangler.jsonc` and write `CONFIG_KV` through
+your own `wrangler`;
 `dev` and `deploy` hand the terminal to your own `wrangler`. `site`, `heal --release`, `modify`,
 `reconcile --run` and `sweep --run` write to a live site, each needs the owner token, and each one
 that changes what visitors get needs `--yes` as well. Nothing in drangler deletes a file or a
@@ -780,6 +906,105 @@ read the status instead of grepping the output.
 
 ---
 
+## Preview
+
+`preview` makes a working duplicate of a VPS site on drupflare in one command. Every command it sends
+to the VPS is read-only. Drupal on the VPS may still refresh its own caches when drush starts, and a
+`--source-url` check views pages the way any visitor does, which can trigger automated cron.
+
+```sh
+drangler preview --host deploy@old.example --root /var/www/html
+```
+
+It runs ten steps, and asks before each one:
+
+1. Survey the source over SSH, the same read-only commands as `migrate survey`.
+2. Score the move. A blocker stops the run here.
+3. Stream the database back with `drush sql:dump` on stdout.
+4. Stream `sites/default/files` back as a tar, and the private files directory when drush reports
+   one.
+5. Stream `modules/`, `themes/`, `profiles/` and `libraries/`. Text files travel as the site's
+   installed code; binaries are listed in `code-skipped.txt`.
+6. Read `$config` and `$settings` from `settings.php` and `settings.local.php`, the source's
+   `composer.lock`, the site's `.htaccess`, and the docroot files a browser fetches by name, such as
+   verification pages, `ads.txt` and `.well-known/`. The streamed code is scored here for Drupal 11 support, extension
+   calls and the settings below; a blocker stops the run.
+7. Convert the dump to SQLite (MySQL, MariaDB or PostgreSQL) and store the uploads and the code in the
+   same database, in the tables the worker serves them from.
+8. Install that database into a preview workspace of its own and repack it.
+9. Bring the duplicate up on `wrangler dev`, or deploy it with `--deploy`, then claim it with
+   `--migrated` semantics and run its database updates. The owner token is kept in `owner-token`
+   under `--out`.
+10. Check it: node and managed-file counts against the survey, then `/`, `/user/login` and one public
+    file against the running duplicate.
+
+`--dry-run` prints the plan in three parts: the numbered steps it will ask about, the **read-only
+commands on the host**, which run on the server over SSH, and the **local commands**, which run on
+your computer. Nothing is executed. A host command marked with a placeholder, such as the private
+files stream, names a path only the live run discovers.
+
+Every command sent to the host passes a read-only allow-list first: `php`, `du`, `find`, `tar`
+creating to stdout, `cat` of the settings files, `composer.lock` and `.htaccess`, and the read-only drush
+commands, with `sql:query` limited to `SELECT`. Redirection, `--result-file` and anything else not on
+the list are refused before they reach the host.
+
+| Flag                    | What it does                                                                |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `--dry-run`             | Print every step and command, and run none of them                          |
+| `--full`                | Run every step after typing the host name once                              |
+| `--deploy`              | Deploy as `drupflare-preview-<host>` instead of running `wrangler dev`      |
+| `--url <origin>`        | With `--deploy`, the origin to check; wrangler prints it after uploading    |
+| `--source-url <origin>` | The live site; each checked page must answer with the same status as there  |
+| `--out <dir>`           | Where the dump, the files and the workspace go (`.drangler/preview/<host>`) |
+| `--port <n>`            | The local port for `wrangler dev`                                           |
+
+`preview` needs worker 1.0.3 or later in its workspace and refuses an older checkout before
+installing, naming the `drangler update` command that moves it. It always asks, and `--yes` does not
+change that. With no terminal it refuses, `--full` included. The duplicate uses its own workspace under `--out`, so the checkout you deploy your own
+site from is not touched. A deployed preview is removed with `wrangler delete --name
+drupflare-preview-<host>`.
+
+Literal `$config` values are carried as a `DRUPAL_CONFIG` secret: in the workspace's `.dev.vars` for
+`wrangler dev`, and through `wrangler secret bulk` on `--deploy`. They are never printed. An override
+set by an expression, such as `getenv()`, is named in the report and left for you to set.
+
+A literal `$settings['redis.connection']` (host, port, password) becomes `REDIS_URL`, written the same
+way; the port defaults to 6379 when unset. Memcache settings are dropped, since the worker picks its
+own cache backends. `s3fs` and flysystem settings are reported and not translated: the files move to
+the drupflare file store or an R2 binding. Only literal assignments are read, and a value set by an
+expression is named in the report.
+
+Redirects and headers in the site's `.htaccess` become the worker's `REDIRECTS` and
+`RESPONSE_HEADERS` levers, carried the same way as `DRUPAL_CONFIG`. The headers are also written to
+`assets/_headers`, because static files are answered before the worker runs. Lines identical to the
+`.htaccess` drupal/core ships are skipped. What translates:
+
+| Source                                     | Becomes                                |
+| ------------------------------------------ | -------------------------------------- |
+| `RewriteRule ^old$ /new [R=301,L]`         | a redirect from `/old`                 |
+| `RewriteRule ^blog/(.*)$ /news/$1 [R=301]` | a redirect from `/blog/*` to `/news/*` |
+| `Redirect 301 /a /b`, `RedirectPermanent`  | `/a` and everything under it           |
+| `RedirectMatch 301 ^/promo$ https://...`   | a redirect from `/promo`               |
+| `Header [always] set Name "value"`         | a header on every response             |
+
+A rewrite with a `RewriteCond`, a real regular expression, an internal rewrite, `Header` inside
+`<Files>` or `<If>`, `ErrorDocument` and anything else are written verbatim to
+`server-rules-unparsed.txt`. nginx configuration is not read.
+
+Composer libraries the source uses and the duplicate's tree lacks are listed in
+`composer-missing.txt` as ready `drangler modify require` commands. Drupal modules and themes are not
+in that list, because their code travels in step 5.
+
+The hostnames the source trusted are read from `$settings['trusted_host_patterns']` and written to
+`domains.txt` as `drangler domain add` commands. A pattern that matches more than one host, such as
+`^.+\.example\.com$`, is listed for you to choose a hostname by hand.
+
+Derived image styles and the aggregated CSS and JS are not copied; Drupal rebuilds them on demand. Of
+the docroot files, only static types are carried, so a stray `backup.sql` or `.env` in a docroot is
+never republished.
+
+---
+
 ## Migrating to Workers
 
 `migrate survey` runs ten read-only commands over SSH and folds them into one record: PHP version and
@@ -799,22 +1024,41 @@ captured on a machine that can reach the host gets re-planned anywhere.
 `migrate plan` scores that survey. Findings come in three severities and each one carries its
 mechanism:
 
-| Finding                 | Severity | What it means                                                         |
-| ----------------------- | -------- | --------------------------------------------------------------------- |
-| `db-driver`             | varies   | MySQL and MariaDB convert; SQLite needs nothing; anything else blocks |
-| `incompatible-modules`  | blocker  | Memcache, MongoDB and ImageMagick: a daemon or a process spawn        |
-| `service-modules`       | warning  | Redis, Solr, Backup & Migrate: runnable, nothing provisions them      |
-| `php-version`           | warning  | the source runs older than the interpreter the destination runs       |
-| `ext-archive`           | warning  | the source loads `zip` or `Phar`; the wasm build has neither          |
-| `image-transforms`      | warning  | styles times files against a 5,000/month Cloudflare Images cap        |
-| `files-payload`         | warning  | public files exceed the 25 MiB per-asset ceiling the pack is built to |
-| `database-size`         | warning  | large enough to meet the 100,000-character statement ceiling          |
-| `regeneration-ceiling`  | varies   | nodes against the free plan's rows-written budget                     |
-| `drush-absent`          | warning  | without drush most of the survey is blank and the plan scores nothing |
-| `shellout-undetectable` | note     | a module calling `exec()` cannot be found from a survey               |
-| `cron`                  | note     | system cron becomes a `*/5` Cron Trigger                              |
+| Finding                 | Severity | What it means                                                                     |
+| ----------------------- | -------- | --------------------------------------------------------------------------------- |
+| `db-driver`             | varies   | MySQL, MariaDB and PostgreSQL convert; SQLite needs nothing; anything else blocks |
+| `incompatible-modules`  | blocker  | MongoDB storage, and Memcache until it is uninstalled: native extensions          |
+| `handled-modules`       | warning  | ImageMagick, optimisation binaries, composer updaters, the MongoDB logger         |
+| `service-modules`       | warning  | Redis, Solr, Backup & Migrate: runnable, nothing provisions them                  |
+| `php-version`           | warning  | the source runs older than the interpreter the destination runs                   |
+| `drupal-version`        | varies   | Drupal 10 warns, 9 and below block, a different 11.x pin is a note                |
+| `module-core-compat`    | warning  | enabled modules whose `.info.yml` does not admit Drupal 11 (needs `--code`)       |
+| `extensions-called`     | varies   | a called extension the build lacks; blocks when composer declares it, unguarded   |
+| `extensions-declared`   | note     | `ext-*` in composer that no call site uses                                        |
+| `settings-memcache`     | note     | memcache settings are dropped                                                     |
+| `settings-redis`        | varies   | `redis.connection` becomes `REDIS_URL`; a value set by expression warns           |
+| `settings-s3`           | warning  | `s3://` settings are not translated                                               |
+| `ext-archive`           | varies   | `zip` is a note, because a stand-in serves `ZipArchive`; `Phar` warns             |
+| `image-transforms`      | warning  | styles times files against a 5,000/month Cloudflare Images cap                    |
+| `files-payload`         | warning  | public files exceed the 25 MiB per-asset ceiling the pack is built to             |
+| `database-size`         | warning  | large enough to meet the 100,000-character statement ceiling                      |
+| `regeneration-ceiling`  | varies   | nodes against the free plan's rows-written budget                                 |
+| `drush-absent`          | warning  | without drush most of the survey is blank and the plan scores nothing             |
+| `shellout-undetectable` | note     | a module calling `exec()` cannot be found from a survey                           |
+| `cron`                  | note     | system cron becomes a `*/5` Cron Trigger                                          |
 
 Fields the survey did not measure are listed under **NOT MEASURED** rather than scored as passes.
+
+A Drupal 10 source is a supported starting point. The worker runs Drupal 11, and its update chain
+applies the schema updates: `drangler site updb` drives them, and `preview` runs them after the
+claim. Each enabled contrib module needs a Drupal 11 release, which the plan can only check against a
+code tree.
+
+`--code <dir>` reads that tree from disk: `modules/`, `themes/`, `profiles/` and `libraries/`, the
+nearest `composer.lock`, and `sites/default/settings.php`, from a Drupal root or a `preview` output
+folder. With it the plan names modules without `^11` in `core_version_requirement`, and separates
+each `ext-*` that composer declares from the ones the code calls. Calls are found by function and
+class name and reported as `file:line`; a call through a variable or an alias is not seen.
 
 **The destination's PHP version is stated on every plan, with where it came from.** Only `/php`
 reports it and that route is diagnostic-gated, so on a correctly configured deployment it cannot be
@@ -865,6 +1109,16 @@ drangler migrate install --db site.sqlite --repack
 replays. Without it the database is on disk and the site still serves the old one, which the report
 says. `--asset <from>=<to>` lands any other file at a workspace-relative destination.
 
+`--code <docroot>` carries the source's `modules/`, `themes/`, `profiles/` and `libraries/` inside the
+database, the same way `preview` does. Use it when the site runs on a custom install profile or
+custom modules: Drupal cannot boot without that code, a site that cannot boot cannot be claimed, and
+the owner-authenticated `modify upload` needs a claimed site. Binary files are listed and left out.
+
+Installing a database also empties its `cache_*` tables and stops the workspace publishing
+`prefill.json`. A source site's cache bins hold a service container compiled against its own
+docroot, and the prefill holds pages rendered from the site the worker ships with; either one would
+be served in place of the migrated site. Drupal rebuilds the bins, and the site starts cold.
+
 Three rules govern every write:
 
 - **Backups come first, all of them, before a single byte is written.** Each one is verified by
@@ -885,7 +1139,8 @@ drangler migrate restore --backup .drupflare/worker/.drangler-backup/20260815T03
 
 ## Dialect Conversion
 
-`migrate convert` reads a `mysqldump` or a SQLite dump and writes the other. It refuses rather than
+`migrate convert` reads a `mysqldump` or a SQLite dump and writes the other, and reads a `pg_dump`
+into SQLite. It refuses rather than
 guesses: an unconvertible statement is an error naming the statement, and `--skip-unsupported`
 downgrades that to a recorded skip.
 
@@ -920,6 +1175,26 @@ breach it is a property of the site, so the ceiling is the rule rather than a ta
 Conversions that succeed but do not round-trip are reported as **lossy**: a dropped index prefix
 length, a dropped `FULLTEXT` index, a SQLite `NUMERIC` given an invented scale, and a MySQL key
 narrowed to the first 191 characters of a text column, which changes what uniqueness means.
+
+### PostgreSQL
+
+`--from pgsql --to sqlite` reads a plain-format `pg_dump`, with data as `COPY` blocks (the default)
+or as `--inserts`. PostgreSQL is a source only.
+
+```sh
+pg_dump --format=plain --no-owner drupal > site.pg.sql
+drangler migrate convert --from pgsql --to sqlite --in site.pg.sql --out site.sqlite.sql
+```
+
+pg_dump spreads a table across several statements, so the whole dump is read before anything is
+written. A column whose default is `nextval(...)` and which is the whole primary key becomes
+`INTEGER PRIMARY KEY AUTOINCREMENT`; the next insert continues from the largest stored id, so the
+`setval` lines are not carried. `bytea` values in either output format become blob literals,
+`boolean` becomes 0 or 1, and `::type` casts are removed outside string literals.
+
+Reported as lossy: `CHECK` and foreign key constraints, expression and partial indexes, and the
+compatibility functions Drupal's PostgreSQL driver installs. Refused: array types, triggers, and any
+statement it does not recognise.
 
 ---
 
@@ -992,8 +1267,9 @@ rather than a measurement.
   refusal names its mechanism. `heal` prints the decision and stops there.
 - **It does not write to a remote host.** The survey command plan is read-only by construction, and
   there is no counterpart to `migrate export` that posts to `/restore`.
-- **It does not move a public files tree.** `migrate plan` emits the `rsync` line; those bytes are
-  yours to copy. `migrate install` lands a database and named assets, not a Drupal file system.
+- **Only `preview` moves files and code**, and only into the duplicate's own database.
+  `migrate plan` emits the `rsync` line for a real move; `migrate install` lands a database and
+  named assets, not a Drupal file system.
 - **It does not build the Drupal packs.** Those are generated in `drupflare/worker`, where the
   hand-trimmed database that feeds them lives. `drangler build` runs that repository's own pipeline
   inside a checkout of it.
