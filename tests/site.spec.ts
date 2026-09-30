@@ -46,6 +46,10 @@ function recorder(
 	return Object.assign(fn, { calls }) as unknown as FetchLike & { calls: Recorded[] };
 }
 
+/** the claim's POST, which follows the replay probe */
+const posted = (fetch: { calls: Recorded[] }): Recorded =>
+	fetch.calls.find((c) => c.method === 'POST') as Recorded;
+
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -57,6 +61,68 @@ const globalsFor = (ctx: TestContext, over = {}) =>
 	testGlobals({ json: true, ...over }, ctx, { site: ORIGIN, token: TOKEN });
 
 describe('site claim', () => {
+	const replaying = (at: string, state = 'running') =>
+		new Response('migrating', {
+			status: 503,
+			headers: { 'x-cfw-migrate': at, 'x-cfw-migrate-state': state }
+		});
+
+	it("waits out a fresh site's database replay before it claims", async () => {
+		let reads = 0;
+		const fetch = recorder((_url, call) => {
+			if (call.method === 'POST') return json({ ok: true, ownerToken: 'minted-token' });
+			reads++;
+			return reads < 3
+				? replaying(`${reads * 20}/74`)
+				: new Response('ok', { headers: { 'x-cfw-cache': 'HIT' } });
+		});
+		const ctx = ctxFor(fetch);
+		await runSiteClaim(ctx, undefined, { interval: 0, globals: globalsFor(ctx) });
+		expect(fetch.calls.map((c) => c.method)).toEqual(['GET', 'GET', 'GET', 'POST']);
+		expect(ctx.io.json<SiteClaimReport>().claimed).toBe(true);
+	});
+
+	it('refuses to claim a site whose replay failed, and sends no claim', async () => {
+		const fetch = recorder((_url, call) =>
+			call.method === 'POST' ? json({ ok: true }) : replaying('44/74', 'failed')
+		);
+		const ctx = ctxFor(fetch);
+		await expect(
+			runSiteClaim(ctx, undefined, { interval: 0, globals: globalsFor(ctx) })
+		).rejects.toThrow(/replay failed at chunk 44\/74/);
+		expect(fetch.calls.some((c) => c.method === 'POST')).toBe(false);
+	});
+
+	it('stops waiting at --wait and says to run it again', async () => {
+		const fetch = recorder(() => replaying('10/74'));
+		const ctx = ctxFor(fetch);
+		await expect(
+			runSiteClaim(ctx, undefined, { wait: 0, interval: 0, globals: globalsFor(ctx) })
+		).rejects.toThrow(/still replaying the database at chunk 10\/74/);
+	});
+
+	it('--migrated sends only the migrated flag, so the administrator and site name are untouched', async () => {
+		const fetch = recorder(() => json({ ok: true, ownerToken: 'minted-token' }));
+		const ctx = ctxFor(fetch);
+		await runSiteClaim(ctx, undefined, { migrated: true, globals: globalsFor(ctx) });
+		expect(JSON.parse(posted(fetch).body as string)).toEqual({ migrated: true });
+		expect(ctx.io.json<SiteClaimReport>()).toMatchObject({
+			claimed: true,
+			ownerToken: 'minted-token'
+		});
+	});
+
+	it('--migrated refuses a password, mail or title, since it keeps the migrated ones', async () => {
+		const ctx = ctxFor(recorder(() => json({ ok: true })));
+		await expect(
+			runSiteClaim(ctx, undefined, {
+				migrated: true,
+				adminPass: 'x',
+				globals: globalsFor(ctx)
+			})
+		).rejects.toThrow(UsageError);
+	});
+
 	/**
 	 * The password rides a JSON BODY and never a query string.
 	 *
@@ -75,7 +141,7 @@ describe('site claim', () => {
 			globals: globalsFor(ctx)
 		});
 
-		const call = fetch.calls[0] as Recorded;
+		const call = posted(fetch);
 		expect(call.method).toBe('POST');
 		expect(new URL(call.url).searchParams.has('pass')).toBe(false);
 		expect(JSON.parse(call.body as string)).toEqual({ siteName: 'My Site' });
@@ -103,7 +169,7 @@ describe('site claim', () => {
 		const fetch = recorder(() => json({ ok: true, ownerToken: 'minted-token' }));
 		const ctx = ctxFor(fetch);
 		await runSiteClaim(ctx, undefined, { globals: globalsFor(ctx) });
-		expect(new URL((fetch.calls[0] as Recorded).url).searchParams.has('site')).toBe(false);
+		expect(new URL(posted(fetch).url).searchParams.has('site')).toBe(false);
 	});
 
 	it('sends the site only when the caller named one', async () => {
@@ -116,7 +182,7 @@ describe('site claim', () => {
 				siteName: 'blog'
 			})
 		});
-		expect(new URL((fetch.calls[0] as Recorded).url).searchParams.get('site')).toBe('blog');
+		expect(new URL(posted(fetch).url).searchParams.get('site')).toBe('blog');
 	});
 
 	it('writes the token restricted, keyed by origin, and keeps the ones already there', async () => {
@@ -192,6 +258,13 @@ describe('site claim', () => {
 				globals: testGlobals({ json: true }, ctx, { site: ORIGIN })
 			})
 		).rejects.toBeInstanceOf(UsageError);
+	});
+
+	it('skips the replay wait under --force, which only a provisioned site reaches', async () => {
+		const fetch = recorder(() => json({ ok: true, ownerToken: 'minted-token' }));
+		const ctx = ctxFor(fetch);
+		await runSiteClaim(ctx, ORIGIN, { force: true, globals: globalsFor(ctx) });
+		expect(fetch.calls.map((c) => c.method)).toEqual(['POST']);
 	});
 
 	it('sends nothing under --dry-run', async () => {

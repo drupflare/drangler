@@ -53,13 +53,13 @@ export function testGlobals(
 
 /** Wraps a handler as a `fetch`, recording every URL it was asked for. */
 export function fakeFetch(
-	handler: (url: string) => Response | Promise<Response>
+	handler: (url: string, init?: RequestInit) => Response | Promise<Response>
 ): FetchLike & { urls: string[] } {
 	const urls: string[] = [];
-	const fn = async (input: unknown) => {
+	const fn = async (input: unknown, init?: RequestInit) => {
 		const url = String(input);
 		urls.push(url);
-		return await handler(url);
+		return await handler(url, init);
 	};
 	return Object.assign(fn, { urls }) as unknown as FetchLike & { urls: string[] };
 }

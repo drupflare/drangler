@@ -32,6 +32,12 @@ export interface ClaimOptions {
 	force?: boolean;
 	/** write the minted token to the global config without asking */
 	save?: boolean;
+	/** a migrated site: mint the token and leave its administrator and config alone */
+	migrated?: boolean;
+	/** how long to wait for a fresh site's database replay before claiming */
+	wait?: string | number;
+	/** how long between polls; a spec passes 0 */
+	interval?: string | number;
 	globals: GlobalOptions;
 }
 
@@ -75,6 +81,14 @@ export async function runSiteClaim(
 		token: globals.config.token.value ?? '',
 		timeoutMs: globals.timeoutMs
 	};
+	if (
+		opts.migrated === true &&
+		(opts.adminPass !== undefined || opts.adminMail !== undefined || opts.title !== undefined)
+	) {
+		throw new UsageError(
+			'--migrated keeps the migrated administrator and site name, so it takes no --admin-pass, --admin-mail or --title'
+		);
+	}
 	if (opts.force === true && owner.token === '') {
 		throw new UsageError(
 			'--force reconfigures a site that is already claimed, which needs the owner token; pass --token or set DRUPFLARE_OWNER_TOKEN'
@@ -99,14 +113,32 @@ export async function runSiteClaim(
 		return;
 	}
 
+	// a claim during the replay writes rows a later chunk inserts, and the replay then fails for
+	// good on a worker too old to refuse it, so the claim waits the way `site upgrade` does
+	if (opts.force !== true) {
+		const waitMs = numberFlag(opts.wait, DEFAULT_WAIT_MS, '--wait');
+		const intervalMs = numberFlag(opts.interval, DEFAULT_POLL_INTERVAL_MS, '--interval');
+		const replay = await waitForReplay(ctx, owner, ctx.now().getTime() + waitMs, intervalMs);
+		if (!replay.done) {
+			report.error = replay.failed
+				? `the database replay failed at chunk ${replay.chunk}; a claim cannot finish it`
+				: `still replaying the database at chunk ${replay.chunk}; run the claim again`;
+			emit(ctx.io, globals.json, report, () => renderClaim(report));
+			throw new DranglerError('claim', report.error);
+		}
+	}
+
 	const reply = await ownerCall(ctx, owner, '/firstrun', {
 		method: 'POST',
 		...(opts.force === true ? { params: { force: '1' } } : {}),
-		body: {
-			...(opts.title === undefined ? {} : { siteName: opts.title }),
-			...(opts.adminPass === undefined ? {} : { adminPass: opts.adminPass }),
-			...(opts.adminMail === undefined ? {} : { adminMail: opts.adminMail })
-		}
+		body:
+			opts.migrated === true
+				? { migrated: true }
+				: {
+						...(opts.title === undefined ? {} : { siteName: opts.title }),
+						...(opts.adminPass === undefined ? {} : { adminPass: opts.adminPass }),
+						...(opts.adminMail === undefined ? {} : { adminMail: opts.adminMail })
+					}
 	});
 
 	if (reply.status === 409) {
@@ -297,6 +329,29 @@ export function beatBudget(opts: UpdbOptions): number {
 	return opts.step === true ? 1 : 0;
 }
 
+/**
+ * Drives the update chain until it ends, halts or stops moving, and returns the last reading.
+ *
+ * For a site nobody else is operating, such as a preview duplicate; `site updb` keeps its
+ * snapshot rule for everything else.
+ */
+export async function driveUpdb(
+	ctx: Context,
+	owner: OwnerTarget,
+	maxBeats: number
+): Promise<UpdbReport> {
+	let report = await readUpdb(ctx, owner, false);
+	for (let beat = 0; beat < maxBeats; beat++) {
+		if (report.phase === null || TERMINAL_UPDB_PHASES.includes(report.phase)) break;
+		const before = report.cursor;
+		const next = await readUpdb(ctx, owner, true);
+		next.beats = report.beats + 1;
+		report = next;
+		if (report.cursor === before && !TERMINAL_UPDB_PHASES.includes(report.phase ?? '')) break;
+	}
+	return report;
+}
+
 async function readUpdb(ctx: Context, owner: OwnerTarget, step: boolean): Promise<UpdbReport> {
 	const reply = await ownerCall(ctx, owner, '/updb', step ? { method: 'POST' } : {});
 	// a POST answers `{updb, status}` and a GET answers the status alone
@@ -451,6 +506,42 @@ function renderInvalidate(report: InvalidateReport): string[] {
 	return lines;
 }
 
+/**
+ * Polls the public serve path until the pack replay is done, has failed, or the deadline passes.
+ *
+ * A fresh object answers 503 with `x-cfw-migrate` until its cursor is done, and that header is the
+ * only place the chunk appears. An answer without it is a finished replay.
+ */
+export async function waitForReplay(
+	ctx: Context,
+	owner: OwnerTarget,
+	deadline: number,
+	intervalMs: number
+): Promise<{ done: boolean; failed: boolean; chunk: string | null; polls: number }> {
+	let chunk: string | null = null;
+	for (let polls = 1; ; polls++) {
+		const probe = await probeSite(
+			{ fetch: ctx.fetch },
+			{
+				target: owner.origin,
+				site: owner.site,
+				kind: 'worker',
+				skipEdge: true,
+				timeoutMs: owner.timeoutMs
+			}
+		);
+		const at = probe.cfw['x-cfw-migrate'];
+		if (at === undefined) return { done: true, failed: false, chunk, polls };
+		chunk = at;
+		if (probe.cfw['x-cfw-migrate-state'] === 'failed') {
+			return { done: false, failed: true, chunk, polls };
+		}
+		ctx.io.err(`replaying the database, chunk ${chunk}`);
+		if (ctx.now().getTime() >= deadline) return { done: false, failed: false, chunk, polls };
+		await pause(intervalMs);
+	}
+}
+
 export interface UpgradeOptions extends Omit<RunCommandOptions, 'globals'> {
 	/** skip the deploy and wait on a site somebody else deployed */
 	deploy?: boolean;
@@ -512,31 +603,12 @@ export async function runSiteUpgrade(
 	}
 
 	const deadline = ctx.now().getTime() + waitMs;
-	for (;;) {
-		report.polls++;
-		const probe = await probeSite(
-			{ fetch: ctx.fetch },
-			{
-				target: owner.origin,
-				site: owner.site,
-				kind: 'worker',
-				skipEdge: true,
-				timeoutMs: opts.globals.timeoutMs
-			}
-		);
-		const chunk = probe.cfw['x-cfw-migrate'];
-		if (chunk === undefined) {
-			report.migrateDone = true;
-			break;
-		}
-		report.migrateChunk = chunk;
-		ctx.io.err(`replaying the database, chunk ${chunk}`);
-		if (ctx.now().getTime() >= deadline) {
-			report.timedOut = true;
-			break;
-		}
-		await pause(intervalMs);
-	}
+	const replay = await waitForReplay(ctx, owner, deadline, intervalMs);
+	report.polls += replay.polls;
+	report.migrateChunk = replay.chunk;
+	report.migrateDone = replay.done;
+	if (replay.failed) report.notes.push(`the database replay failed at chunk ${replay.chunk}`);
+	if (!replay.done) report.timedOut = true;
 
 	if (report.migrateDone) {
 		report.updb = await readUpdb(ctx, owner, false);
