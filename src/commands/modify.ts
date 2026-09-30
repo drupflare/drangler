@@ -875,6 +875,11 @@ export async function runModifyRequire(
 		const check = await ownerCall(ctx, owner, '/installable', { params: { module: name } });
 		row.verdict = typeof check.body['verdict'] === 'string' ? check.body['verdict'] : null;
 		row.version = typeof check.body['version'] === 'string' ? check.body['version'] : null;
+		// a requirement the site lacks but the registry has is installed alongside it, which is
+		// the same allowance the site's own install route makes for deps=1
+		if (row.verdict === 'blocked' && onlyMissingPackages(check.body['conflicts'])) {
+			row.verdict = 'installable';
+		}
 		if (row.verdict !== 'installable' && opts.force !== true) {
 			row.error = `${row.verdict ?? 'unknown'}; pass --force to install anyway`;
 			continue;
@@ -885,6 +890,7 @@ export async function runModifyRequire(
 			method: 'POST',
 			params: {
 				module: name,
+				deps: '1',
 				...(opts.version === undefined ? {} : { version: opts.version }),
 				...(opts.registry === undefined ? {} : { registry: opts.registry }),
 				...(opts.force === true ? { force: '1' } : {})
@@ -919,6 +925,21 @@ export async function runModifyRequire(
 	if (failed.length > 0) {
 		throw new DranglerError('modify', `${failed.length} package(s) did not land`);
 	}
+}
+
+/** whether every conflict is a package the site lacks, which a registry install can supply */
+export function onlyMissingPackages(conflicts: unknown): boolean {
+	return (
+		Array.isArray(conflicts) &&
+		conflicts.length > 0 &&
+		conflicts.every(
+			(c) =>
+				typeof c === 'object' &&
+				c !== null &&
+				(c as { reason?: unknown }).reason === 'missing' &&
+				String((c as { requires?: unknown }).requires ?? '').includes('/')
+		)
+	);
 }
 
 /** `drupal/json_field` names the module `json_field`; the registry name is not the machine name */

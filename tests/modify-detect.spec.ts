@@ -188,12 +188,15 @@ describe('selectPackageFiles', () => {
 		const files = memoryFiles(mantle2());
 		const project = detectProject(files, DIR);
 		const selection = selectPackageFiles(files, packageOf(project));
+		// json is kept because modules read data files at runtime (jquery_ui's library list)
 		expect(selection.files.map((f) => f.path)).toEqual([
+			'modules/custom/mantle2/composer.json',
 			'modules/custom/mantle2/mantle2.info.yml',
 			'modules/custom/mantle2/mantle2.install',
 			'modules/custom/mantle2/mantle2.module',
 			'modules/custom/mantle2/mantle2.routing.yml',
 			'modules/custom/mantle2/mantle2.services.yml',
+			'modules/custom/mantle2/package.json',
 			'modules/custom/mantle2/src/Service/StreakService.php'
 		]);
 	});
@@ -205,8 +208,6 @@ describe('selectPackageFiles', () => {
 		for (const absent of ['tests/', 'vendor/', 'node_modules/', '.editorconfig', 'README.md']) {
 			expect(kept).not.toContain(absent);
 		}
-		// package.json passes no KEEP pattern, and composer.json is a `.json` too
-		expect(kept).not.toContain('package.json');
 		expect(selection.skipped.length).toBeGreaterThan(0);
 	});
 

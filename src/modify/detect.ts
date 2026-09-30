@@ -26,7 +26,8 @@ export const KEEP = [
 	/\.yml$/,
 	/\.twig$/,
 	/\.js$/,
-	/\.css$/
+	/\.css$/,
+	/\.json$/
 ];
 
 /** paths that never belong in a mounted tree even when their extension passes */
@@ -184,7 +185,12 @@ function outermost(found: DetectedPackage[]): DetectedPackage[] {
 	return kept;
 }
 
-const DRUPAL_MARKERS = ['core/lib/Drupal.php', 'web/core/lib/Drupal.php'];
+const DRUPAL_MARKERS = [
+	'core/lib/Drupal.php',
+	'web/core/lib/Drupal.php',
+	'docroot/core/lib/Drupal.php',
+	'html/core/lib/Drupal.php'
+];
 
 const CUSTOM_DIRS = ['modules/custom', 'themes/custom', 'profiles/custom'];
 
@@ -202,7 +208,7 @@ export function detectProject(files: FileHost, dir: string): DetectedProject {
 
 	const marker = DRUPAL_MARKERS.find((path) => files.exists(`${root}/${path}`));
 	if (marker !== undefined) {
-		const base = marker.startsWith('web/') ? `${root}/web` : root;
+		const base = marker.startsWith('core/') ? root : `${root}/${marker.split('/')[0]}`;
 		const packages: DetectedPackage[] = [];
 		for (const custom of CUSTOM_DIRS) {
 			for (const rel of walkFiles(files, `${base}/${custom}`)) {
@@ -293,7 +299,11 @@ export interface PackageSelection {
 }
 
 /** the same allow-list a git delivery goes through, so an upload and a pull mount the same tree */
-export function selectPackageFiles(files: FileHost, pkg: DetectedPackage): PackageSelection {
+export function selectPackageFiles(
+	files: FileHost,
+	pkg: DetectedPackage,
+	keep: readonly RegExp[] = KEEP
+): PackageSelection {
 	const selected: PackageFile[] = [];
 	const skipped: { path: string; why: string }[] = [];
 	let totalBytes = 0;
@@ -303,7 +313,7 @@ export function selectPackageFiles(files: FileHost, pkg: DetectedPackage): Packa
 			skipped.push({ path: rel, why: 'not part of a mountable tree' });
 			continue;
 		}
-		if (!KEEP.some((re) => re.test(rel))) {
+		if (!keep.some((re) => re.test(rel))) {
 			skipped.push({ path: rel, why: 'extension is not executable or readable here' });
 			continue;
 		}

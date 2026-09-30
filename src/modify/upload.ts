@@ -50,7 +50,7 @@ const ENVELOPE_BYTES = 1_024;
 /**
  * Splits blobs into requests that fit the edge's body limit.
  *
- * The budget is measured on the ENCODED entry rather than on the file's byte count, because a
+ * The budget is measured on the ENCODED entry, in UTF-8 bytes, rather than on the file's byte count, because a
  * source full of quotes and newlines grows when it is JSON-encoded and a batch planned against the
  * raw size would be refused by the route that was meant to accept it.
  *
@@ -67,7 +67,8 @@ export function planBatches(
 	let current: BlobEntry[] = [];
 	let size = 0;
 	for (const blob of blobs) {
-		const encoded = JSON.stringify(blob).length + 1;
+		// bytes on the wire, not UTF-16 units: a source with multi-byte text is larger than it counts
+		const encoded = new TextEncoder().encode(JSON.stringify(blob)).length + 1;
 		if (current.length > 0 && size + encoded > budget) {
 			batches.push(current);
 			current = [];
@@ -88,6 +89,16 @@ export interface UploadOptions {
 	dryRun?: boolean;
 	/** how many blobs may go in one request, for a spec that wants two batches out of four files */
 	maxBodyBytes?: number;
+	/** what the site registers with the class loader when the commit lands, for vendor packages */
+	autoload?: readonly AutoloadDeclaration[];
+}
+
+/** one vendor package's composer autoload, with the mount its files are under */
+export interface AutoloadDeclaration {
+	name: string;
+	version: string;
+	mount: string;
+	autoload: Record<string, unknown>;
 }
 
 /**
@@ -187,7 +198,12 @@ export async function uploadPackage(
 			label: opts.label,
 			origin: opts.origin
 		},
-		body: { files: declared.map((file) => ({ path: file.path, hash: file.hash })) }
+		body: {
+			files: declared.map((file) => ({ path: file.path, hash: file.hash })),
+			...(opts.autoload === undefined || opts.autoload.length === 0
+				? {}
+				: { autoload: opts.autoload })
+		}
 	});
 	applyReply(result, committed);
 	return result;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	moduleNameOf,
+	onlyMissingPackages,
 	runModifyActivate,
 	runModifyCheck,
 	runModifyDiff,
@@ -63,6 +64,7 @@ interface SiteState {
 	/** a commit the kernel refuses to boot against */
 	refuseCommit: boolean;
 	installable: string;
+	conflicts?: unknown[];
 }
 
 function fakeSite(over: Partial<SiteState> = {}): { fetch: FetchLike; state: SiteState } {
@@ -98,7 +100,8 @@ function fakeSite(over: Partial<SiteState> = {}): { fetch: FetchLike; state: Sit
 			return json({
 				name: url.searchParams.get('module'),
 				verdict: state.installable,
-				version: '1.4.2'
+				version: '1.4.2',
+				conflicts: state.conflicts ?? []
 			});
 		}
 		if (url.pathname === '/install') {
@@ -639,6 +642,18 @@ describe('batching', () => {
 		expect(split.flat()).toHaveLength(4);
 	});
 
+	it('measures the request in UTF-8 bytes, so multi-byte sources do not overflow a batch', () => {
+		const blobs = Array.from({ length: 4 }, (_, i) => ({
+			hash: String(i).repeat(64),
+			source: '\u00e9'.repeat(400)
+		}));
+		for (const batch of planBatches(blobs, 1_024 + 1_500)) {
+			expect(
+				new TextEncoder().encode(JSON.stringify({ blobs: batch })).length
+			).toBeLessThanOrEqual(1_024 + 1_500);
+		}
+	});
+
 	it('gives a blob larger than the whole budget its own request', () => {
 		const batches = planBatches([{ hash: 'a'.repeat(64), source: 'x'.repeat(5_000) }], 1_100);
 		expect(batches).toHaveLength(1);
@@ -745,6 +760,28 @@ describe('modify require and enable', () => {
 		});
 		const install = forced.state.calls.find((c) => new URL(c.url).pathname === '/install');
 		expect(new URL(install?.url as string).searchParams.get('force')).toBe('1');
+	});
+
+	it('installs a package whose only conflicts are registry packages, with its dependencies', async () => {
+		const site = fakeSite({
+			installable: 'blocked',
+			conflicts: [{ requires: 'drupal/consumers', reason: 'missing', constraint: '^1.17' }]
+		});
+		const ctx = ctxFor(memoryFiles(tree()), site.fetch);
+		await runModifyRequire(ctx, ['drupal/simple_oauth'], { globals: globalsFor(ctx) });
+		const install = site.state.calls.find((c) => new URL(c.url).pathname === '/install');
+		expect(new URL(install?.url as string).searchParams.get('deps')).toBe('1');
+		expect(new URL(install?.url as string).searchParams.has('force')).toBe(false);
+	});
+
+	it('still refuses a platform or version conflict, which no registry install supplies', () => {
+		expect(onlyMissingPackages([{ requires: 'drupal/consumers', reason: 'missing' }])).toBe(
+			true
+		);
+		expect(onlyMissingPackages([{ requires: 'ext-sodium', reason: 'missing' }])).toBe(false);
+		expect(onlyMissingPackages([{ requires: 'drupal/core', reason: 'version' }])).toBe(false);
+		expect(onlyMissingPackages([])).toBe(false);
+		expect(onlyMissingPackages(undefined)).toBe(false);
 	});
 
 	it('enables by machine name, which a registry name is not', async () => {
