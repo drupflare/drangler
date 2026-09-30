@@ -102,6 +102,10 @@ function tracedRunner(runner: CommandRunner, io: Io): CommandRunner {
 		spawn: async (file, args, opts) => {
 			io.err(`$ ${[file, ...args].join(' ')}`);
 			return await runner.spawn(file, args, opts);
+		},
+		runToFile: async (file, args, out, opts) => {
+			io.err(`$ ${[file, ...args].join(' ')} > ${out}`);
+			return await runner.runToFile(file, args, out, opts);
 		}
 	};
 }

@@ -52,7 +52,9 @@ describe.skipIf(skip)('doctor --source over a broken VPS', () => {
 			file === 'ssh' ? [...sshOpts, ...args] : [...args];
 		return {
 			run: (file, args, opts) => real.run(file, withOpts(file, args), opts),
-			spawn: (file, args, opts) => real.spawn(file, withOpts(file, args), opts)
+			spawn: (file, args, opts) => real.spawn(file, withOpts(file, args), opts),
+			runToFile: (file, args, out, opts) =>
+				real.runToFile(file, withOpts(file, args), out, opts)
 		};
 	};
 

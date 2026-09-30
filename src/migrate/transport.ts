@@ -13,6 +13,11 @@ export interface Transport {
 	/** a human label for the connection, used in reports */
 	readonly label: string;
 	exec(command: string): Promise<CommandResult>;
+	/** runs a command with its stdout written to a local file as bytes; a dump or a tar */
+	download(
+		command: string,
+		out: string
+	): Promise<{ code: number; stderr: string; bytes: number }>;
 }
 
 /**
@@ -63,6 +68,18 @@ export function sshTransport(runner: CommandRunner, target: SshTarget): Transpor
 			throw new TransportError(
 				`ssh could not connect to ${destination(target)} in ${SSH_ATTEMPTS} attempts: ${last.stderr.trim() || 'no detail'}`
 			);
+		},
+		async download(command, out) {
+			let last = { code: 255, stderr: '', bytes: 0 };
+			for (let attempt = 1; attempt <= SSH_ATTEMPTS; attempt++) {
+				last = await runner.runToFile('ssh', sshArgs(target, command), out, {
+					timeoutMs: 6 * 60 * 60_000
+				});
+				if (last.code !== 255) return last;
+			}
+			throw new TransportError(
+				`ssh could not connect to ${destination(target)} in ${SSH_ATTEMPTS} attempts: ${last.stderr.trim() || 'no detail'}`
+			);
 		}
 	};
 }
@@ -86,6 +103,9 @@ export function replayTransport(transcript: Transcript, label = 'replay'): Trans
 				throw new TransportError(`the transcript has no entry for: ${command}`);
 			}
 			return hit;
+		},
+		async download(command) {
+			throw new TransportError(`a transcript cannot replay a byte stream: ${command}`);
 		}
 	};
 }
@@ -95,6 +115,9 @@ export function refusingTransport(label = 'dry-run'): Transport {
 	return {
 		label,
 		async exec(command) {
+			throw new TransportError(`dry run: refused to execute \`${command}\``);
+		},
+		async download(command) {
 			throw new TransportError(`dry run: refused to execute \`${command}\``);
 		}
 	};

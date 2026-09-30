@@ -1,4 +1,6 @@
 import { execFile, spawn as spawnProcess } from 'node:child_process';
+import { closeSync, mkdirSync, openSync, statSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 /** What a subprocess produced. A non-zero `code` is data, not an exception. */
 export interface CommandResult {
@@ -30,6 +32,18 @@ export interface CommandRunner {
 	 * 15 MB, so both would sit silent behind a buffer and a timeout.
 	 */
 	spawn(file: string, args: readonly string[], opts?: RunOptions): Promise<number>;
+	/**
+	 * Runs a command with its stdout written straight to `out`, as bytes.
+	 *
+	 * For a database dump or a tar stream: neither fits a string buffer, and a tar is not text, so
+	 * decoding it the way `run` does would corrupt it.
+	 */
+	runToFile(
+		file: string,
+		args: readonly string[],
+		out: string,
+		opts?: RunOptions
+	): Promise<{ code: number; stderr: string; bytes: number }>;
 }
 
 /** Real subprocesses. `execFile`, never a shell, so no argument is ever word-split. */
@@ -45,6 +59,27 @@ export function nodeRunner(): CommandRunner {
 				// a signalled child reports code null; 128+SIGTERM is what a shell would report
 				child.on('close', (code, signal) => resolve(code ?? (signal === null ? 1 : 143)));
 				child.on('error', () => resolve(127));
+			});
+		},
+		runToFile(file, args, out, opts = {}) {
+			mkdirSync(dirname(out), { recursive: true });
+			const fd = openSync(out, 'w');
+			return new Promise((resolve) => {
+				const child = spawnProcess(file, [...args], {
+					cwd: opts.cwd,
+					env: opts.env ?? process.env,
+					stdio: ['ignore', fd, 'pipe']
+				});
+				let stderr = '';
+				child.stderr?.on('data', (chunk: Buffer) => {
+					stderr += chunk.toString('utf8');
+				});
+				const done = (code: number) => {
+					closeSync(fd);
+					resolve({ code, stderr, bytes: statSync(out).size });
+				};
+				child.on('close', (code, signal) => done(code ?? (signal === null ? 1 : 143)));
+				child.on('error', () => done(127));
 			});
 		},
 		run(file, args, opts = {}) {
@@ -118,6 +153,10 @@ export function scriptedRunner(
 		},
 		async spawn(file, args, opts = {}) {
 			return lookup('spawn', file, args, opts.cwd).code;
+		},
+		async runToFile(file, args, _out, opts = {}) {
+			const result = lookup('run', file, args, opts.cwd);
+			return { code: result.code, stderr: result.stderr, bytes: result.stdout.length };
 		}
 	};
 }
