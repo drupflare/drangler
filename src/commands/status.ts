@@ -11,6 +11,17 @@ export interface StatusOptions {
 	/** a wrangler config to read the deploy's own identity from, when the user has one */
 	config?: string;
 	json?: boolean;
+	/** the owner token; with one, the deployment's other claimed sites are reported too */
+	token?: string | null;
+}
+
+/** one claimed site on the deployment, as `/deployment` reports it */
+export interface DeploymentSite {
+	site: string;
+	nodes: number;
+	accounts: number;
+	claimedAt: number | null;
+	lastWrite: number | null;
 }
 
 export interface SiteStatus {
@@ -31,6 +42,15 @@ export interface SiteStatus {
 	firstRunAt: number | null;
 	/** whether the diagnostic routes are open, which they should not be on a deployed site */
 	diagnostics: 'off' | 'gated' | 'open';
+	/**
+	 * Which site the deployment serves to a host with no mapping, and every other claimed site.
+	 * Null without an owner token, or on a worker that predates `/deployment`.
+	 */
+	deployment: {
+		primary: string | null;
+		chosen: string | null;
+		sites: DeploymentSite[];
+	} | null;
 	/** read from a local wrangler config when one was given or found; absent otherwise */
 	config: {
 		path: string;
@@ -111,6 +131,10 @@ export async function runStatus(
 		}
 	);
 	const claim = await probeClaim({ fetch: ctx.fetch }, result.target, site, timeoutMs);
+	const deployment =
+		opts.token === undefined || opts.token === null || opts.token === ''
+			? null
+			: await readDeployment(ctx, result.target, site, opts.token, timeoutMs);
 
 	const status: SiteStatus = {
 		target: result.target,
@@ -124,6 +148,7 @@ export async function runStatus(
 		claimed: claim.state,
 		firstRunAt: claim.firstRunAt,
 		diagnostics: result.diagnostics,
+		deployment,
 		config: readConfig(ctx, opts.config),
 		notes: [...result.notes]
 	};
@@ -136,6 +161,19 @@ export async function runStatus(
 	if (status.claimed === 'unknown') {
 		status.notes.push(
 			'/firstrun did not report a claim state; this worker may predate the route, so the site is neither confirmed claimed nor confirmed open'
+		);
+	}
+	const others = (deployment?.sites ?? []).filter((one) => one.site !== deployment?.primary);
+	if (deployment !== null && others.length > 0) {
+		status.notes.push(
+			`${others.length} other claimed site(s) on this deployment are not served to hosts without a mapping: ${others
+				.map(
+					(one) =>
+						`${one.site} (${one.nodes} nodes, ${one.accounts} accounts, last write ${one.lastWrite === null ? 'never' : new Date(one.lastWrite * 1000).toISOString()})`
+				)
+				.join(
+					'; '
+				)}. Nothing was deleted: map a host to one with a site:host:<host> KV entry, export it with --site, or promote it with PUT /deployment`
 		);
 	}
 	if (status.diagnostics === 'open') {
@@ -167,6 +205,13 @@ export async function runStatus(
 			['claimed', status.claimed],
 			['diagnostics', status.diagnostics]
 		];
+		if (status.deployment !== null) {
+			rows.push(
+				['primary site', status.deployment.primary ?? '-'],
+				['chosen by', status.deployment.chosen ?? '-'],
+				['claimed sites', String(status.deployment.sites.length)]
+			);
+		}
 		if (status.config !== null) {
 			rows.push(
 				['config', status.config.path],
@@ -195,5 +240,40 @@ export async function runStatus(
 	// serving and the exposure is still real, and exit 3 is what a deploy script can read
 	if (status.claimed === 'unclaimed') {
 		throw new FindingError('unclaimed', `${status.target} has not been claimed yet`);
+	}
+}
+
+/**
+ * GET `/deployment` with the owner token, or null when the worker predates the route or refuses.
+ *
+ * A status report must not fail because this half is unavailable, so every failure is null.
+ */
+async function readDeployment(
+	ctx: Context,
+	target: string,
+	site: string | null,
+	token: string,
+	timeoutMs: number
+): Promise<SiteStatus['deployment']> {
+	const url = new URL('/deployment', target.startsWith('http') ? target : `https://${target}`);
+	if (site !== null && site !== '') url.searchParams.set('site', site);
+	try {
+		const res = await ctx.fetch(url.toString(), {
+			headers: { authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(timeoutMs)
+		});
+		if (!res.ok) return null;
+		const body = (await res.json()) as {
+			deployment?: { primary?: unknown; chosen?: unknown };
+			sites?: unknown;
+		};
+		const sites = Array.isArray(body.sites) ? (body.sites as DeploymentSite[]) : [];
+		return {
+			primary: typeof body.deployment?.primary === 'string' ? body.deployment.primary : null,
+			chosen: typeof body.deployment?.chosen === 'string' ? body.deployment.chosen : null,
+			sites
+		};
+	} catch {
+		return null;
 	}
 }

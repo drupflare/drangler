@@ -187,4 +187,54 @@ describe('status', () => {
 		});
 		await expect(runStatus(ctx, 'site.example', {})).rejects.toThrow(/ENOTFOUND/);
 	});
+
+	it('reports the other claimed sites when it holds the owner token', async () => {
+		const fetch = fakeFetch((url, init) => {
+			if (url.includes('/deployment')) {
+				expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner');
+				return Response.json({
+					ok: true,
+					deployment: {
+						primary: 'real.example',
+						claimed: ['real.example', 'empty.example'],
+						chosen: 'content'
+					},
+					sites: [
+						{
+							site: 'real.example',
+							nodes: 12,
+							accounts: 3,
+							claimedAt: 1,
+							lastWrite: 1700000000
+						},
+						{
+							site: 'empty.example',
+							nodes: 0,
+							accounts: 0,
+							claimedAt: 2,
+							lastWrite: null
+						}
+					]
+				});
+			}
+			return deployed()(url, init);
+		});
+		const ctx = testContext({ fetch });
+		await runStatus(ctx, 'real.example', { json: true, token: 'owner' });
+		const status = ctx.io.json<{
+			deployment: { primary: string; sites: unknown[] };
+			notes: string[];
+		}>();
+		expect(status.deployment.primary).toBe('real.example');
+		expect(status.deployment.sites).toHaveLength(2);
+		expect(status.notes.join(' ')).toContain(
+			'empty.example (0 nodes, 0 accounts, last write never)'
+		);
+	});
+
+	it('leaves the deployment out without a token, and does not fail on it', async () => {
+		const ctx = testContext({ fetch: deployed() });
+		await runStatus(ctx, 'site.example', { json: true });
+		expect(ctx.io.json<{ deployment: unknown }>().deployment).toBeNull();
+	});
 });
