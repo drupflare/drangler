@@ -205,6 +205,41 @@ describe('the owner token', () => {
 		});
 		expect(resolved.token.value).toBeNull();
 	});
+
+	describe('from the system keychain', () => {
+		const keychain = { [site]: 'tok-keychain' };
+
+		it('sits between the environment and the global file', () => {
+			const files = { [GLOBAL]: globalWithToken };
+			expect(resolveConfig(host(files), { site, keychain }).token).toMatchObject({
+				value: 'tok-keychain',
+				origin: 'keychain'
+			});
+			expect(
+				resolveConfig(host(files, { DRUPFLARE_OWNER_TOKEN: 'tok-env' }), { site, keychain })
+					.token.value
+			).toBe('tok-env');
+			expect(
+				resolveConfig(host(files), { site, keychain, token: 'tok-flag' }).token.value
+			).toBe('tok-flag');
+		});
+
+		it('is keyed by origin, so another site entry is not this site token', () => {
+			const resolved = resolveConfig(host({ [GLOBAL]: globalWithToken }), {
+				site,
+				keychain: { 'https://other.example': 'tok-other' }
+			});
+			expect(resolved.token).toMatchObject({ value: 'tok-global', origin: 'global' });
+		});
+
+		it('is reported as set and never printed', () => {
+			const ctx = host({});
+			runConfigWhere(ctx, resolveConfig(ctx, { site, keychain }), { json: true });
+			const report = JSON.stringify(ctx.io.json());
+			expect(report).toContain('"origin":"keychain"');
+			expect(report).not.toContain('tok-keychain');
+		});
+	});
 });
 
 /**

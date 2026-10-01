@@ -12,7 +12,7 @@ import {
 	globalConfigPath,
 	PROJECT_CONFIG_NAME,
 	type ResolvedConfig,
-	type Setting
+	type TokenSetting
 } from '../config/file';
 import type { Context } from '../context';
 import { FindingError, UsageError } from '../errors';
@@ -229,7 +229,7 @@ export async function runConfigLevers(
 	});
 }
 
-/** whether `bun run assets:agg` has written the manifest the substitution matches libraries against */
+/** whether `bun run assets:agg` has written the manifest the substitution matches libraries */
 function aggregatesBuilt(ctx: Context, configPath: string, directory: unknown): boolean {
 	if (typeof directory !== 'string' || directory === '') return false;
 	const root = configPath.includes('/') ? configPath.slice(0, configPath.lastIndexOf('/')) : '.';
@@ -240,9 +240,9 @@ function aggregatesBuilt(ctx: Context, configPath: string, directory: unknown): 
 /**
  * Whether the configured origin answers at all.
  *
- * Any status counts. A bucket origin holds no object at `/`, so a 404 there proves DNS, TLS and the
- * custom domain are working, which is the whole question; asserting a 200 would fail every correctly
- * configured bucket.
+ * Any status counts. A bucket origin holds no object at `/`, so a 404 there proves DNS, TLS and
+ * the custom domain are working, which is the whole question; asserting a 200 would fail every
+ * correctly configured bucket.
  */
 async function probeOrigin(ctx: Context, origin: string, timeoutMs: number): Promise<LeverProbe> {
 	const url = normaliseTarget(origin);
@@ -269,7 +269,7 @@ const REPORTED: readonly (keyof Pick<
 >)[] = ['site', 'siteName', 'workspace', 'account', 'token'];
 
 /** a credential is reported as present, never printed */
-function shown(key: string, setting: Setting): string {
+function shown(key: string, setting: TokenSetting): string {
 	if (setting.value === null) return '-';
 	return key === 'token' ? 'set' : setting.value;
 }

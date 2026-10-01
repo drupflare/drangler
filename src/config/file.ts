@@ -52,6 +52,9 @@ export interface Setting {
 	from: string;
 }
 
+/** a setting that may also have come from the system keychain, which only the token can */
+export type TokenSetting = Omit<Setting, 'origin'> & { origin: SettingOrigin | 'keychain' };
+
 export interface ResolvedConfig {
 	profile: string;
 	/** every file that was read, most specific first */
@@ -65,10 +68,11 @@ export interface ResolvedConfig {
 	/**
 	 * The owner token.
 	 *
-	 * Read from the flag, then the environment, then the GLOBAL file's `sites[<origin>].ownerToken`.
-	 * Never from the project file: `drangler.json` is a file people commit.
+	 * Read from the flag, then the environment, then the system keychain, then the GLOBAL file's
+	 * `sites[<origin>].ownerToken`. Never from the project file: `drangler.json` is a file people
+	 * commit.
 	 */
-	token: Setting;
+	token: TokenSetting;
 }
 
 /** what the caller passed on the command line that changes which config is read */
@@ -81,6 +85,8 @@ export interface ConfigDiscovery {
 	workspace?: string;
 	account?: string;
 	token?: string;
+	/** owner tokens already read from the keychain, by origin; the lookup is async, this is not */
+	keychain?: Readonly<Record<string, string>>;
 }
 
 /** the seams config discovery needs; a `Context` satisfies it */
@@ -230,7 +236,8 @@ export function resolveConfig(host: ConfigHost, opts: ConfigDiscovery = {}): Res
 	const profile = opts.profile ?? host.env.DRANGLER_PROFILE ?? DEFAULT_PROFILE;
 	const sources = discoverConfigs(host, opts);
 
-	// a typo in a profile name would otherwise resolve to the top-level block and look like it worked
+	// a typo in a profile name would otherwise resolve to the top-level block and look like it
+	// worked
 	if (profile !== DEFAULT_PROFILE && sources.length > 0 && !sources.some((s) => s.hasProfile)) {
 		throw new UsageError(
 			`no \`${profile}\` profile in ${sources.map((s) => s.path).join(' or ')}; ` +
@@ -277,15 +284,43 @@ export function resolveConfig(host: ConfigHost, opts: ConfigDiscovery = {}): Res
 			sources,
 			(c) => c.account
 		),
-		token: settle(
-			opts.token,
-			'--token',
-			[{ name: 'DRUPFLARE_OWNER_TOKEN', value: host.env.DRUPFLARE_OWNER_TOKEN }],
-			// the project file is skipped by construction: it is a file people commit
-			sources.filter((s) => s.scope === 'global'),
-			(c) => (site.value === null ? undefined : c.sites?.[site.value]?.ownerToken)
-		)
+		token: resolveToken(host, opts, sources, site.value)
 	};
+}
+
+/**
+ * The owner token: flag, environment, keychain, then the global file.
+ *
+ * The keychain sits between the environment and the file because it is the store `site claim` and
+ * `recover-token` write to, so a token in both is the newer one. The file stays readable for every
+ * setup that predates the keychain.
+ */
+function resolveToken(
+	host: ConfigHost,
+	opts: ConfigDiscovery,
+	sources: readonly ConfigSource[],
+	site: string | null
+): TokenSetting {
+	const explicit = settle(
+		opts.token,
+		'--token',
+		[{ name: 'DRUPFLARE_OWNER_TOKEN', value: host.env.DRUPFLARE_OWNER_TOKEN }],
+		[],
+		() => undefined
+	);
+	if (explicit.origin !== 'unset') return explicit;
+	const stored = site === null ? undefined : opts.keychain?.[site];
+	if (stored !== undefined && stored.trim() !== '') {
+		return { value: stored, origin: 'keychain', from: 'system keychain' };
+	}
+	return settle(
+		undefined,
+		'',
+		[],
+		// the project file is skipped by construction: it is a file people commit
+		sources.filter((s) => s.scope === 'global'),
+		(c) => (site === null ? undefined : c.sites?.[site]?.ownerToken)
+	);
 }
 
 /**

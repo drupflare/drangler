@@ -53,15 +53,19 @@ export function siteOriginOf(globals: GlobalOptions, target?: string | null): st
  * The origin and the credential the owner routes need.
  *
  * The token is resolved by `resolveConfig`, which reads it from `--token`, then
- * `DRUPFLARE_OWNER_TOKEN`, then the GLOBAL config keyed by origin. A site that has never been
- * claimed has no token to find, so the refusal names the command that mints one.
+ * `DRUPFLARE_OWNER_TOKEN`, then the system keychain, then the GLOBAL config keyed by origin. A
+ * positional target can name a different origin from the configured site, so the keychain entry
+ * for THAT origin is looked up here too. A site that has never been claimed has no token to find,
+ * so the refusal names the commands that mint or recover one.
  */
 export function ownerTarget(globals: GlobalOptions, target?: string | null): OwnerTarget {
 	const origin = siteOriginOf(globals, target);
-	const token = globals.config.token.value;
+	const resolved = globals.config.token;
+	const pinned = resolved.origin === 'flag' || resolved.origin === 'env';
+	const token = pinned ? resolved.value : (globals.keychain?.[origin] ?? resolved.value);
 	if (token === null) {
 		throw new UsageError(
-			`no owner token for ${origin}; pass --token, set DRUPFLARE_OWNER_TOKEN, or run \`drangler site claim ${origin}\``
+			`no owner token for ${origin}; pass --token, set DRUPFLARE_OWNER_TOKEN, run \`drangler recover-token ${origin} --store\`, or run \`drangler site claim ${origin}\``
 		);
 	}
 	return {

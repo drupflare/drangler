@@ -46,6 +46,7 @@
 	},
 	"dependencies": {
 		"@drupflare/workforce": "^0.1.0",
+		"@napi-rs/keyring": "^2.1.0",
 		"commander": "^15.0.0"
 	},
 	"devDependencies": {

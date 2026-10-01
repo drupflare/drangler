@@ -19,6 +19,8 @@ export interface GlobalOptions {
 	dryRun: boolean;
 	timeoutMs: number;
 	config: ResolvedConfig;
+	/** owner tokens read from the system keychain before the command ran, by origin */
+	keychain?: Readonly<Record<string, string>>;
 }
 
 /** the raw commander bag, before any of it is trusted */
@@ -43,11 +45,15 @@ export const DEFAULT_TIMEOUT_MS = 15_000;
 /**
  * Validates the global flags and resolves the config behind them.
  *
- * `--quiet` and `--verbose` together is a usage error rather than a precedence rule: the two ask for
+ * `--quiet` and `--verbose` together is a usage error rather than a precedence rule: the two
  * opposite things and guessing which one the caller meant is how a script ends up silently missing
  * the output it was written around.
  */
-export function resolveGlobals(ctx: Context, raw: RawGlobals = {}): GlobalOptions {
+export function resolveGlobals(
+	ctx: Context,
+	raw: RawGlobals = {},
+	keychain: Readonly<Record<string, string>> = {}
+): GlobalOptions {
 	if (raw.quiet === true && raw.verbose === true) {
 		throw new UsageError('--quiet and --verbose ask for opposite things; pass one of them');
 	}
@@ -62,7 +68,9 @@ export function resolveGlobals(ctx: Context, raw: RawGlobals = {}): GlobalOption
 		yes: raw.yes === true,
 		dryRun: raw.dryRun === true,
 		timeoutMs,
+		keychain,
 		config: resolveConfig(ctx, {
+			keychain,
 			...(raw.profile === undefined ? {} : { profile: raw.profile }),
 			...(raw.configFile === undefined ? {} : { configFile: raw.configFile }),
 			...(raw.site === undefined ? {} : { site: raw.site }),
@@ -77,7 +85,7 @@ export function resolveGlobals(ctx: Context, raw: RawGlobals = {}): GlobalOption
 /**
  * The context a command runs against, with `--quiet` and `--verbose` applied.
  *
- * Both act on stderr only, so stdout stays exactly one report either way and `--json` keeps parsing.
+ * Both act on stderr only, so stdout stays exactly one report either way and `--json` keeps
  * `run.ts` holds the UNWRAPPED context, so a `--quiet` run still prints the error that ended it.
  */
 export function withVerbosity(ctx: Context, globals: GlobalOptions): Context {

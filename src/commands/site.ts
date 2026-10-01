@@ -12,6 +12,7 @@ import {
 	siteOriginOf,
 	type OwnerTarget
 } from '../owner';
+import { storeOwnerToken } from '../owner-token';
 import { runDeployCommand, type RunCommandOptions } from './workspace';
 
 /** phases in which the update chain does no more work; `UPDB_PHASES` on the worker side */
@@ -162,12 +163,37 @@ export async function runSiteClaim(
 	report.claimed = true;
 	report.adminPass = stringOrNull(reply.body['adminPass']);
 	report.ownerToken = stringOrNull(reply.body['ownerToken']);
-	report.notes.push('the password and the token are shown once and are stored nowhere else');
+	report.notes.push(
+		'the password and the token are shown once; `drangler recover-token` gets the token back'
+	);
 	if (report.ownerToken !== null) {
-		report.saved = await saveToken(ctx, origin, report.ownerToken, opts.save === true);
+		report.saved = await saveClaimToken(ctx, origin, report.ownerToken, opts.save === true);
 	}
 	emit(ctx.io, globals.json, report, () => renderClaim(report));
 }
+
+/**
+ * Where a freshly minted token goes: the system keychain first, the global config as the fallback.
+ *
+ * `--save` asks for the config file by name, so it writes both. With a working keychain and no
+ * `--save` the file is left alone and nothing is asked. Without a keychain the prompt below is the
+ * behaviour claim had before the keychain existed.
+ */
+async function saveClaimToken(
+	ctx: Context,
+	origin: string,
+	token: string,
+	always: boolean
+): Promise<string | null> {
+	const keychain = await storeOwnerToken(ctx, origin, token);
+	const inKeychain = keychain !== 'unavailable';
+	if (inKeychain && !always) return KEYCHAIN_LABEL;
+	const path = await saveToken(ctx, origin, token, always);
+	if (!inKeychain || path === null) return path;
+	return `${KEYCHAIN_LABEL} and ${path}`;
+}
+
+const KEYCHAIN_LABEL = 'the system keychain';
 
 /**
  * Writes the token to the GLOBAL config, never to `drangler.json`.

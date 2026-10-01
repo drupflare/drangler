@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline/promises';
 import type { FetchLike } from './health/probe';
 import { nodeRunner, type CommandRunner } from './host/exec';
 import { nodeFiles, type FileHost } from './host/files';
+import { nodeKeychain, type Keychain } from './host/keychain';
 import { consoleIo, type Io } from './io';
 
 /**
@@ -26,6 +27,7 @@ export interface Context {
 	runner: CommandRunner;
 	fetch: FetchLike;
 	ask: Ask;
+	keychain: Keychain;
 	env: NodeJS.ProcessEnv;
 	cwd: string;
 	now: () => Date;
@@ -62,6 +64,7 @@ export function defaultContext(overrides: Partial<Context> = {}): Context {
 		runner: nodeRunner(),
 		fetch: globalThis.fetch,
 		ask: nodeAsk(),
+		keychain: nodeKeychain(),
 		env: process.env,
 		cwd: process.cwd(),
 		now: () => new Date(),

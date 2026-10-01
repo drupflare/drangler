@@ -6,6 +6,7 @@ import type { Context } from '../src/context';
 import type { FetchLike } from '../src/health/probe';
 import { scriptedRunner, type CommandResult } from '../src/host/exec';
 import { memoryFiles } from '../src/host/files';
+import { unavailableKeychain } from '../src/host/keychain';
 import { bufferIo, type BufferIo } from '../src/io';
 
 export interface TestContext extends Context {
@@ -21,6 +22,8 @@ export function testContext(over: Partial<Context> = {}): TestContext {
 		fetch: fakeFetch(() => new Response('', { status: 200 })),
 		// no terminal by default, so a spec that reaches a prompt fails the way a pipe does
 		ask: async () => null,
+		// refuses by default, so a spec that reaches the keychain sees the headless-Linux path
+		keychain: unavailableKeychain('no keychain in the gate lane'),
 		env: {},
 		cwd: '/ws/worker',
 		now: () => new Date('2026-08-14T00:00:00.000Z'),
