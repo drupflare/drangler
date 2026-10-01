@@ -1,7 +1,7 @@
 /**
  * Exit codes drangler uses, as a closed set.
  *
- * `FINDING` exists so a script can tell "the check could not run" from "the check ran and the answer
+ * `FINDING` exists so a script can tell "the check could not run" from "the check ran and the
  * is no". Collapsing those two onto 1 is what makes a CI step that greps output instead of reading
  * the status.
  */
@@ -91,6 +91,7 @@ export const CODES: Record<string, { exit: number; retryable: boolean; next: str
 	wrangler: { exit: EXIT.FAILED, retryable: true, next: null },
 	modify: { exit: EXIT.FAILED, retryable: false, next: null },
 	claim: { exit: EXIT.FAILED, retryable: false, next: null },
+	'recover-token': { exit: EXIT.FAILED, retryable: false, next: null },
 	invalidate: { exit: EXIT.FAILED, retryable: true, next: null },
 	reconcile: { exit: EXIT.FAILED, retryable: true, next: null },
 	sweep: { exit: EXIT.FAILED, retryable: true, next: null },

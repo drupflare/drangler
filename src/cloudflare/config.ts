@@ -12,7 +12,8 @@ export interface ConfigFinding {
 /**
  * Strips `//` and block comments from JSONC, leaving string contents alone.
  *
- * A regex would eat the `//` in every `https://` in the file, and wrangler configs are full of them.
+ * A regex would eat the `//` in every `https://` in the file, and wrangler configs are full of
+ * them.
  */
 export function stripJsonComments(text: string): string {
 	let out = '';
@@ -64,6 +65,7 @@ export interface WranglerConfig {
 	durable_objects?: { bindings?: { name?: unknown; class_name?: unknown }[] };
 	migrations?: { tag?: unknown; new_classes?: unknown; new_sqlite_classes?: unknown }[];
 	triggers?: { crons?: unknown };
+	kv_namespaces?: { binding?: unknown; id?: unknown }[];
 	routes?: WranglerRoute[];
 	workers_dev?: unknown;
 }
@@ -147,14 +149,15 @@ export function parseWranglerConfig(text: string): WranglerConfig {
 	}
 }
 
-/** The interpreter alias `drupflare/worker` needs; the extension in the key is load-bearing there. */
+/** The interpreter alias `drupflare/worker` needs; the extension in the key is load-bearing. */
 export const PHP_BINARY_ALIAS = './runtime/php-binary.js';
 
 /**
  * Checks a wrangler config against the failures this project has actually shipped.
  *
- * Not a schema validator -- wrangler has one, and duplicating it would go stale on the next release.
- * Every rule here is a deployment that went out wrong: diagnostics public by default, a Durable Object
+ * Not a schema validator -- wrangler has one, and duplicating it would go stale on the next
+ * release. Every rule here is a deployment that went out wrong: diagnostics public by default, a
+ * Durable Object
  * migrated without SQLite, and the interpreter alias resolving to the fallback binary with nothing
  * failing but the size.
  */
@@ -334,7 +337,7 @@ export interface Lever {
 	state(value: string): string;
 }
 
-/** `SWEEP_MIN_FRACTION` and `SWEEP_MAX_FRACTION` in `ops/sweep.ts`; the site clamps to this range */
+/** `SWEEP_MIN_FRACTION` and `SWEEP_MAX_FRACTION` in `ops/sweep.ts`; the site clamps to the range */
 export const SWEEP_FRACTION_MIN = 0.01;
 export const SWEEP_FRACTION_MAX = 0.5;
 
@@ -407,7 +410,7 @@ export function readLevers(config: WranglerConfig): LeverReading[] {
 	});
 }
 
-/** every other `vars` entry, echoed as declared; a credential is reported as set and never printed */
+/** every other `vars` entry, echoed as declared; a credential is reported set and never printed */
 export function otherVars(config: WranglerConfig): { name: string; value: string }[] {
 	const named = new Set(LEVERS.map((l) => l.name));
 	return Object.entries(config.vars ?? {})

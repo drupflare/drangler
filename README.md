@@ -106,9 +106,18 @@ default. `drangler config where` prints which file supplied each value.
 search. `drangler init` writes the file after asking at most five questions, and `drangler modify
 init` writes the module half of it.
 
-**The owner token never goes in `drangler.json`.** That file is committed. It lands in the global
-config under `sites["<origin>"].ownerToken` at mode `0600`, and the commands that write it say where
-it went.
+**The owner token never goes in `drangler.json`.** That file is committed. `site claim` stores it in
+the system keychain (the login keychain on macOS, Credential Manager on Windows, the Secret Service
+on Linux) under the service `drupflare-owner-token`, with the site origin as the account. The global
+config under `sites["<origin>"].ownerToken`, at mode `0600`, still works and is where the token goes
+on a machine with no keychain.
+
+A command finds the token in this order: `--token`, `DRUPFLARE_OWNER_TOKEN`, the keychain, then the
+global config. A config-stored token is not copied into the keychain on first use. A read command
+that quietly writes to a credential store, or deletes a token another tool reads from the file,
+would be a surprise; `drangler recover-token --store` is the explicit way to move one. With no
+keychain backend (a headless Linux box with no secret service), drangler prints one line on stderr
+and uses the config file.
 
 These flags are inherited by every command:
 
@@ -177,9 +186,37 @@ default). A claim sent during the replay would write rows the replay then collid
 site unable to finish provisioning, so drangler refuses to send one and names the chunk it reached.
 
 The password goes in a JSON body. The route refuses `?pass=` outright, because a query string lands
-in tail, in observability and in every intermediary between the terminal and the object. `--save`
-writes the token to the global config; without it the token is printed and nothing is written, which
-is the right answer in a pipe.
+in tail, in observability and in every intermediary between the terminal and the object. The token is
+stored in the system keychain without asking. `--save` also writes it to the global config. With no
+keychain and no `--save`, drangler asks whether to write the config, and in a pipe it prints the
+token and writes nothing.
+
+### Recovering the owner token
+
+The token is shown once, and it is easy to lose. If you can write to the Cloudflare account the site
+is deployed on, you can get it back:
+
+```sh
+drangler recover-token my-site.example --store
+```
+
+drangler generates a random nonce and writes its sha256, bound to the site's host, into the site's
+`CONFIG_KV` namespace through `wrangler kv key put`, with a 60-second TTL. It then presents the
+nonce to the site's public `/recover-token` route. The site checks it, spends it, deletes the KV
+record and answers with the owner token. Only someone with KV edit rights on that account can write
+the record, so the proof is no weaker than redeploying the worker, which would also reveal the token.
+
+- It needs a `wrangler login`, or `CLOUDFLARE_API_TOKEN`, that can edit KV. `--account` picks the
+  account when the login reaches several.
+- The namespace is `--kv-namespace`, else the `CONFIG_KV` binding in a `wrangler.jsonc` in the
+  working directory, else the one account namespace with `CONFIG_KV` in its title.
+- A new proof can take up to a minute to reach the site, since KV is eventually consistent. drangler
+  retries with growing pauses, at most eight times, because the site refuses an address after 12
+  failed attempts in a minute.
+- Recovery does not rotate the token. Anything else that holds it keeps working.
+- `--store` writes the token to the keychain, replacing a stale entry. The command also works with
+  `--json`, which puts the token in the `ownerToken` field.
+- It is not `drangler recover`, which reads the 30-day database recovery window.
 
 A migrated site already has an administrator, and a normal claim would overwrite uid 1. `--migrated`
 mints the owner token and changes nothing else: no password, mail, name or site title. It needs a
@@ -798,6 +835,7 @@ a line saying `--verbose` prints the rest.
 | `reconcile <target>`       | What a site still owes the shipping pack, and drive the steps                |
 | `sweep <target>`           | Coverage of the addressable space, and what the governor decided             |
 | `site claim <target>`      | Mint the administrator password and the owner token                          |
+| `recover-token <target>`   | Get a lost owner token back by proving write access to the account           |
 | `site updb <target>`       | Read the Drupal update chain, and drive one beat of it                       |
 | `site invalidate`          | Purge a site cache, by tag or by bumping the generation                      |
 | `site upgrade <target>`    | Deploy, wait for the replay, then run the update chain                       |

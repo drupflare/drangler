@@ -48,6 +48,7 @@ import { runPreviewCommand } from './commands/preview';
 import { runProjectBuild } from './commands/project';
 import { runReconcile } from './commands/reconcile';
 import { runRecover } from './commands/recover';
+import { runRecoverToken } from './commands/recover-token';
 import { runSecretsScan } from './commands/secrets';
 import { runSetupCloudflare, runSetupIdentity, runSetupMail } from './commands/setup';
 import { runSiteClaim, runSiteInvalidate, runSiteUpdb, runSiteUpgrade } from './commands/site';
@@ -63,6 +64,7 @@ import {
 import { resolveGlobals, withVerbosity, type GlobalOptions } from './config/globals';
 import type { Context } from './context';
 import { UsageError } from './errors';
+import { preloadKeychain } from './owner-token';
 import { VERSION } from './version';
 
 export { VERSION };
@@ -108,8 +110,9 @@ function withGlobals(program: Command): Command {
 /**
  * Builds the whole command tree against one context.
  *
- * Exported rather than assembled in `cli.ts` so a spec drives the real parser -- flag names, defaults
- * and help text included -- instead of calling the handlers directly and leaving the wiring untested.
+ * Exported rather than assembled in `cli.ts` so a spec drives the real parser -- flag names,
+ * defaults and help text included -- instead of calling the handlers directly and leaving the
+ * wiring untested.
  */
 export function buildProgram(ctx: Context): Command {
 	const program = new Command();
@@ -126,9 +129,17 @@ export function buildProgram(ctx: Context): Command {
 
 	/** resolves the inherited flags for one invocation and applies `--quiet` / `--verbose` */
 	const bind = (command: Command): { ctx: Context; globals: GlobalOptions } => {
-		const globals = resolveGlobals(ctx, command.optsWithGlobals());
+		const globals = resolveGlobals(ctx, command.optsWithGlobals(), keychainTokens);
 		return { ctx: withVerbosity(ctx, globals), globals };
 	};
+
+	// the keychain lookup is async and `bind` is not, so it is read once before any action runs
+	let keychainTokens: Record<string, string> = {};
+	program.hook('preAction', async (_program, action) => {
+		const first =
+			action.registeredArguments[0]?.name() === 'target' ? action.args[0] : undefined;
+		keychainTokens = await preloadKeychain(ctx, action.optsWithGlobals(), first);
+	});
 
 	program
 		.command('init')
@@ -470,7 +481,10 @@ export function buildProgram(ctx: Context): Command {
 		.option('--admin-pass <pass>', 'set this password instead of one the site mints')
 		.option('--admin-mail <address>', "the administrator's email address")
 		.option('--force', 'reconfigure a site that is already claimed; needs the owner token')
-		.option('--save', 'write the owner token to the global config without asking')
+		.option(
+			'--save',
+			'also write the owner token to the global config without asking; the system keychain is always tried first'
+		)
 		.option(
 			'--migrated',
 			'mint the owner token and leave a migrated administrator and config alone'
@@ -634,6 +648,41 @@ export function buildProgram(ctx: Context): Command {
 		.action(async (target: string | undefined, opts, command) => {
 			const bound = bind(command);
 			await runRecover(bound.ctx, target, { ...opts, globals: bound.globals });
+		});
+
+	program
+		.command('recover-token')
+		.argument('[target]', 'the site origin; defaults to --site or the config')
+		.description(
+			'Get a lost owner token back, by proving you can write to its Cloudflare account'
+		)
+		.option('--store', 'also write the token to the system keychain')
+		.option(
+			'--kv-namespace <id>',
+			'the CONFIG_KV namespace id; found automatically when omitted'
+		)
+		.option('--wait <ms>', 'how long to wait for the proof to reach the site', '75000')
+		.option('--interval <ms>', 'first pause between attempts; each one waits longer', '5000')
+		.addHelpText(
+			'after',
+			[
+				'',
+				"Writes a one-minute, single-use proof into the site's CONFIG_KV namespace through",
+				'wrangler, so it needs a `wrangler login` (or CLOUDFLARE_API_TOKEN) that can edit KV',
+				'on the account holding the site. The site checks the proof, deletes it and returns',
+				'the owner token. The token is not rotated: whatever else holds it keeps working.',
+				'',
+				'Not the same as `drangler recover`, which reads the 30-day database recovery window.',
+				'',
+				'Examples:',
+				'  drangler recover-token https://mysite.example',
+				'  drangler recover-token https://mysite.example --store',
+				'  drangler recover-token --kv-namespace 0123456789abcdef0123456789abcdef --json'
+			].join('\n')
+		)
+		.action(async (target: string | undefined, opts, command) => {
+			const bound = bind(command);
+			await runRecoverToken(bound.ctx, target, { ...opts, globals: bound.globals });
 		});
 
 	const setup = program
