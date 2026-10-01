@@ -18,8 +18,10 @@
 <div class="tsd-description">
 <div class="tsd-comment tsd-typography"><p>The origin and the credential the owner routes need.</p>
 <p>The token is resolved by <code>resolveConfig</code>, which reads it from <code>--token</code>, then
-<code>DRUPFLARE_OWNER_TOKEN</code>, then the GLOBAL config keyed by origin. A site that has never been
-claimed has no token to find, so the refusal names the command that mints one.</p>
+<code>DRUPFLARE_OWNER_TOKEN</code>, then the system keychain, then the GLOBAL config keyed by origin. A
+positional target can name a different origin from the configured site, so the keychain entry
+for THAT origin is looked up here too. A site that has never been claimed has no token to find,
+so the refusal names the commands that mint or recover one.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -28,7 +30,7 @@ claimed has no token to find, so the refusal names the command that mints one.</
 <li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">target</span>: <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="../interfaces/owner.OwnerTarget.html" class="tsd-signature-type tsd-kind-interface">OwnerTarget</a></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/93ab43d2f4c80482c0425302d84fadbb80cedf2e/src/owner.ts#L59">src/owner.ts:59</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/0bc9491478e09f0fdef45c0b634e999709e7d00c/src/owner.ts#L61">src/owner.ts:61</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

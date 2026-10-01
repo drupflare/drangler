@@ -76,9 +76,17 @@ default. <code>drangler config where</code> prints which file supplied each valu
 
 <p><code>--profile &lt;name&gt;</code> selects a named block inside either file; <code>--config-file &lt;path&gt;</code> replaces the
 search. <code>drangler init</code> writes the file after asking at most five questions, and <code>drangler modify init</code> writes the module half of it.</p>
-<p><strong>The owner token never goes in <code>drangler.json</code>.</strong> That file is committed. It lands in the global
-config under <code>sites[&quot;&lt;origin&gt;&quot;].ownerToken</code> at mode <code>0600</code>, and the commands that write it say where
-it went.</p>
+<p><strong>The owner token never goes in <code>drangler.json</code>.</strong> That file is committed. <code>site claim</code> stores it in
+the system keychain (the login keychain on macOS, Credential Manager on Windows, the Secret Service
+on Linux) under the service <code>drupflare-owner-token</code>, with the site origin as the account. The global
+config under <code>sites[&quot;&lt;origin&gt;&quot;].ownerToken</code>, at mode <code>0600</code>, still works and is where the token goes
+on a machine with no keychain.</p>
+<p>A command finds the token in this order: <code>--token</code>, <code>DRUPFLARE_OWNER_TOKEN</code>, the keychain, then the
+global config. A config-stored token is not copied into the keychain on first use. A read command
+that quietly writes to a credential store, or deletes a token another tool reads from the file,
+would be a surprise; <code>drangler recover-token --store</code> is the explicit way to move one. With no
+keychain backend (a headless Linux box with no secret service), drangler prints one line on stderr
+and uses the config file.</p>
 <p>These flags are inherited by every command:</p>
 <table>
 <thead>
@@ -164,9 +172,34 @@ whoever reaches the URL first can claim the site.</p>
 default). A claim sent during the replay would write rows the replay then collides with, leaving the
 site unable to finish provisioning, so drangler refuses to send one and names the chunk it reached.</p>
 <p>The password goes in a JSON body. The route refuses <code>?pass=</code> outright, because a query string lands
-in tail, in observability and in every intermediary between the terminal and the object. <code>--save</code>
-writes the token to the global config; without it the token is printed and nothing is written, which
-is the right answer in a pipe.</p>
+in tail, in observability and in every intermediary between the terminal and the object. The token is
+stored in the system keychain without asking. <code>--save</code> also writes it to the global config. With no
+keychain and no <code>--save</code>, drangler asks whether to write the config, and in a pipe it prints the
+token and writes nothing.</p>
+<h3 id="recovering-the-owner-token" class="tsd-anchor-link">Recovering the owner token<a href="#recovering-the-owner-token" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>The token is shown once, and it is easy to lose. If you can write to the Cloudflare account the site
+is deployed on, you can get it back:</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">recover-token</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--store</span>
+</code><button type="button">Copy</button></pre>
+
+<p>drangler generates a random nonce and writes its sha256, bound to the site's host, into the site's
+<code>CONFIG_KV</code> namespace through <code>wrangler kv key put</code>, with a 60-second TTL. It then presents the
+nonce to the site's public <code>/recover-token</code> route. The site checks it, spends it, deletes the KV
+record and answers with the owner token. Only someone with KV edit rights on that account can write
+the record, so the proof is no weaker than redeploying the worker, which would also reveal the token.</p>
+<ul>
+<li>It needs a <code>wrangler login</code>, or <code>CLOUDFLARE_API_TOKEN</code>, that can edit KV. <code>--account</code> picks the
+account when the login reaches several.</li>
+<li>The namespace is <code>--kv-namespace</code>, else the <code>CONFIG_KV</code> binding in a <code>wrangler.jsonc</code> in the
+working directory, else the one account namespace with <code>CONFIG_KV</code> in its title.</li>
+<li>A new proof can take up to a minute to reach the site, since KV is eventually consistent. drangler
+retries with growing pauses, at most eight times, because the site refuses an address after 12
+failed attempts in a minute.</li>
+<li>Recovery does not rotate the token. Anything else that holds it keeps working.</li>
+<li><code>--store</code> writes the token to the keychain, replacing a stale entry. The command also works with
+<code>--json</code>, which puts the token in the <code>ownerToken</code> field.</li>
+<li>It is not <code>drangler recover</code>, which reads the 30-day database recovery window.</li>
+</ul>
 <p>A migrated site already has an administrator, and a normal claim would overwrite uid 1. <code>--migrated</code>
 mints the owner token and changes nothing else: no password, mail, name or site title. It needs a
 worker that supports it; an older one refuses the claim.</p>
@@ -850,6 +883,10 @@ a line saying <code>--verbose</code> prints the rest.</p>
 <tr>
 <td><code>site claim &lt;target&gt;</code></td>
 <td>Mint the administrator password and the owner token</td>
+</tr>
+<tr>
+<td><code>recover-token &lt;target&gt;</code></td>
+<td>Get a lost owner token back by proving write access to the account</td>
 </tr>
 <tr>
 <td><code>site updb &lt;target&gt;</code></td>
@@ -1697,6 +1734,7 @@ checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <ul>
 <li><a href="#first-boot"><span>First <wbr/>Boot</span></a></li>
 <li><a href="#claiming"><span>Claiming</span></a></li>
+<li><a href="#recovering-the-owner-token"><span>Recovering the owner token</span></a></li>
 <li><a href="#the-owner-token"><span>The <wbr/>Owner <wbr/>Token</span></a></li>
 <li><a href="#running-day-to-day"><span>Running <wbr/>Day to <wbr/>Day</span></a></li>
 <li><a href="#connecting-cloudflare-and-sending-mail"><span>Connecting <wbr/>Cloudflare and <wbr/>Sending <wbr/>Mail</span></a></li>
