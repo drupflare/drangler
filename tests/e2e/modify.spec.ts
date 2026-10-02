@@ -109,10 +109,21 @@ describe.skipIf(skip)('drangler modify against a real dev site', () => {
 	const globalsFor = (ctx: Context, over: { yes?: boolean } = {}) =>
 		testGlobals({ json: true, ...over }, ctx, { site: worker.origin, token });
 
+	let failed = false;
+	/** stops the current worker, printing its dev log when a case failed against it */
+	function retire(): void {
+		const log = worker?.stop(failed);
+		failed = false;
+		if (log) {
+			console.error(`a case failed; the wrangler dev log is at ${log}`);
+			console.error(readFileSync(log, 'utf8').slice(-6000));
+		}
+	}
+
 	let launches = 0;
 	/** a new worker on its own scratch state and port, claimed with drangler itself */
 	async function freshSite(): Promise<void> {
-		worker?.stop();
+		retire();
 		worker = await startFixtureWorker({
 			dir: workspace,
 			config: join(workspace, 'wrangler.jsonc'),
@@ -171,6 +182,10 @@ describe.skipIf(skip)('drangler modify against a real dev site', () => {
 		}
 	}
 
+	/** a failed render answers 500 with the exception in the body, and a bare status hides it */
+	const expectStatus = (res: { status: number; body: string }, want: number) =>
+		expect(res.status, res.body.slice(0, 800)).toBe(want);
+
 	/** a pinned production checkout, or null when the network cannot reach it */
 	async function checkout(repo: string, sha: string): Promise<string | null> {
 		const dir = join(scratch, repo.split('/').pop()!);
@@ -213,14 +228,12 @@ describe.skipIf(skip)('drangler modify against a real dev site', () => {
 		await freshSite();
 	}, 900_000);
 
-	let failed = false;
 	afterEach(({ task }) => {
 		if (task.result?.state === 'fail') failed = true;
 	});
 
 	afterAll(() => {
-		const log = worker?.stop(failed);
-		if (log) console.error(`a case failed; the wrangler dev log is at ${log}`);
+		retire();
 		if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true });
 	});
 
@@ -370,8 +383,8 @@ describe.skipIf(skip)('drangler modify against a real dev site', () => {
 			expect(on.error).toBeNull();
 			expect(on.report.modules[0]).toMatchObject({ enabled: true, error: null });
 			// the route exists now and refuses an anonymous visitor
-			expect((await page(dashboard!, 'oauth-after')).status).toBe(403);
-			expect((await page('/', 'oauth-after')).status).toBe(200);
+			expectStatus(await page(dashboard!, 'oauth-after'), 403);
+			expectStatus(await page('/', 'oauth-after'), 200);
 		}, 900_000);
 
 		it('reports a module whose enable is refused and leaves the site serving', async (t) => {
@@ -393,8 +406,8 @@ describe.skipIf(skip)('drangler modify against a real dev site', () => {
 			expect(on.report.modules[0]?.enabled).toBe(false);
 			expect(on.report.modules[0]?.error).not.toBeNull();
 
-			expect((await page('/', 'integrity')).status).toBe(200);
-			expect((await page(c.path, 'integrity')).status).toBe(404);
+			expectStatus(await page('/', 'integrity'), 200);
+			expectStatus(await page(c.path, 'integrity'), 404);
 		}, 900_000);
 	});
 });
