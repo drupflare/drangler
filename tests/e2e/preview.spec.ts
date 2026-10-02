@@ -10,7 +10,7 @@ import { nodeFiles } from '../../src/host/files';
 import { bufferIo } from '../../src/io';
 import { refuseRemote } from '../../src/migrate/preview';
 import { testGlobals } from '../helpers';
-import { composeOrThrow, dockerGate, sh } from './helpers/docker';
+import { compose, composeOrThrow, dockerGate, sh } from './helpers/docker';
 import { DRUPAL_ROOT, KEY_PATH, SSH_HOST, SSH_PORT, SSH_USER, stackUp } from './helpers/stack';
 
 const skip = await dockerGate();
@@ -164,6 +164,27 @@ describe.skipIf(skip)('preview', () => {
 	});
 
 	it('left the source byte-identical', async () => {
-		expect(await sourceDigest('after')).toBe(before);
+		const after = await sourceDigest('after');
+		if (after !== before) {
+			// both dumps stay in their containers, so a mismatch can name the rows and files that moved
+			const db = await compose([
+				'exec',
+				'-T',
+				'db',
+				'sh',
+				'-c',
+				'diff /tmp/pv-before.sql /tmp/pv-after.sql | head -40'
+			]);
+			const tree = await compose([
+				'exec',
+				'-T',
+				'drupal',
+				'sh',
+				'-c',
+				'diff /tmp/pv-before.tree /tmp/pv-after.tree | head -20'
+			]);
+			console.log(`source moved\n${db.stdout}\n${tree.stdout}`);
+		}
+		expect(after).toBe(before);
 	});
 });
