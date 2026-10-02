@@ -71,7 +71,11 @@ export async function startFixtureWorker(
 			join(stateDir, 'state'),
 			'--local'
 		],
-		{ cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }
+		{
+			cwd: dir,
+			env: { ...process.env, WRANGLER_LOG: 'debug' },
+			stdio: ['ignore', 'pipe', 'pipe']
+		}
 	);
 	// stopped before the directory goes, because wrangler keeps writing for a moment after SIGTERM
 	// and an append into a deleted path is an uncaught ENOENT that fails the run from outside a test
@@ -86,6 +90,7 @@ export async function startFixtureWorker(
 	};
 	dev.stdout?.on('data', append);
 	dev.stderr?.on('data', append);
+	dev.on('exit', (code, signal) => append(`\nwrangler exited code=${code} signal=${signal}\n`));
 
 	const stop = (keepLog = false): string | null => {
 		logging = false;

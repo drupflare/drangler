@@ -103,10 +103,13 @@ describe.skipIf(skip)('preview', () => {
 				return new Promise((resolve) => {
 					wrangler = spawn(file, [...args], {
 						cwd: opts?.cwd,
-						env: opts?.env ?? process.env,
+						env: { ...(opts?.env ?? process.env), WRANGLER_LOG: 'debug' },
 						stdio: 'inherit'
 					});
-					wrangler.on('close', (code) => resolve(code ?? 143));
+					wrangler.on('close', (code, signal) => {
+						console.log(`wrangler dev closed code=${code} signal=${signal}`);
+						resolve(code ?? 143);
+					});
 				});
 			}
 		};

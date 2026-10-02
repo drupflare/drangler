@@ -116,7 +116,7 @@ describe.skipIf(skip)('drangler modify against a real dev site', () => {
 		failed = false;
 		if (log) {
 			console.error(`a case failed; the wrangler dev log is at ${log}`);
-			console.error(readFileSync(log, 'utf8').slice(-6000));
+			console.error(readFileSync(log, 'utf8').slice(-12000));
 		}
 	}
 
