@@ -61,7 +61,7 @@
 		"typedoc": "^0.28.20",
 		"typescript": "^5.9.3",
 		"vitest": "^4.1.0",
-		"wrangler": "^4.123.0"
+		"wrangler": "^4.146.0"
 	},
 	"author": "Gregory Mitchell <me@gmitch215.xyz>",
 	"homepage": "https://github.com/drupflare/drangler",
