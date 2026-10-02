@@ -114,6 +114,16 @@ jobs:
       - name: Dump Container Logs on Failure
         if: ${{ failure() }}
         run: docker compose -f docker/compose.yml logs --no-color --tail=400
+      - name: Dump Host State on Failure
+        if: ${{ failure() }}
+        run: |
+          nproc
+          free -m
+          df -h / /tmp
+          docker stats --no-stream || true
+          ps aux --sort=-rss | head -15
+          sudo dmesg | tail -60 || true
+          sudo dmesg | grep -iE 'oom|killed process|segfault|sigbus|trap' || true
       - name: Teardown Containers
         if: ${{ always() }}
         run: docker compose -f docker/compose.yml down -v --remove-orphans
