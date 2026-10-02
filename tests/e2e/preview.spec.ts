@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { runPreviewCommand } from '../../src/commands/preview';
+import { PREVIEW_MIN_WORKER, runPreviewCommand } from '../../src/commands/preview';
 import { defaultContext, type Context } from '../../src/context';
 import { nodeRunner, type CommandRunner } from '../../src/host/exec';
 import { nodeFiles } from '../../src/host/files';
@@ -124,7 +124,8 @@ describe.skipIf(skip)('preview', () => {
 			ask: async () => SSH_HOST,
 			env: {
 				...process.env,
-				DRANGLER_WORKER_REF: process.env.DRANGLER_WORKER_REF ?? 'v1.0.2'
+				// the oldest release preview accepts, so the pin cannot fall below the gate again
+				DRANGLER_WORKER_REF: process.env.DRANGLER_WORKER_REF ?? `v${PREVIEW_MIN_WORKER}`
 			}
 		};
 		try {
