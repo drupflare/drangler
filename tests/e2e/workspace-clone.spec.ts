@@ -19,6 +19,29 @@ import { cloneGate, resolvePayload, WORKER_REF, WORKER_SOURCE } from './helpers/
 const skip = await cloneGate();
 const payload = skip ? null : await resolvePayload();
 
+/** which payload kind the cloned checkout's own `hydrate` would take, or `none` */
+async function checkoutPayload(workspace: string): Promise<string> {
+	const hydrate = (await import(join(workspace, 'scripts/hydrate.ts'))) as {
+		resolvePayloadSource: (
+			root: string,
+			tag: string,
+			given: string | undefined,
+			probe: (url: string) => Promise<boolean>
+		) => Promise<{ kind: string }>;
+	};
+	const { version } = JSON.parse(readFileSync(join(workspace, 'package.json'), 'utf8')) as {
+		version: string;
+	};
+	const probe = async (url: string) => {
+		try {
+			return (await fetch(url, { method: 'HEAD', redirect: 'follow' })).ok;
+		} catch {
+			return false;
+		}
+	};
+	return (await hydrate.resolvePayloadSource(workspace, `v${version}`, undefined, probe)).kind;
+}
+
 /**
  * The build path against the published repository, over a real network and a real disk.
  *
@@ -218,7 +241,11 @@ describe.skipIf(skip)('a live clone of drupflare/worker', () => {
 	 */
 	it.skipIf(payload !== null)(
 		'reports the missing payload by name, and points at the route that needs none',
-		async () => {
+		async (ctx) => {
+			// the checkout's own resolver decides, since it also finds a branch's rolling payload on
+			// the CDN that the release probe above cannot see
+			const found = await checkoutPayload(workspace);
+			if (found !== 'none') ctx.skip(`the checkout resolves a payload (${found})`);
 			const io = bufferIo();
 			// the guidance rides the ERROR rather than stdout: `build --json` promises stdout
 			// parses, and two prose lines in front of the object broke `jq` on the one failure a

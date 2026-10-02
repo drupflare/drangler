@@ -1024,8 +1024,9 @@ export function buildSiteDb(
 		const file = db.prepare(
 			'INSERT OR REPLACE INTO cfw_file (uri, size, modified, mime, chunks) VALUES (?, ?, ?, ?, ?)'
 		);
+		// node 22's node:sqlite binds an empty Uint8Array as NULL, which an empty upload hits
 		const chunk = db.prepare(
-			'INSERT OR REPLACE INTO cfw_file_chunk (uri, seq, bytes) VALUES (?, ?, ?)'
+			"INSERT OR REPLACE INTO cfw_file_chunk (uri, seq, bytes) VALUES (?, ?, COALESCE(?, x''))"
 		);
 		let fileBytes = 0;
 		db.exec('BEGIN');
