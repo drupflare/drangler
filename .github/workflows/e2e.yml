@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [master, ver/*, feat/*, renovate/*]
   workflow_dispatch:
+    inputs:
+      drift-version:
+        description: Drift release tag for the diagnostic job; empty uses the DRIFT_VERSION repository variable
+        required: false
+        default: ''
   schedule:
     - cron: '17 4 * * *'
 
@@ -128,6 +133,74 @@ jobs:
           ps aux --sort=-rss | head -15
           sudo dmesg | tail -60 || true
           sudo dmesg | grep -iE 'oom|killed process|segfault|sigbus|trap' || true
+      - name: Teardown Containers
+        if: ${{ always() }}
+        run: docker compose -f docker/compose.yml down -v --remove-orphans
+
+  diagnostic:
+    name: Runner Diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    if: ${{ inputs.drift-version != '' || vars.DRIFT_VERSION != '' }}
+
+    permissions:
+      contents: read
+      actions: read
+
+    env:
+      REQUIRE_DOCKER: '1'
+
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+      - name: Pull Docker Images
+        run: docker compose -f docker/compose.yml pull
+      - name: Start Runner Probe
+        run: |
+          mkdir -p drift-diagnostics
+          nproc > drift-diagnostics/nproc.txt
+          nohup node .github/diagnostics/runner-probe.mjs drift-diagnostics > drift-diagnostics/probe.log 2>&1 &
+          echo $! > drift-diagnostics/probe.pid
+      - name: Run Integration Suite under Drift
+        uses: gmitch215/Drift@v1.0.0
+        with:
+          version: ${{ inputs.drift-version || vars.DRIFT_VERSION }}
+          mode: run
+          command: bun run test:e2e
+          label: docker-e2e
+          save-baseline: 'false'
+      - name: Stop Runner Probe
+        if: ${{ !cancelled() }}
+        run: |
+          kill -TERM "$(cat drift-diagnostics/probe.pid)" || true
+          sleep 2
+          cat drift-diagnostics/probe-summary.json || true
+      - name: Record Host State
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            free -m
+            df -h / /tmp
+            docker stats --no-stream || true
+            sudo dmesg | tail -200 || true
+          } > drift-diagnostics/host.txt 2>&1
+      - name: Upload Diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: drift-diagnostics
+          path: drift-diagnostics
+          retention-days: 30
       - name: Teardown Containers
         if: ${{ always() }}
         run: docker compose -f docker/compose.yml down -v --remove-orphans
