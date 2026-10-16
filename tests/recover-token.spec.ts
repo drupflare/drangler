@@ -53,7 +53,7 @@ function site(
 	const proofs = new Map<string, { host: string; exp: number }>();
 	const spent = new Set<string>();
 	const puts: Put[] = [];
-	const posts: { url: string; nonce: string }[] = [];
+	const posts: { url: string; nonce: string; headers: Record<string, string> }[] = [];
 	const calls: RecordedCall[] = [];
 	let misses = over.visibleAfter ?? 0;
 
@@ -83,7 +83,11 @@ function site(
 	const fetch = (async (input: unknown, init?: RequestInit) => {
 		const url = new URL(String(input));
 		const { nonce } = JSON.parse(String(init?.body)) as { nonce: string };
-		posts.push({ url: String(input), nonce });
+		posts.push({
+			url: String(input),
+			nonce,
+			headers: (init?.headers ?? {}) as Record<string, string>
+		});
 		const mocked = over.respond?.({ host: url.host, nonce });
 		if (mocked !== undefined) return mocked;
 		const key = `recover:${url.host}:${sha256(nonce)}`;
@@ -156,6 +160,36 @@ describe('recover-token proof', () => {
 	});
 
 	// what reaches argv is visible to every process on the machine; only the hash may go there
+	it('passes the Access app in front of the site with the stored service token', async () => {
+		const model = site();
+		const ctx = context(model);
+		ctx.files.writeSecret(
+			'/out/access-guard.json',
+			JSON.stringify({
+				hostname: 'mysite.example',
+				clientId: 'cid.access',
+				clientSecret: 'sec'
+			})
+		);
+		await recover(ctx, { accessGuard: '/out/access-guard.json' });
+		expect(model.posts[0]?.headers).toMatchObject({
+			'cf-access-client-id': 'cid.access',
+			'cf-access-client-secret': 'sec'
+		});
+	});
+
+	it('writes the token to a file with --write and keeps it out of the report', async () => {
+		const model = site();
+		const ctx = context(model);
+		await recover(ctx, { write: '/out/owner-token' });
+		expect(ctx.files.readText('/out/owner-token')).toBe(`${OWNER_TOKEN}\n`);
+		expect(ctx.io.json<RecoverTokenReport>()).toMatchObject({
+			ownerToken: null,
+			written: '/out/owner-token'
+		});
+		expect(ctx.io.stdout.join('\n')).not.toContain(OWNER_TOKEN);
+	});
+
 	it('never puts the nonce on a command line, and never prints the token to stderr', async () => {
 		const model = site();
 		const ctx = context(model);

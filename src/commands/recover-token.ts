@@ -13,6 +13,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { parseWranglerConfig } from '../cloudflare/config';
+import { guardHeaders, type StoredGuard } from '../cloudflare/guard';
 import type { GlobalOptions } from '../config/globals';
 import type { Context } from '../context';
 import { AuthError, DranglerError, ProbeError, UsageError } from '../errors';
@@ -45,6 +46,10 @@ export interface RecoverTokenOptions {
 	wait?: string | number;
 	/** the first pause between attempts; attempt n waits n times this */
 	interval?: string | number;
+	/** a preview folder's access-guard.json, so the proof can pass the Access app in front of the site */
+	accessGuard?: string;
+	/** write the token to this file instead of printing it */
+	write?: string;
 	globals: GlobalOptions;
 }
 
@@ -55,6 +60,8 @@ export interface RecoverTokenReport {
 	key: string | null;
 	attempts: number;
 	ownerToken: string | null;
+	/** where the token was written when --write took it, so the report never carries it */
+	written: string | null;
 	stored: StoreResult | 'not requested';
 	error: string | null;
 	notes: string[];
@@ -106,6 +113,7 @@ export async function runRecoverToken(
 		key: null,
 		attempts: 0,
 		ownerToken: null,
+		written: null,
 		stored: 'not requested',
 		error: null,
 		notes: []
@@ -120,6 +128,10 @@ export async function runRecoverToken(
 		return;
 	}
 
+	const headers =
+		opts.accessGuard === undefined
+			? {}
+			: guardHeaders(JSON.parse(ctx.files.readText(opts.accessGuard)) as StoredGuard);
 	const nonce = mintNonce();
 	const key = proofKey(url.host, nonce);
 	report.key = key;
@@ -152,7 +164,7 @@ export async function runRecoverToken(
 	for (let n = 0; n < attempts; n++) {
 		if (n > 0) await pause(intervalMs * n);
 		report.attempts = n + 1;
-		const reply = await present(ctx, globals, `${origin}/recover-token`, nonce);
+		const reply = await present(ctx, globals, `${origin}/recover-token`, nonce, headers);
 		if (reply.status === 200 && typeof reply.body['ownerToken'] === 'string') {
 			report.ownerToken = reply.body['ownerToken'];
 			break;
@@ -171,6 +183,11 @@ export async function runRecoverToken(
 	}
 
 	if (opts.store === true) report.stored = await storeOwnerToken(ctx, origin, report.ownerToken);
+	if (opts.write !== undefined) {
+		ctx.files.writeSecret(opts.write, `${report.ownerToken}\n`);
+		report.written = opts.write;
+		report.ownerToken = null;
+	}
 	emit(ctx.io, globals.json, report, () => render(report));
 }
 
@@ -194,13 +211,14 @@ async function present(
 	ctx: Context,
 	globals: GlobalOptions,
 	url: string,
-	nonce: string
+	nonce: string,
+	extra: Record<string, string> = {}
 ): Promise<ProofReply> {
 	let response: Response;
 	try {
 		response = await ctx.fetch(url, {
 			method: 'POST',
-			headers: { 'content-type': 'application/json' },
+			headers: { 'content-type': 'application/json', ...extra },
 			body: JSON.stringify({ nonce }),
 			signal: AbortSignal.timeout(globals.timeoutMs)
 		});
@@ -326,6 +344,7 @@ function render(report: RecoverTokenReport): string[] {
 		['attempts', String(report.attempts)]
 	];
 	if (report.ownerToken !== null) rows.push(['owner token', report.ownerToken]);
+	if (report.written !== null) rows.push(['owner token', `written to ${report.written}`]);
 	rows.push([
 		'stored in keychain',
 		report.stored === 'not requested' ? 'no; pass --store' : report.stored
