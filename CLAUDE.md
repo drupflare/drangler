@@ -215,14 +215,15 @@ a local disk the site cannot see and `/modify` takes MOUNTED paths, so there is 
 the `REQUIRE_SIBLINGS` shape `tests/workspace-artifacts.spec.ts` already uses. `QUARANTINE_STRIKES`
 and `RUNGS` in `src/health/repair.ts` carry the same guard in `tests/heal.spec.ts`.
 
-**Three things the plan asked for that the ROUTES cannot answer**, recorded so nobody re-proposes
-them as CLI work:
+**Three things the plan asked for, and which of them the ROUTES can answer.** This block said that no
+route returns a stored manifest. That was wrong: `/modify?action=manifest` has been there since
+v1.0.3 (`src/do/modify.ts`, `manifestOf()`), and it was never read. Corrected 2026-10-16:
 
-- **A path-level added/modified/removed diff.** No route returns a stored manifest, and `plan`
-  computes its counts against only the files whose blobs the site already holds -- so a modified file
-  is counted as REMOVED there. `modify diff` reports the have/want split, which is exact, plus the
-  paths that would be sent.
-- **`modify diff --against <rev>`.** Same cause: the revision's manifest is not readable.
+- **A path-level added/modified/removed diff** is possible and is not built. `plan` still counts
+  against only the files whose blobs the site already holds, so a modified file is counted as REMOVED
+  there, and `modify diff` reports the have/want split, which is exact, plus the paths that would be
+  sent. A path-level diff reads `action=manifest` and compares it with `manifestRev()`'s inputs.
+- **`modify diff --against <rev>`** is the same read, with the revision named. Not built.
 - **A collision with a package on the SITE, checked before the upload.** Only `commit` knows, and it
   refuses with a 409 naming both packages. `modify check` checks the collision this machine can see:
   two packages in one project wanting one mount.
@@ -469,6 +470,72 @@ now. The old finding told a user to copy a files tree that was already in the du
 409 on a shape mismatch because two spliced dumps produce a file that looks whole and is not.
 `migrate export` issued one unbounded request and held the whole thing in memory, so a dropped
 connection lost everything and the mechanism that would not have was already built.
+
+## `preview` is one command, and every choice in it can be answered three ways
+
+Decisions made 2026-10-15 and 2026-10-16 while taking a real production box (an organisation-custom
+layout: a flat `web/modules/mantle2`, two `$databases` blocks, Redis behind `extension_loaded`)
+through to a working duplicate.
+
+**Every decision has a flag, a `DRANGLER_PREVIEW_<NAME>` variable and a prompt.** `previewEnv()` fills
+what a flag left open, a flag wins, lists are comma separated and switches are `1`. What is still open
+is asked on a terminal and refused without one, so CI never hangs. A new option that is a decision
+gets all three or it is not added. The reason: the product is "one command", and a decision with only
+a prompt breaks a pipeline, while one with only a flag breaks a person.
+
+**Layout is read from the host, never assumed.** `discoverLayout()` reads the Apache or nginx vhosts,
+takes the docroot that looks like Drupal, finds the composer root, `vendor/bin/drush` (run as the web
+user only when the ssh user is root; as the ssh user otherwise, which is what the e2e Drupal needs),
+the site directory by Drupal's multisite order and a source id. A value it cannot read is `null` or
+`assumed` and the evidence list names the command behind each. Gaps in a customer's layout are
+drangler's problem: the customers are institutions with intermediate Drupal skill.
+
+**Credentials in the database are blanked, not carried.** earth-app keeps its cloud admin key, Stripe
+keys, FCM service account, SMTP login and OAuth secrets in Drupal config through the Key module's
+`config` provider, so the dump carried keys that let a copy act as production: signup bumped a funnel
+counter on the live cloud API with the admin key. `credentials.ts` finds every credential-bearing
+value (Key `config` keys except a public certificate, any leaf named like a secret, password, token,
+private key or API key, and `smtp_username`) and `preview` empties each one through the
+`DRUPAL_CONFIG` override at RUNTIME. Nothing is rewritten in the database, the names are listed and
+the values never are, and `--carry-key` restores one. Chosen over carrying everything locally and
+blanking on deploy, because a stray scheduled event on a laptop is as live as one on Cloudflare.
+
+**Mail is moved onto the worker's layer.** `mailsystem.settings.defaults.sender` of `SMTPMailSystem`
+opens a socket a Worker cannot, and `mailsystem` outranks the worker's `system.mail` override, so the
+message was lost before the worker saw it. `mail-system.ts` points the sender at `cfw_mail`.
+`--hold-mail` (local only, refused with `--deploy`) queues instead of sending, so a verification code
+is read from `cfw_mail_queue`.
+
+**A deploy is private or it does not happen.** `createGuard()` makes an Access app on the `workers.dev`
+hostname before the first upload and `waitGuarded()` waits for the edge to turn visitors away. The
+copy holds real users' emails and password hashes, so there is no public fallback. A token that can
+read Access but not write it stops the run with the permission named and nothing created (measured:
+HTTP 403, code 1010 on the service token POST).
+
+**A first boot is retried, and the cause is wrangler, not the worker.** On a 98 MB database `wrangler
+dev` ended during the first boot with an empty error ("Network connection lost" in its proxy).
+Measured 2026-10-16: the first render finishes, the alarm then boots a second interpreter for about
+2.6 s, and a request arriving in that window ends the dev server (+0.2 s and +2 s die, +4 s and +12 s
+pass). The same bundle driven through Miniflare directly answers the racing request after 3.5 s, a
+minimal Durable Object with a 3.4 s synchronous alarm does too, and bisecting 4.127.1 to 4.151.0 puts
+the fix at wrangler 4.129.1 (4.129.0 dies); its changelog entry is workers-sdk #15252. Ruled out on
+the way: local observability, memory (workerd peaks near 318 MB, and a local workerd enforces no
+limit), disk, the replay, and the worker's alarm code. `bootDuplicate()` still starts it again up to
+five times and counts the site up after two answers in a row, because a workspace pinned to an older
+checkout installs the old wrangler; only wrangler's own non-zero exit is retried. `WRANGLER_DEV_FIXED`
+holds the version and `PREVIEW_MIN_WORKER` is 1.0.4, the first worker whose lock resolves past it.
+
+**A path the source answers from Cloudflare Access is not compared.** The edge answered, not Drupal,
+so `verify()` reports it as not compared and counts it apart.
+
+**`--version` belongs to the root command.** commander reads it wherever it appears, so a subcommand
+flag of that name printed drangler's version and installed nothing; `modify require` takes
+`--constraint`, and `tests/cli.spec.ts` fails on any subcommand that declares `--version` again.
+
+**The worker used to drop every request header except the cookie, `Accept`, the content type and the
+client address.** A bearer-token route answered as anonymous, which no anonymous comparison could
+show. Fixed in the worker (`forwardedHeaders()`), not here; the lesson for this repo is that
+`verify` must check an authenticated call, not only anonymous GETs, before a copy is called working.
 
 ## Read-only apart from the commands that say so, and nothing anywhere deletes
 

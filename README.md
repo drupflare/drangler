@@ -391,6 +391,7 @@ verify    kernel booted
 | `modify rollback`       | activate the revision before the active one                    |
 | `modify drop <rev>`     | delete a stored revision and the blobs nothing else names      |
 | `modify release --tag`  | upload from a tagged commit, refusing a dirty tree             |
+| `modify list`           | uploaded packages, and the repositories the site follows       |
 | `modify require <name>` | install a package from a registry, and optionally turn it on   |
 | `modify enable <name>`  | turn a module on, once its files are on the site               |
 | `modify dev`            | `drangler dev --modify .`                                      |
@@ -410,7 +411,15 @@ Contrib is not uploaded by `modify`. A package with a registry entry belongs to 
 
 ```sh
 drangler modify require drupal/key drupal/redis --enable
+drangler modify require phpmailer/phpmailer --constraint v6.12.0
 ```
+
+The version flag is `--constraint`. `--version` belongs to the root command, which reads it wherever
+it appears and would print drangler's own version.
+
+`modify list` shows what the site holds apart from its own code: packages uploaded with `modify
+upload`, and each followed repository with its mount, the commit installed and how often it is
+polled. A module carried over by `preview` and followed from git appears there.
 
 A project with patches, private repositories or VCS-only dependencies goes through
 [`build --project`](#build-a-project).
@@ -947,34 +956,47 @@ read the status instead of grepping the output.
 ## Preview
 
 `preview` makes a working duplicate of a VPS site on drupflare in one command. Every command it sends
-to the VPS is read-only. Drupal on the VPS may still refresh its own caches when drush starts, and a
-`--source-url` check views pages the way any visitor does, which can trigger automated cron.
+to the VPS is read-only. Drupal on the VPS may still refresh its own caches and rebuild its theme list
+when drush starts. A `--source-url` check views pages the way any visitor does, so a Drupal that has
+never rendered them creates its cache tables, its private key and a log entry on the first view, and
+automated cron can run.
 
 ```sh
-drangler preview --host deploy@old.example --root /var/www/html
+drangler preview --host deploy@old.example
 ```
 
-It runs ten steps, and asks before each one:
+`--root` is optional. Without it, preview finds the Drupal docroot from the host's web server
+configuration, so a site that lives in an unusual place, runs from a composer root above the docroot,
+or sits under a multisite `sites/` directory is found from evidence on the host, not from a
+convention. It runs twelve steps, and asks before each one:
 
-1. Survey the source over SSH, the same read-only commands as `migrate survey`.
-2. Score the move. A blocker stops the run here.
-3. Stream the database back with `drush sql:dump` on stdout.
-4. Stream `sites/default/files` back as a tar, and the private files directory when drush reports
-   one.
-5. Stream `modules/`, `themes/`, `profiles/` and `libraries/`. Text files travel as the site's
+1. Find the site on the host: read the Apache or nginx virtual hosts, take the docroot that looks
+   like Drupal, find the composer root and the project's `vendor/bin/drush`, work out the web user
+   and the site directory, and name the source with a short id. `--site <hostname>` picks one when
+   the host serves several.
+2. Survey the source over SSH, the same read-only commands as `migrate survey`, run as the web
+   user.
+3. Score the move. A blocker stops the run here.
+4. Stream the database back with `drush sql:dump` on stdout.
+5. Stream `sites/<dir>/files` back as a tar, and the private files directory when drush reports one.
+6. Stream `modules/`, `themes/`, `profiles/` and `libraries/`. Text files travel as the site's
    installed code; binaries are listed in `code-skipped.txt`.
-6. Read `$config` and `$settings` from `settings.php` and `settings.local.php`, the source's
+7. Read `$config` and `$settings` from `settings.php` and `settings.local.php`, the source's
    `composer.lock`, the site's `.htaccess`, and the docroot files a browser fetches by name, such as
-   verification pages, `ads.txt` and `.well-known/`. The streamed code is scored here for Drupal 11 support, extension
-   calls and the settings below; a blocker stops the run.
-7. Convert the dump to SQLite (MySQL, MariaDB or PostgreSQL) and store the uploads and the code in the
-   same database, in the tables the worker serves them from.
-8. Install that database into a preview workspace of its own and repack it.
-9. Bring the duplicate up on `wrangler dev`, or deploy it with `--deploy`, then claim it with
-   `--migrated` semantics and run its database updates. The owner token is kept in `owner-token`
-   under `--out`.
-10. Check it: node and managed-file counts against the survey, then `/`, `/user/login` and one public
-    file against the running duplicate.
+   verification pages, `ads.txt` and `.well-known/`. The streamed code is scored here for Drupal 11
+   support, extension calls and the settings below; a blocker stops the run.
+8. Read the application state kept in Redis. The database dump cannot hold it, so one fixed
+   read-only script lists the keys outside Drupal's cache bins (at most 5,000 keys, 64 KiB each).
+9. Convert the dump to SQLite (MySQL, MariaDB or PostgreSQL), store the uploads and the code in the
+   same database, put the Redis keys into `key_value_expire` for the worker's `\Redis` stand-in, and
+   blank the credentials the database holds (see below).
+10. Install that database into a preview workspace of its own and repack it.
+11. Bring the duplicate up on `wrangler dev`, or deploy it with `--deploy`, then claim it with
+    `--migrated` semantics and run its database updates. Composer libraries the duplicate lacks are
+    installed from the registry, and `--follow` repositories are added and pulled. The owner token
+    is kept in `owner-token` under `--out`.
+12. Check it: node and managed-file counts against the survey, then `/`, `/user/login`, one public
+    file and every `--check` path against the running duplicate.
 
 `--dry-run` prints the plan in three parts: the numbered steps it will ask about, the **read-only
 commands on the host**, which run on the server over SSH, and the **local commands**, which run on
@@ -986,21 +1008,99 @@ creating to stdout, `cat` of the settings files, `composer.lock` and `.htaccess`
 commands, with `sql:query` limited to `SELECT`. Redirection, `--result-file` and anything else not on
 the list are refused before they reach the host.
 
-| Flag                    | What it does                                                                |
-| ----------------------- | --------------------------------------------------------------------------- |
-| `--dry-run`             | Print every step and command, and run none of them                          |
-| `--full`                | Run every step after typing the host name once                              |
-| `--deploy`              | Deploy as `drupflare-preview-<host>` instead of running `wrangler dev`      |
-| `--url <origin>`        | With `--deploy`, the origin to check; wrangler prints it after uploading    |
-| `--source-url <origin>` | The live site; each checked page must answer with the same status as there  |
-| `--out <dir>`           | Where the dump, the files and the workspace go (`.drangler/preview/<host>`) |
-| `--port <n>`            | The local port for `wrangler dev`                                           |
+| Flag                        | What it does                                                                            |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| `--dry-run`                 | Print every step and command, and run none of them                                      |
+| `--root <path>`             | The Drupal docroot, when you would rather not have it found                             |
+| `--site <hostname>`         | Which site to take when the host serves several                                         |
+| `--full`                    | Run every step after typing the host name once                                          |
+| `--confirm <host>`          | Run every step with no prompt; the value must name the host, as typing it would         |
+| `--check <path...>`         | Pages to compare with the source, beside `/` and the login page                         |
+| `--follow <module=repo...>` | Keep a module current from a git repository, as `mantle2=earth-app/mantle2`             |
+| `--follow-interval <min>`   | Minutes between polls of a followed repository (default 5, the least the worker allows) |
+| `--carry-key <name...>`     | Carry a credential into the duplicate instead of blanking it                            |
+| `--hold-mail`               | Local only: queue the duplicate's mail and never send it                                |
+| `--plan <free\|paid>`       | The Workers plan the duplicate models; read from the account with `--deploy`            |
+| `--deploy`                  | Deploy as `drupflare-preview-<host>` behind Cloudflare Access                           |
+| `--access-email <email>`    | With `--deploy`, who may open the copy; defaults to the wrangler login                  |
+| `--source-url <origin>`     | The live site; each checked page must answer with the same status as there              |
+| `--out <dir>`               | Where the dump, the files and the workspace go (`.drangler/preview/<host>`)             |
+| `--port <n>`                | The local port for `wrangler dev`                                                       |
 
-`preview` needs worker 1.0.3 or later in its workspace and refuses an older checkout before
-installing, naming the `drangler update` command that moves it. It always asks, and `--yes` does not
-change that. With no terminal it refuses, `--full` included. The duplicate uses its own workspace under `--out`, so the checkout you deploy your own
-site from is not touched. A deployed preview is removed with `wrangler delete --name
-drupflare-preview-<host>`.
+`preview` needs worker 1.0.4 or later in its workspace and refuses an older checkout before
+installing, naming the `drangler update` command that moves it. The duplicate uses its own workspace
+under `--out`, so the checkout you deploy your own site from is not touched. A deployed preview is
+removed with `wrangler delete --name drupflare-preview-<host>`.
+
+### Answering without a prompt
+
+Every decision has a flag, a `DRANGLER_PREVIEW_<NAME>` variable, and a prompt on a terminal. A flag
+wins over a variable, and anything still open is asked on a terminal and refused without one, so a
+CI step never hangs. Lists are comma separated and booleans are `1`.
+
+| Variable                           | Same as                    |
+| ---------------------------------- | -------------------------- |
+| `DRANGLER_PREVIEW_ROOT`            | `--root`                   |
+| `DRANGLER_PREVIEW_SITE`            | `--site`                   |
+| `DRANGLER_PREVIEW_CONFIRM`         | `--confirm`                |
+| `DRANGLER_PREVIEW_PLAN`            | `--plan`                   |
+| `DRANGLER_PREVIEW_CHECK`           | `--check`                  |
+| `DRANGLER_PREVIEW_FOLLOW`          | `--follow`                 |
+| `DRANGLER_PREVIEW_FOLLOW_INTERVAL` | `--follow-interval`        |
+| `DRANGLER_PREVIEW_CARRY_KEYS`      | `--carry-key`              |
+| `DRANGLER_PREVIEW_ACCESS_EMAIL`    | `--access-email`           |
+| `DRANGLER_PREVIEW_DEPLOY`          | `--deploy` (set to `1`)    |
+| `DRANGLER_PREVIEW_HOLD_MAIL`       | `--hold-mail` (set to `1`) |
+
+```sh
+DRANGLER_PREVIEW_CONFIRM=old.example DRANGLER_PREVIEW_FOLLOW=mantle2=earth-app/mantle2 \
+  drangler preview --host deploy@old.example
+```
+
+### What preview decides for you
+
+**Credentials are blanked.** Sites that keep secrets in Drupal config, through the Key module's
+`config` provider or in `smtp.settings` and OAuth client settings, carry them in the database, and a
+copy holding live keys can act as production: write to a cloud API, call a payment provider, push to
+real devices. Preview finds every credential-bearing value in the converted database and in the
+literal `$config` overrides, empties each one through the `DRUPAL_CONFIG` override at runtime, and
+lists them by name. Nothing is rewritten in the database, and a public certificate is left alone.
+`--carry-key mantle2_api_key` restores one by key id, config name or `config:leaf`. A copy with a
+blank key can still read, and anything that needs the key fails closed.
+
+**Mail leaves through the worker.** A Mail System sender such as `SMTPMailSystem` opens its own
+socket, which a Worker cannot do, so preview points `mailsystem.settings` at the worker's mail layer.
+With the credentials blank that layer has no relay, so a copy sends nothing until you configure one.
+`--hold-mail` goes further for a local run: messages queue in `cfw_mail_queue` and are never sent, so
+a verification code can be read from the queue. It is refused with `--deploy`, where the queue would
+grow without limit.
+
+**Redis state comes along.** Keys outside the cache bins, such as mailed tokens and markers that stop
+a notification repeating, are read with a fixed script and written into the site's own database, where
+the worker's `\Redis` stand-in serves them. The stand-in answers the phpredis calls a module makes; a
+command it cannot answer throws `RedisException`.
+
+**A deploy is private.** `--deploy` creates a Cloudflare Access application on the `workers.dev`
+hostname, with a service token and a policy for one email, before the first upload, then waits until
+the edge turns visitors away. drangler claims and checks the copy with the service token. Nothing in
+DNS changes. If the source answers a path from your own Cloudflare Access, that path is reported as
+not compared, since the edge answered for the source there.
+
+**A first boot can take a few tries.** A fresh Durable Object replays the whole database on its first
+boot, and a wrangler older than 4.129.1 ends `wrangler dev` with an empty error when a request
+arrives while the site is still booting its second interpreter. The replay resumes, so preview starts
+wrangler again, up to five boots, and counts the site up after two answers in a row. A worker
+checkout of 1.0.4 or later installs a wrangler without the defect and needs no second boot.
+
+**A followed module stays current.** `--follow mantle2=earth-app/mantle2` adds the repository to the
+duplicate after it is claimed, mounted where the carried module already sits, and the worker polls it
+every five minutes. A public repository needs no token. The repository's `vendor/` is never
+delivered, so a commit that adds a composer dependency needs `drangler build --project` in the
+module's own CI.
+
+**Missing libraries are installed.** Composer libraries the source locks and the duplicate lacks are
+installed from the registry after the claim; any that fail are listed in `composer-missing.txt` as
+`drangler modify require` commands.
 
 Literal `$config` values are carried as a `DRUPAL_CONFIG` secret: in the workspace's `.dev.vars` for
 `wrangler dev`, and through `wrangler secret bulk` on `--deploy`. They are never printed. An override
