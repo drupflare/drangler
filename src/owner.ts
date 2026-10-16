@@ -30,6 +30,8 @@ export interface OwnerTarget {
 	site: string | null;
 	token: string;
 	timeoutMs: number;
+	/** sent with every call, such as the service token an Access policy takes in place of a login */
+	headers?: Record<string, string>;
 }
 
 export interface OwnerCallOptions {
@@ -110,6 +112,7 @@ export async function ownerCall(
 		response = await deps.fetch(url, {
 			method,
 			headers: {
+				...(owner.headers ?? {}),
 				// `/firstrun` is public and takes no credential on a site nobody has claimed yet
 				...(owner.token === '' ? {} : { authorization: `Bearer ${owner.token}` }),
 				...(opts.body === undefined ? {} : { 'content-type': 'application/json' })
