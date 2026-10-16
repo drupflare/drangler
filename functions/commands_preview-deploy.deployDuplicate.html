@@ -17,10 +17,12 @@
 <div class="tsd-signature tsd-anchor-link" id="deployduplicate"><span class="tsd-kind-call-signature">deployDuplicate</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">ctx</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/context.Context.html" class="tsd-signature-type tsd-kind-interface">Context</a><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">input</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/commands_preview-deploy.DeployInput.html" class="tsd-signature-type tsd-kind-interface">DeployInput</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/commands_preview-deploy.Deployed.html" class="tsd-signature-type tsd-kind-interface">Deployed</a><span class="tsd-signature-symbol">&gt;</span><a href="#deployduplicate" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
 <div class="tsd-comment tsd-typography"><p>Deploys the duplicate behind Cloudflare Access.</p>
-<p>ORDER IS THE POINT. The Access app goes up before the worker exists and the deploy waits until
-the edge turns an unauthenticated visitor away, so there is no moment at which a site holding
-production rows answers anyone who finds its address, and none at which <code>/firstrun</code> is open to
-whoever asks first. Drangler then reaches it with a service token, never a login.</p>
+<p>ORDER IS THE POINT. The Access app goes up before the worker exists, so the first answer the
+hostname ever gives is the login redirect: there is no moment at which a site holding production
+rows answers anyone who finds its address, and none at which <code>/firstrun</code> is open to whoever asks
+first. A data-free placeholder is deployed under the guarded name and the edge is confirmed to turn
+a visitor away from it before the real worker goes up, and again before any secret is sent or any
+claim is made. drangler reaches the copy with a service token, never a login.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -29,7 +31,7 @@ whoever asks first. Drangler then reaches it with a service token, never a login
 <li><span><span class="tsd-kind-parameter">input</span>: <a href="../interfaces/commands_preview-deploy.DeployInput.html" class="tsd-signature-type tsd-kind-interface">DeployInput</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/commands_preview-deploy.Deployed.html" class="tsd-signature-type tsd-kind-interface">Deployed</a><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/984c0a9b09d95bbfd2bbd67f4189ad2af21410d7/src/commands/preview-deploy.ts#L61">src/commands/preview-deploy.ts:61</a></li></ul></aside></div></li></ul></section></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/151020d4262a25f8eff244d156dd40bdf42f5b06/src/commands/preview-deploy.ts#L173">src/commands/preview-deploy.ts:173</a></li></ul></aside></div></li></ul></section></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">

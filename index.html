@@ -1096,6 +1096,18 @@ URL, which is how a fork or an offline copy is used.</p>
 <p><code>--refresh</code> runs <code>git fetch</code> and <code>git merge --ff-only</code>, and refuses outright when the checkout has
 uncommitted changes in it. <code>--force</code> re-runs <code>install</code> and <code>hydrate</code>; it never re-clones, because
 that would mean deleting a tree.</p>
+<h3 id="prerelease-builds" class="tsd-anchor-link">Prerelease builds<a href="#prerelease-builds" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>An unstated build clones the newest release tag, because a release always has its payload.
+<code>--edge [branch]</code> (or <code>DRANGLER_WORKER_EDGE</code>) takes a prerelease instead: it clones the tip of the
+branch, <code>master</code> when none is named, and runs <code>bun run hydrate --dev=&lt;branch&gt;</code>, which downloads the
+worker's rolling payload for that branch from the CDN (<code>payloads/dev-master/</code> and its siblings,
+replaced on every push) instead of building the artifacts from source. It works on <code>build</code>, <code>dev</code>,
+<code>deploy</code> and <code>preview</code>, and <code>DRANGLER_PREVIEW_EDGE</code> answers it for <code>preview</code>.</p>
+<p>The bytes are a branch tip, so the next push replaces them and two runs an hour apart can differ.
+<code>--edge</code> refuses <code>--from</code> and <code>--from-source</code>, which name other bytes, and a <code>--ref</code> that names
+another branch. It combines with <code>--payload-only</code>, which fails the build when the dev line has no
+payload for the branch. A checkout older than the worker's <code>--dev</code> flag ignores it and resolves its
+payload the ordinary way, which lands the dev line only when no release answers.</p>
 <hr>
 <h2 id="validation" class="tsd-anchor-link">Validation<a href="#validation" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p><code>drangler validate</code> runs five checks against a workspace. Each one reports a fix, and a check that
@@ -1245,6 +1257,10 @@ the list are refused before they reach the host.</p>
 <td>Local only: queue the duplicate's mail and never send it</td>
 </tr>
 <tr>
+<td><code>--edge [branch]</code></td>
+<td>Build the duplicate's worker from a branch tip and its CDN payload, not a release</td>
+</tr>
+<tr>
 <td><code>--plan &lt;free|paid&gt;</code></td>
 <td>The Workers plan the duplicate models; read from the account with <code>--deploy</code></td>
 </tr>
@@ -1330,6 +1346,10 @@ CI step never hangs. Lists are comma separated and booleans are <code>1</code>.<
 <td><code>DRANGLER_PREVIEW_HOLD_MAIL</code></td>
 <td><code>--hold-mail</code> (set to <code>1</code>)</td>
 </tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_EDGE</code></td>
+<td><code>--edge</code> (<code>1</code> or a branch)</td>
+</tr>
 </tbody>
 </table>
 <pre><code class="sh"><span class="hl-6">DRANGLER_PREVIEW_CONFIRM</span><span class="hl-1">=</span><span class="hl-2">old.example</span><span class="hl-1"> </span><span class="hl-6">DRANGLER_PREVIEW_FOLLOW</span><span class="hl-1">=</span><span class="hl-6">mantle2</span><span class="hl-1">=</span><span class="hl-2">earth-app/mantle2</span><span class="hl-1"> </span><span class="hl-0">\</span><br/><span class="hl-1">  </span><span class="hl-2">drangler</span><span class="hl-1"> </span><span class="hl-2">preview</span><span class="hl-1"> </span><span class="hl-3">--host</span><span class="hl-1"> </span><span class="hl-2">deploy@old.example</span>
@@ -1344,6 +1364,12 @@ literal <code>$config</code> overrides, empties each one through the <code>DRUPA
 lists them by name. Nothing is rewritten in the database, and a public certificate is left alone.
 <code>--carry-key mantle2_api_key</code> restores one by key id, config name or <code>config:leaf</code>. A copy with a
 blank key can still read, and anything that needs the key fails closed.</p>
+<p><strong>CSS and JS aggregation is turned off.</strong> Drupal's own aggregation reads stylesheets with the
+interpreter's file functions, and those files are served by the asset layer, so an aggregate comes
+back as a licence header and the page loses its theme. A production site has aggregation on, often in
+<code>settings.php</code>, and <code>$config</code> outranks anything the worker registers, so preview sets
+<code>system.performance</code> <code>css.preprocess</code> and <code>js.preprocess</code> to false in <code>DRUPAL_CONFIG</code> every time and
+says so when the source had them on. The worker aggregates at the edge instead.</p>
 <p><strong>Mail leaves through the worker.</strong> A Mail System sender such as <code>SMTPMailSystem</code> opens its own
 socket, which a Worker cannot do, so preview points <code>mailsystem.settings</code> at the worker's mail layer.
 With the credentials blank that layer has no relay, so a copy sends nothing until you configure one.
@@ -1355,9 +1381,13 @@ a notification repeating, are read with a fixed script and written into the site
 the worker's <code>\Redis</code> stand-in serves them. The stand-in answers the phpredis calls a module makes; a
 command it cannot answer throws <code>RedisException</code>.</p>
 <p><strong>A deploy is private.</strong> <code>--deploy</code> creates a Cloudflare Access application on the <code>workers.dev</code>
-hostname, with a service token and a policy for one email, before the first upload, then waits until
-the edge turns visitors away. drangler claims and checks the copy with the service token. Nothing in
-DNS changes. If the source answers a path from your own Cloudflare Access, that path is reported as
+hostname, with a service token and a policy for one email, before the first upload. A placeholder
+with no data goes up first, the real worker follows only once the edge turns visitors away from the
+placeholder, and the secrets and the claim wait for a second check. The copy is claimed with the
+service token. The copy joins no fleet: the worker's <code>FLEET_DB</code> binding is removed from the preview's
+own workspace config, so it never registers in, or warms sites from, a fleet database on your account.
+The token needs Access: Service Tokens Edit and Access: Apps and Policies Edit
+on the account. Nothing in DNS changes. If the source answers a path from your own Cloudflare Access, that path is reported as
 not compared, since the edge answered for the source there.</p>
 <p><strong>A first boot can take a few tries.</strong> A fresh Durable Object replays the whole database on its first
 boot, and a wrangler older than 4.129.1 ends <code>wrangler dev</code> with an empty error when a request
@@ -1912,6 +1942,9 @@ checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <li><a href="#errors"><span>Errors</span></a></li>
 <li><a href="#commands"><span>Commands</span></a></li>
 <li><a href="#workspaces"><span>Workspaces</span></a></li>
+<li>
+<ul>
+<li><a href="#prerelease-builds"><span>Prerelease builds</span></a></li></ul></li>
 <li><a href="#validation"><span>Validation</span></a></li>
 <li><a href="#preview"><span>Preview</span></a></li>
 <li>
