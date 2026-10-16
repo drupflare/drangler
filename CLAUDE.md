@@ -500,6 +500,15 @@ private key or API key, and `smtp_username`) and `preview` empties each one thro
 the values never are, and `--carry-key` restores one. Chosen over carrying everything locally and
 blanking on deploy, because a stray scheduled event on a laptop is as live as one on Cloudflare.
 
+**Aggregation is forced off in the carried config, and the module override alone is not enough.**
+Measured 2026-10-16 on the earth-app copy: the administration theme's CSS aggregate was 3,327 bytes
+and the script aggregates 73 and 71, so every admin page rendered unstyled. The source's `$config`
+set `system.performance` `css.preprocess` and `js.preprocess` true, and `$config` outranks the
+`config.factory.override` the drupflare module registers. `forceAggregationOff()` in
+`src/migrate/platform.ts` writes both false into `DRUPAL_CONFIG` unconditionally. After a secret
+change the live site kept serving aggregates until its object restarted, so a verdict needs a fresh
+incarnation (`coldEncounters.incarnation` in `/serve-stats` drops when it has).
+
 **Mail is moved onto the worker's layer.** `mailsystem.settings.defaults.sender` of `SMTPMailSystem`
 opens a socket a Worker cannot, and `mailsystem` outranks the worker's `system.mail` override, so the
 message was lost before the worker saw it. `mail-system.ts` points the sender at `cfw_mail`.
@@ -507,10 +516,31 @@ message was lost before the worker saw it. `mail-system.ts` points the sender at
 is read from `cfw_mail_queue`.
 
 **A deploy is private or it does not happen.** `createGuard()` makes an Access app on the `workers.dev`
-hostname before the first upload and `waitGuarded()` waits for the edge to turn visitors away. The
-copy holds real users' emails and password hashes, so there is no public fallback. A token that can
-read Access but not write it stops the run with the permission named and nothing created (measured:
-HTTP 403, code 1010 on the service token POST).
+hostname before the first upload, deploys a data-free placeholder under that name, and
+`waitGuarded()` must see the edge turn a visitor away from it before the real worker goes up; it
+checks again after the real deploy, before a secret is sent or a claim is made. The check cannot come
+before any script exists: a workers.dev name with no script answers a bare 404 and Access is not
+consulted (measured 2026-10-16, a probe under a guarded name read 404 and then a 302 to the Access
+login on the first answer from the script, never a 200). The placeholder makes that structural, so
+data never goes up before enforcement is seen, and nothing here deletes a worker on failure. The copy also leaves the fleet: `leaveFleet()` drops the `FLEET_DB` binding from the preview's own
+workspace config, because the binding names a D1 database by name and the name resolved to the user's
+existing `drupflare-fleet`, where the first deploy registered itself and from which its cron warms the
+other sites in the table (2026-10-16; the row was removed by hand). The copy holds real users' emails and
+password hashes, so there is no public fallback. A token that can read Access but not write it
+stops the run with the permission named and nothing created (measured: HTTP 403, code 1010 on the
+service token POST, which needs Access: Service Tokens Edit as well as Access: Apps and Policies
+Edit; an empty-body POST with the scope creates a token, so probe with a read).
+
+**`--edge [branch]` is how a prerelease worker is built, and it asks the CHECKOUT, not the CDN.** An
+unstated build pins the newest release tag, so a duplicate could not be built from a branch whose
+version has no release yet (the 2026-10-16 run on `master` at 1.0.4 stopped at the `1.0.4` gate with
+the tag not cut). `--edge` clones the branch and runs `bun run hydrate --dev=<branch>`; the worker's
+`hydrate` resolves `payloads/dev-<branch>/` on the CDN, so the key layout and the fallback order
+stay in one place. The flag exists on `build`, `dev`, `deploy` and `preview`, with
+`DRANGLER_WORKER_EDGE` and `DRANGLER_PREVIEW_EDGE` beside it, and it refuses `--from`,
+`--from-source` and a ref that names another branch. A checkout older than the worker's `--dev` flag
+ignores the argument and resolves the ordinary way. A branch tip is not a release: the next push
+replaces the bytes, and `PREVIEW_MIN_WORKER` still gates on the version it carries.
 
 **A first boot is retried, and the cause is wrangler, not the worker.** On a 98 MB database `wrangler
 dev` ended during the first boot with an empty error ("Network connection lost" in its proxy).

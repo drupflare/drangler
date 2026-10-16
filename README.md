@@ -924,6 +924,21 @@ URL, which is how a fork or an offline copy is used.
 uncommitted changes in it. `--force` re-runs `install` and `hydrate`; it never re-clones, because
 that would mean deleting a tree.
 
+### Prerelease builds
+
+An unstated build clones the newest release tag, because a release always has its payload.
+`--edge [branch]` (or `DRANGLER_WORKER_EDGE`) takes a prerelease instead: it clones the tip of the
+branch, `master` when none is named, and runs `bun run hydrate --dev=<branch>`, which downloads the
+worker's rolling payload for that branch from the CDN (`payloads/dev-master/` and its siblings,
+replaced on every push) instead of building the artifacts from source. It works on `build`, `dev`,
+`deploy` and `preview`, and `DRANGLER_PREVIEW_EDGE` answers it for `preview`.
+
+The bytes are a branch tip, so the next push replaces them and two runs an hour apart can differ.
+`--edge` refuses `--from` and `--from-source`, which name other bytes, and a `--ref` that names
+another branch. It combines with `--payload-only`, which fails the build when the dev line has no
+payload for the branch. A checkout older than the worker's `--dev` flag ignores it and resolves its
+payload the ordinary way, which lands the dev line only when no release answers.
+
 ---
 
 ## Validation
@@ -1020,6 +1035,7 @@ the list are refused before they reach the host.
 | `--follow-interval <min>`   | Minutes between polls of a followed repository (default 5, the least the worker allows) |
 | `--carry-key <name...>`     | Carry a credential into the duplicate instead of blanking it                            |
 | `--hold-mail`               | Local only: queue the duplicate's mail and never send it                                |
+| `--edge [branch]`           | Build the duplicate's worker from a branch tip and its CDN payload, not a release       |
 | `--plan <free\|paid>`       | The Workers plan the duplicate models; read from the account with `--deploy`            |
 | `--deploy`                  | Deploy as `drupflare-preview-<host>` behind Cloudflare Access                           |
 | `--access-email <email>`    | With `--deploy`, who may open the copy; defaults to the wrangler login                  |
@@ -1051,6 +1067,7 @@ CI step never hangs. Lists are comma separated and booleans are `1`.
 | `DRANGLER_PREVIEW_ACCESS_EMAIL`    | `--access-email`           |
 | `DRANGLER_PREVIEW_DEPLOY`          | `--deploy` (set to `1`)    |
 | `DRANGLER_PREVIEW_HOLD_MAIL`       | `--hold-mail` (set to `1`) |
+| `DRANGLER_PREVIEW_EDGE`            | `--edge` (`1` or a branch) |
 
 ```sh
 DRANGLER_PREVIEW_CONFIRM=old.example DRANGLER_PREVIEW_FOLLOW=mantle2=earth-app/mantle2 \
@@ -1068,6 +1085,13 @@ lists them by name. Nothing is rewritten in the database, and a public certifica
 `--carry-key mantle2_api_key` restores one by key id, config name or `config:leaf`. A copy with a
 blank key can still read, and anything that needs the key fails closed.
 
+**CSS and JS aggregation is turned off.** Drupal's own aggregation reads stylesheets with the
+interpreter's file functions, and those files are served by the asset layer, so an aggregate comes
+back as a licence header and the page loses its theme. A production site has aggregation on, often in
+`settings.php`, and `$config` outranks anything the worker registers, so preview sets
+`system.performance` `css.preprocess` and `js.preprocess` to false in `DRUPAL_CONFIG` every time and
+says so when the source had them on. The worker aggregates at the edge instead.
+
 **Mail leaves through the worker.** A Mail System sender such as `SMTPMailSystem` opens its own
 socket, which a Worker cannot do, so preview points `mailsystem.settings` at the worker's mail layer.
 With the credentials blank that layer has no relay, so a copy sends nothing until you configure one.
@@ -1081,9 +1105,13 @@ the worker's `\Redis` stand-in serves them. The stand-in answers the phpredis ca
 command it cannot answer throws `RedisException`.
 
 **A deploy is private.** `--deploy` creates a Cloudflare Access application on the `workers.dev`
-hostname, with a service token and a policy for one email, before the first upload, then waits until
-the edge turns visitors away. drangler claims and checks the copy with the service token. Nothing in
-DNS changes. If the source answers a path from your own Cloudflare Access, that path is reported as
+hostname, with a service token and a policy for one email, before the first upload. A placeholder
+with no data goes up first, the real worker follows only once the edge turns visitors away from the
+placeholder, and the secrets and the claim wait for a second check. The copy is claimed with the
+service token. The copy joins no fleet: the worker's `FLEET_DB` binding is removed from the preview's
+own workspace config, so it never registers in, or warms sites from, a fleet database on your account.
+The token needs Access: Service Tokens Edit and Access: Apps and Policies Edit
+on the account. Nothing in DNS changes. If the source answers a path from your own Cloudflare Access, that path is reported as
 not compared, since the edge answered for the source there.
 
 **A first boot can take a few tries.** A fresh Durable Object replays the whole database on its first
