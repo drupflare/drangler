@@ -261,6 +261,30 @@ describe('platform ceilings', () => {
 		expect(finding?.detail).toContain('100,000');
 	});
 
+	it('warns that Redis keys outside the cache bins will not travel, and names them by prefix', () => {
+		const state = {
+			keys: 640,
+			cache: 600,
+			prefixes: [
+				{ prefix: 'event_notified_ended:N', count: 30 },
+				{ prefix: 'unsubscribe_token_N', count: 10 }
+			]
+		};
+		const finding = find(survey({ redis: state }), 'redis-app-state');
+		expect(finding?.severity).toBe('warning');
+		expect(finding?.title).toContain('40 Redis key(s)');
+		expect(finding?.detail).toContain('event_notified_ended:N x30');
+		expect(finding?.detail).toContain('unsubscribe_token_N x10');
+	});
+
+	it('says nothing about Redis when none answered or it holds only cache', () => {
+		expect(find(survey({ redis: null }), 'redis-app-state')).toBeUndefined();
+		expect(find(survey(), 'redis-app-state')).toBeUndefined();
+		expect(
+			find(survey({ redis: { keys: 50, cache: 50, prefixes: [] } }), 'redis-app-state')
+		).toBeUndefined();
+	});
+
 	it('scales the regeneration finding with the node count', () => {
 		expect(find(survey({ nodes: 20 }), 'regeneration-ceiling')).toBeUndefined();
 		expect(find(survey({ nodes: 2000 }), 'regeneration-ceiling')?.severity).toBe('note');
@@ -669,6 +693,29 @@ describe('declared and called extensions', () => {
 		]);
 	});
 
+	it('does not count what drupal core requires, so an unguarded GD call in a module only warns', () => {
+		const lock = JSON.stringify({
+			packages: [
+				{ name: 'drupal/core', require: { 'ext-gd': '*' } },
+				{ name: 'drupal/core-recommended', require: { 'ext-gd': '*' } }
+			]
+		});
+		expect(declaredExtensions([], lock)).toEqual([]);
+		const plan = planWith(survey(), {
+			...sourceOf([
+				php(
+					'modules/mantle2/src/Service/PointsHelper.php',
+					'<?php\n$i = imagecreatefromstring($d);\n'
+				)
+			]),
+			lock
+		});
+		const finding = plan.findings.find((f) => f.id === 'extensions-called');
+		expect(finding?.severity).toBe('warning');
+		expect(finding?.detail).toContain('ext-gd');
+		expect(finding?.detail).toContain('modules/mantle2/src/Service/PointsHelper.php:2');
+	});
+
 	it('notes a declared extension nothing calls', () => {
 		const plan = planWith(
 			survey(),
@@ -735,11 +782,11 @@ describe('settings translation', () => {
 	it('translates a literal phpredis connection to REDIS_URL without printing it', () => {
 		const settings = report([
 			"$settings['redis.connection']['interface'] = 'PhpRedis';",
-			"$settings['redis.connection']['host'] = 'cache.internal';",
+			"$settings['redis.connection']['host'] = 'cache.example.com';",
 			"$settings['redis.connection']['port'] = 6380;",
 			"$settings['redis.connection']['password'] = 'p@ss/w:rd';"
 		]);
-		expect(settings.redisUrl).toBe('redis://:p%40ss%2Fw%3Ard@cache.internal:6380');
+		expect(settings.redisUrl).toBe('redis://:p%40ss%2Fw%3Ard@cache.example.com:6380');
 		const plan = planWith(survey(), sourceOf([], { settings }));
 		const finding = plan.findings.find((f) => f.id === 'settings-redis');
 		expect(finding?.severity).toBe('note');
@@ -748,15 +795,39 @@ describe('settings translation', () => {
 	});
 
 	it('takes the redis defaults only for the port, and lets settings.local.php override', () => {
-		expect(report(["$settings['redis.connection']['host'] = '10.0.0.5';"]).redisUrl).toBe(
-			'redis://10.0.0.5:6379'
+		expect(report(["$settings['redis.connection']['host'] = '203.0.113.5';"]).redisUrl).toBe(
+			'redis://203.0.113.5:6379'
 		);
 		expect(
 			report([
-				"$settings['redis.connection']['host'] = '10.0.0.5';",
-				"$settings['redis.connection']['host'] = '10.0.0.9';"
+				"$settings['redis.connection']['host'] = '203.0.113.5';",
+				"$settings['redis.connection']['host'] = '203.0.113.9';"
 			]).redisUrl
-		).toBe('redis://10.0.0.9:6379');
+		).toBe('redis://203.0.113.9:6379');
+	});
+
+	it('does not write REDIS_URL for a host only the source machine can see, and warns', () => {
+		for (const host of [
+			'127.0.0.1',
+			'localhost',
+			'::1',
+			'10.0.0.5',
+			'192.168.1.9',
+			'172.20.0.2',
+			'redis',
+			'cache.internal'
+		]) {
+			const settings = report([
+				`$settings['redis.connection']['host'] = '${host}';`,
+				"$settings['redis.connection']['port'] = 6379;"
+			]);
+			expect(settings.redisUrl, host).toBeNull();
+			expect(settings.redisNote, host).toContain('cannot reach');
+			const finding = planWith(survey(), sourceOf([], { settings })).findings.find(
+				(f) => f.id === 'settings-redis'
+			);
+			expect(finding?.severity, host).toBe('warning');
+		}
 	});
 
 	it('names an expression instead of guessing, and refuses a unix socket', () => {

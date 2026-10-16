@@ -341,6 +341,23 @@ export const RULES: readonly Rule[] = [
 		}
 	},
 	{
+		id: 'redis-app-state',
+		direction: 'to-worker',
+		evaluate(survey) {
+			const redis = survey.redis;
+			if (redis === null || redis === undefined) return null;
+			const app = redis.keys - redis.cache;
+			if (app <= 0) return null;
+			return found(
+				'redis-app-state',
+				'warning',
+				`${app} Redis key(s) sit outside Drupal's cache bins and will not travel`,
+				`${redis.prefixes.map((p) => `${p.prefix} x${p.count}`).join(', ')}. Redis is memory and the dump is SQL, so none of it is carried and a copy starts with none. Anything in it that is state rather than cache (a token already mailed to a user, a marker that stops a notification repeating) has to live in the module's own database table, which is also the only place the dump and the backups can see it`,
+				'redis-cli --scan, counted by prefix'
+			);
+		}
+	},
+	{
 		id: 'extensions-called',
 		direction: 'to-worker',
 		evaluate(_survey, _target, _envelope, source) {

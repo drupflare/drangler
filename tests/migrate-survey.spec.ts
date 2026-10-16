@@ -12,6 +12,8 @@ import {
 	parseModuleList,
 	parsePhpModules,
 	parsePhpVersion,
+	parseRedisKeys,
+	redisPrefix,
 	runSurvey,
 	settledSteps,
 	surveyPlan
@@ -50,7 +52,14 @@ const transcript = (): Transcript => ({
 	[step('db-alive')]: ok('1\n1'),
 	[step('file-rows')]: ok('COUNT(*)\n1200'),
 	[step('nodes')]: ok('COUNT(*)\n2000'),
-	[step('image-styles')]: ok('COUNT(*)\n6')
+	[step('image-styles')]: ok('COUNT(*)\n6'),
+	[step('redis-keys')]: ok(
+		[
+			'drupal.redis.11.abc:data:cid1',
+			'drupal.redis.11.abc:page:cid2',
+			'unsubscribe_token_9f2c4a7b1d3e5f60'
+		].join('\n')
+	)
 });
 
 describe('surveyPlan', () => {
@@ -122,6 +131,41 @@ describe('applyStep', () => {
 		expect(survey).toEqual(emptySurvey('h', '/r'));
 	});
 
+	it('reduces a Redis key to a counted prefix without ids, hashes or addresses', () => {
+		expect(redisPrefix('unsubscribe_token_9f2c4a7b1d3e5f60')).toBe('unsubscribe_token_N');
+		expect(redisPrefix('event_notified_ended:1234')).toBe('event_notified_ended:N');
+		expect(redisPrefix('user:42:public:a@b.example')).toBe('user:N');
+		expect(redisPrefix('campaign:welcome_back:77')).toBe('campaign:welcome_back');
+	});
+
+	it('counts app keys by prefix, sets Drupal cache keys aside, and drops every name', () => {
+		const state = parseRedisKeys(
+			[
+				'drupal.redis.11.x:data:c1',
+				'drupal.redis.11.x:render:c2',
+				'event_notified_ended:1',
+				'event_notified_ended:2',
+				'motd'
+			].join('\n')
+		);
+		expect(state).toEqual({
+			keys: 5,
+			cache: 2,
+			prefixes: [
+				{ prefix: 'event_notified_ended:N', count: 2 },
+				{ prefix: 'motd', count: 1 }
+			]
+		});
+		expect(JSON.stringify(state)).not.toContain('event_notified_ended:1');
+	});
+
+	it('reads an auth error or an empty scan as unknown, not as no state', () => {
+		expect(parseRedisKeys('NOAUTH Authentication required.')).toBeNull();
+		expect(parseRedisKeys('(error) ERR unknown command')).toBeNull();
+		expect(parseRedisKeys('Could not connect to Redis at 127.0.0.1:6379')).toBeNull();
+		expect(parseRedisKeys('')).toBeNull();
+	});
+
 	it('leaves the survey alone when drush status is unparseable', () => {
 		const survey = emptySurvey('h', '/r');
 		applyStep(survey, 'drush-status', 'bash: drush: not found');
@@ -152,6 +196,11 @@ describe('runSurvey', () => {
 		// the two controls: the database answered, and the file count has something to mean
 		expect(survey.dbAlive).toBe(true);
 		expect(survey.fileRows).toBe(1200);
+		expect(survey.redis).toEqual({
+			keys: 3,
+			cache: 2,
+			prefixes: [{ prefix: 'unsubscribe_token_N', count: 1 }]
+		});
 		expect(survey.errors).toEqual([]);
 	});
 

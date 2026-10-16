@@ -176,7 +176,15 @@ export interface DeclaredExtension {
 	by: string;
 }
 
-/** `ext-*` requirements, in the code tree's composer.json files and in the source's lock. */
+/** the worker ships its own core, so what core requires says nothing about this site's code */
+const CORE_PACKAGE = /^drupal\/core(-|$)/;
+
+/**
+ * `ext-*` requirements, in the code tree's composer.json files and in the source's lock.
+ *
+ * Drupal core's own requirements are left out: `drupal/core` asks for ext-gd and the worker runs
+ * core without it, so counting that declaration turned every unguarded GD call into a blocker.
+ */
 export function declaredExtensions(
 	files: readonly { path: string; text: string }[],
 	lock: string | null
@@ -195,6 +203,7 @@ export function declaredExtensions(
 			const m = /^ext-(.+)$/.exec(key);
 			if (m === null || !(m[1]! in EXTENSION_CALLS)) continue;
 			const by = manifest?.name ?? fallback;
+			if (CORE_PACKAGE.test(by)) continue;
 			if (!out.some((d) => d.extension === m[1] && d.by === by)) {
 				out.push({ extension: m[1]!, by });
 			}
@@ -216,13 +225,13 @@ export function declaredExtensions(
  * Reads the source's own files from a directory: the code trees, `composer.lock` and the settings
  * files, each when present. The directory can be a Drupal root or a preview's output folder.
  */
-export function readSourceCode(files: FileHost, dir: string): SourceCode {
+export function readSourceCode(files: FileHost, dir: string, siteDir = 'default'): SourceCode {
 	const tree = CODE_DIRS.some((d) => files.exists(`${dir}/${d}`))
 		? codeTree(files, dir).files.map((f) => ({ path: f.path, text: f.text }))
 		: [];
 	const lockAt = [`${dir}/composer.lock`, `${dir}/../composer.lock`].find((p) => files.exists(p));
 	const settingsAt = ['settings.php', 'settings.local.php']
-		.map((n) => `${dir}/sites/default/${n}`)
+		.map((n) => `${dir}/sites/${siteDir}/${n}`)
 		.filter((p) => files.exists(p));
 	const assignments = settingsAt.flatMap((p) => parseSettings(files.readText(p)));
 	return {

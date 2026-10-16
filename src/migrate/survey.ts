@@ -40,6 +40,8 @@ export interface SiteSurvey {
 	modules: string[];
 	nodes: number | null;
 	imageStyles: number | null;
+	/** null when no Redis answered, which is not the same as a Redis holding nothing */
+	redis?: RedisState | null;
 	errors: { id: string; detail: string }[];
 }
 
@@ -53,26 +55,30 @@ export interface SiteSurvey {
  * The `drush sql:query` steps are MySQL-shaped and are all optional, because a site on PostgreSQL or
  * SQLite should still produce a survey rather than an error report.
  */
-export function surveyPlan(root: string): SurveyStep[] {
-	const cd = `cd ${root} &&`;
+export function surveyPlan(
+	root: string,
+	opts: { drush?: string; siteDir?: string } = {}
+): SurveyStep[] {
+	const drush = opts.drush ?? `cd ${root} && drush`;
+	const site = opts.siteDir ?? 'default';
 	return [
 		{ id: 'php-version', command: 'php -v', required: true, description: 'PHP version' },
 		{ id: 'php-modules', command: 'php -m', required: true, description: 'loaded extensions' },
 		{
 			id: 'drush-version',
-			command: `${cd} drush --version`,
+			command: `${drush} --version`,
 			required: false,
 			description: 'drush presence'
 		},
 		{
 			id: 'drush-status',
-			command: `${cd} drush status --format=json`,
+			command: `${drush} status --format=json`,
 			required: true,
 			description: 'Drupal version, database driver, site URI'
 		},
 		{
 			id: 'modules',
-			command: `${cd} drush pm:list --status=enabled --type=module --format=json`,
+			command: `${drush} pm:list --status=enabled --type=module --format=json`,
 			required: true,
 			description: 'enabled modules'
 		},
@@ -82,20 +88,20 @@ export function surveyPlan(root: string): SurveyStep[] {
 			// there -- so a `du` that answered "No such file or directory" produced no finding at
 			// all and the whole verdict was unreachable
 			id: 'files-kb',
-			command: `du -sk ${root}/sites/default/files`,
+			command: `du -sk ${root}/sites/${site}/files`,
 			required: true,
 			description: 'public files size'
 		},
 		{
 			id: 'files-count',
-			command: `find ${root}/sites/default/files -type f | wc -l`,
+			command: `find ${root}/sites/${site}/files -type f | wc -l`,
 			required: false,
 			description: 'public file count'
 		},
 		{
 			id: 'db-bytes',
 			command:
-				`${cd} drush sql:query ` +
+				`${drush} sql:query ` +
 				'"SELECT SUM(data_length + index_length) FROM information_schema.tables ' +
 				'WHERE table_schema = DATABASE()"',
 			required: false,
@@ -103,31 +109,87 @@ export function surveyPlan(root: string): SurveyStep[] {
 		},
 		{
 			id: 'db-alive',
-			command: `${cd} drush sql:query "SELECT 1"`,
+			command: `${drush} sql:query "SELECT 1"`,
 			required: false,
 			description: 'whether the database answers'
 		},
 		{
 			id: 'file-rows',
-			command: `${cd} drush sql:query "SELECT COUNT(*) FROM file_managed"`,
+			command: `${drush} sql:query "SELECT COUNT(*) FROM file_managed"`,
 			required: false,
 			description: 'managed file rows'
 		},
 		{
 			id: 'nodes',
-			command: `${cd} drush sql:query "SELECT COUNT(*) FROM node"`,
+			command: `${drush} sql:query "SELECT COUNT(*) FROM node"`,
 			required: false,
 			description: 'node count'
 		},
 		{
 			id: 'image-styles',
 			command:
-				`${cd} drush sql:query ` +
+				`${drush} sql:query ` +
 				`"SELECT COUNT(*) FROM config WHERE name LIKE 'image.style.%'"`,
 			required: false,
 			description: 'image style count'
+		},
+		{
+			// names are reduced to counted prefixes as they arrive and never stored
+			id: 'redis-keys',
+			command: 'redis-cli --scan',
+			required: false,
+			description: 'Redis keys outside the Drupal cache bins'
 		}
 	];
+}
+
+/** what a Redis on the host holds that a SQL dump cannot carry */
+export interface RedisState {
+	keys: number;
+	/** keys under the redis module's default `drupal.redis.` prefix, which are cache and regenerate */
+	cache: number;
+	/** everything else, counted by prefix with ids, hashes and addresses replaced by `N` */
+	prefixes: { prefix: string; count: number }[];
+}
+
+/** `unsubscribe_token_9f2c...` to `unsubscribe_token_N`, and `a:12:b@x.com:c` to `a:N` */
+export function redisPrefix(key: string): string {
+	return key
+		.replace(/[^:]*@[^:]*/g, 'N')
+		.replace(/[0-9a-f]{16,}|[0-9]+/g, 'N')
+		.split(':')
+		.slice(0, 2)
+		.join(':');
+}
+
+/** Counts `redis-cli --scan` output by prefix. The key names themselves are dropped. */
+export function parseRedisKeys(stdout: string): RedisState | null {
+	const lines = stdout.split('\n').filter((l) => l.trim() !== '');
+	// an auth error or a usage message is output too, and counting it as a key would be a finding
+	if (
+		lines.length === 0 ||
+		lines.some((l) => /^(\(error\)|NOAUTH|ERR |Could not connect)/.test(l))
+	) {
+		return null;
+	}
+	const counts = new Map<string, number>();
+	let cache = 0;
+	for (const key of lines) {
+		if (key.startsWith('drupal.redis.')) {
+			cache++;
+			continue;
+		}
+		const prefix = redisPrefix(key);
+		counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+	}
+	return {
+		keys: lines.length,
+		cache,
+		prefixes: [...counts]
+			.map(([prefix, count]) => ({ prefix, count }))
+			.sort((a, b) => b.count - a.count || a.prefix.localeCompare(b.prefix))
+			.slice(0, 12)
+	};
 }
 
 /** `PHP 8.3.6 (cli) (built: ...)` to `8.3.6`. */
@@ -255,6 +317,7 @@ export function emptySurvey(host: string, root: string): SiteSurvey {
 		modules: [],
 		nodes: null,
 		imageStyles: null,
+		redis: null,
 		errors: []
 	};
 }
@@ -275,7 +338,8 @@ export async function runSurvey(
 	deps: SurveyDeps,
 	host: string,
 	root: string,
-	resumeFrom: SiteSurvey | null = null
+	resumeFrom: SiteSurvey | null = null,
+	layout: { drush?: string; siteDir?: string } = {}
 ): Promise<SiteSurvey> {
 	const survey = resumeFrom === null ? emptySurvey(host, root) : { ...resumeFrom, host, root };
 	survey.capturedAt = (deps.now ?? (() => new Date()))().toISOString();
@@ -285,7 +349,7 @@ export async function runSurvey(
 	// a resume into a restart
 	if (resumeFrom !== null) survey.errors = [...resumeFrom.errors];
 
-	for (const step of surveyPlan(root)) {
+	for (const step of surveyPlan(root, layout)) {
 		if (settled.has(step.id)) continue;
 		let result: CommandResult;
 		try {
@@ -341,6 +405,7 @@ export function settledSteps(survey: SiteSurvey): Set<string> {
 	has('file-rows', survey.fileRows);
 	has('nodes', survey.nodes);
 	has('image-styles', survey.imageStyles);
+	has('redis-keys', survey.redis);
 	return done;
 }
 
@@ -393,6 +458,9 @@ export function applyStep(survey: SiteSurvey, id: string, stdout: string): void 
 			return;
 		case 'image-styles':
 			survey.imageStyles = parseCount(stdout);
+			return;
+		case 'redis-keys':
+			survey.redis = parseRedisKeys(stdout);
 			return;
 		default:
 			return;
