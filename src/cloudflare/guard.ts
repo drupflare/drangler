@@ -148,8 +148,9 @@ export function isTurnedAway(status: number, location: string | null): boolean {
 /**
  * Waits until the edge turns an unauthenticated visitor away.
  *
- * Access takes a few seconds to apply, and the deploy must not start before it does. A hostname
- * that still answers 200 or a bare 404 is unguarded as far as this check can tell.
+ * Run after the deploy, because a hostname with no script gives a bare 404 whatever Access holds. A
+ * hostname that answers 200 or a bare 404 once the script is there is unguarded as far as this
+ * check can tell.
  */
 export async function waitGuarded(
 	deps: { fetch: FetchLike; sleep: (ms: number) => Promise<void> },

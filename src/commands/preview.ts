@@ -3,7 +3,7 @@ import { workersPlan } from '../cloudflare/api';
 import { target as cloudflareTarget } from '../cloudflare/client';
 import type { GlobalOptions } from '../config/globals';
 import type { Context } from '../context';
-import { DranglerError, FindingError, UsageError } from '../errors';
+import { DranglerError, FindingError, ProbeError, UsageError } from '../errors';
 import { emit, bytes as humanBytes, kv, table } from '../format';
 import { convertDump } from '../migrate/convert';
 import {
@@ -22,6 +22,7 @@ import {
 } from '../migrate/discover';
 import { MAIL_SENDER_OVERRIDE, readMailSender, WORKER_MAIL_PLUGIN } from '../migrate/mail-system';
 import { buildPlan, renderPlan } from '../migrate/plan';
+import { forceAggregationOff } from '../migrate/platform';
 import {
 	assetHeadersFile,
 	buildSiteDb,
@@ -65,9 +66,10 @@ import { sshTransport, type Transport } from '../migrate/transport';
 import { ownerCall, type OwnerTarget } from '../owner';
 import { workerGaps } from '../workspace/capabilities';
 import { readState } from '../workspace/layout';
+import { edgeBranch } from '../workspace/source';
 import { runInstallCommand } from './migrate';
 import { requirePackages } from './modify';
-import { deployDuplicate } from './preview-deploy';
+import { deployDuplicate, splitDeployValues } from './preview-deploy';
 import { followModules, followRoot, parseFollow, type Follow } from './preview-follow';
 import { driveUpdb } from './site';
 import { DEV_PORT, runBuildCommand, runDevCommand } from './workspace';
@@ -92,6 +94,12 @@ export interface PreviewOptions {
 	carryKey?: string[] | undefined;
 	/** local only: queue mail in the duplicate and never send it, so a code can be read from the queue */
 	holdMail?: boolean | undefined;
+	/**
+	 * Build the duplicate's worker from the tip of this branch and take its rolling payload from the
+	 * CDN instead of a release. A bare flag is `true` and means the default branch; `previewEnv`
+	 * resolves it to the branch name.
+	 */
+	edge?: string | boolean | undefined;
 	identity?: string;
 	/** where the dump, the files and the preview's own worker checkout land */
 	out?: string;
@@ -178,6 +186,9 @@ function localCommands(
 	id?: string
 ): string[] {
 	return [
+		...(typeof opts.edge === 'string'
+			? [`drangler build --workspace ${workspace} --edge ${opts.edge}`]
+			: []),
 		`tar -xf ${join(out, 'files.tar')} -C ${out}`,
 		...CODE_DIRS.map((d) => `tar -xf ${join(out, `${d}.tar`)} -C ${out}`),
 		`drangler migrate install --db ${join(out, 'site.sqlite')} --repack --workspace ${workspace}`,
@@ -232,7 +243,8 @@ export function previewEnv(opts: PreviewOptions, env: NodeJS.ProcessEnv): Previe
 		check: opts.check ?? list('CHECK'),
 		carryKey: opts.carryKey ?? list('CARRY_KEYS'),
 		deploy: opts.deploy ?? (get('DEPLOY') === '1' ? true : undefined),
-		holdMail: opts.holdMail ?? (get('HOLD_MAIL') === '1' ? true : undefined)
+		holdMail: opts.holdMail ?? (get('HOLD_MAIL') === '1' ? true : undefined),
+		edge: edgeBranch(opts.edge ?? get('EDGE'), env)
 	};
 }
 
@@ -329,6 +341,7 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 	let moduleSettingCount = 0;
 	let redisRows: RedisRow[] = [];
 	let settingsBlanked: Credential[] = [];
+	let aggregationWasOn = false;
 	let missingLibs: { name: string; version: string }[] = [];
 	const follows = (opts.follow ?? []).map(parseFollow);
 	let followPlan: (Follow & { root: string })[] = [];
@@ -648,6 +661,7 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 					ctx.files.writeText(join(out, 'domains.txt'), domainsText(hosts));
 				}
 				settingsBlanked = blankOverrideCredentials(overrides.config, opts.carryKey ?? []);
+				aggregationWasOn = forceAggregationOff(overrides.config);
 				const carried = Object.keys(overrides.config).length;
 				if (opts.holdMail === true) {
 					secrets['MAIL_TRANSPORT'] = 'smtp';
@@ -848,6 +862,11 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 						`mail: the Mail System sender ${mailSender} opens its own socket, which a Worker cannot, so it is moved onto the worker's mail layer (${WORKER_MAIL_PLUGIN})`
 					);
 				}
+				if (aggregationWasOn) {
+					ctx.io.err(
+						'assets: the source turns CSS and JS aggregation on, which cannot work in the interpreter and leaves pages unstyled, so the duplicate serves the individual files'
+					);
+				}
 				if (blanked.length > 0) {
 					ctx.io.err(
 						`credentials: ${blanked.length} blanked in the duplicate, so it cannot act as production with them: ${blanked.map(describeCredential).join(', ')}; carry one with --carry-key <name>`
@@ -879,7 +898,11 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 			}
 			case 'install': {
 				if (!readState(ctx.files, workspace).checkout) {
-					await runBuildCommand(ctx, { workspace, globals: opts.globals });
+					await runBuildCommand(ctx, {
+						workspace,
+						globals: opts.globals,
+						...(typeof opts.edge === 'string' ? { edge: opts.edge } : {})
+					});
 				}
 				refuseOldWorker(ctx, workspace);
 				for (const gap of workerGaps(ctx.files, workspace, {
@@ -940,11 +963,19 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 			case 'up': {
 				if (opts.deploy === true) {
 					const name = previewName(target.host, layout?.id);
+					const split = splitDeployValues(ctx, workspace, secrets);
+					if (Object.keys(secrets).length > 0) {
+						ctx.files.writeSecret(
+							join(out, 'secrets.json'),
+							`${JSON.stringify(split.secrets)}\n`
+						);
+					}
 					const deployed = await deployDuplicate(ctx, {
 						name,
 						out,
 						workspace,
-						hasSecrets: Object.keys(secrets).length > 0,
+						vars: split.vars,
+						hasSecrets: Object.keys(split.secrets).length > 0,
 						accessEmail: opts.accessEmail,
 						globals: opts.globals
 					});
@@ -1330,7 +1361,21 @@ export async function ownDuplicate(
 	return (await claimDuplicate(ctx, origin, out, opts, headers)).summary;
 }
 
-/** the claim, with the owner target it minted so a later step can act as the owner */
+/**
+ * How long the claim may take. The first `/firstrun` on a migrated site boots the kernel against a
+ * database that has just replayed, and on a 98 MB one it outlasted the 30 s default: the site WAS
+ * claimed and the token, shown once, was lost with the timeout.
+ */
+const CLAIM_TIMEOUT_MS = 240_000;
+
+/**
+ * The claim, with the owner target it minted so a later step can act as the owner.
+ *
+ * A token already in `owner-token` is the claim: a rerun, or a token recovered with
+ * `drangler recover-token`, must not ask a claimed site to claim again. A claim that times out or
+ * answers `already configured` with no token on disk leaves a claimed site nobody holds the token
+ * for, and says so with the command that gets it back rather than reporting a missing claim.
+ */
 export async function claimDuplicate(
 	ctx: Context,
 	origin: string,
@@ -1342,22 +1387,48 @@ export async function claimDuplicate(
 		origin,
 		site: null,
 		token: '',
-		timeoutMs: opts.globals.timeoutMs,
+		timeoutMs: Math.max(opts.globals.timeoutMs, CLAIM_TIMEOUT_MS),
 		...(headers === undefined ? {} : { headers })
 	};
-	const claim = await ownerCall(ctx, anonymous, '/firstrun', {
-		method: 'POST',
-		body: { migrated: true }
-	});
-	const token = claim.body['ownerToken'];
-	if (claim.body['ok'] !== true || typeof token !== 'string') {
-		return {
-			summary:
-				'not claimed: this worker has no migrated claim, so database updates were not run',
-			owner: null
-		};
+	const stored = join(out, 'owner-token');
+	const recover = `drangler recover-token ${origin} --access-guard ${join(out, 'access-guard.json')} --write ${stored}`;
+	let token: string | null = ctx.files.exists(stored) ? ctx.files.readText(stored).trim() : null;
+	if (token === null || token === '') {
+		token = null;
+		let claim: Awaited<ReturnType<typeof ownerCall>>;
+		try {
+			claim = await ownerCall(ctx, anonymous, '/firstrun', {
+				method: 'POST',
+				body: { migrated: true }
+			});
+		} catch (e) {
+			if (e instanceof ProbeError) {
+				throw new DranglerError(
+					'up',
+					`${e.message}; the site may have been claimed with its token lost`,
+					{ next: recover }
+				);
+			}
+			throw e;
+		}
+		if (claim.status === 409) {
+			throw new DranglerError(
+				'up',
+				`${origin} is already claimed and ${stored} holds no token`,
+				{ next: recover }
+			);
+		}
+		const minted = claim.body['ownerToken'];
+		if (claim.body['ok'] !== true || typeof minted !== 'string') {
+			return {
+				summary:
+					'not claimed: this worker has no migrated claim, so database updates were not run',
+				owner: null
+			};
+		}
+		token = minted;
+		ctx.files.writeSecret(stored, `${token}\n`);
 	}
-	ctx.files.writeSecret(join(out, 'owner-token'), `${token}\n`);
 	const owner: OwnerTarget = { ...anonymous, token };
 	const report = await driveUpdb(ctx, owner, PREVIEW_UPDB_BEATS);
 	const phase = report.phase ?? 'none needed';

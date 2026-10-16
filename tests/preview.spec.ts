@@ -662,6 +662,46 @@ describe('ownDuplicate', () => {
 		).rejects.toThrow(FindingError);
 	});
 
+	it('reuses a token already on disk instead of claiming a claimed site again', async () => {
+		const fetch = updbServer(['complete']);
+		const files = memoryFiles({ '/o/owner-token': 'saved\n' });
+		const ctx = testContext({ fetch, files });
+		await ownDuplicate(ctx, 'http://localhost:8787', '/o', { globals: testGlobals({}, ctx) });
+		expect(fetch.urls.some((u) => u.includes('/firstrun'))).toBe(false);
+	});
+
+	it('names the recovery when the site is claimed and no token is on disk', async () => {
+		const ctx = testContext({
+			fetch: fakeFetch(() =>
+				Response.json({ ok: false, error: 'already configured' }, { status: 409 })
+			)
+		});
+		const err = await ownDuplicate(ctx, 'https://x.workers.dev', '/o', {
+			globals: testGlobals({}, ctx)
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(DranglerError);
+		expect((err as DranglerError).message).toContain('already claimed');
+		expect((err as DranglerError).next).toContain(
+			'drangler recover-token https://x.workers.dev --access-guard /o/access-guard.json --write /o/owner-token'
+		);
+	});
+
+	it('says the token may be lost when the claim itself times out', async () => {
+		const ctx = testContext({
+			fetch: fakeFetch(() => {
+				throw new Error('The operation timed out.');
+			})
+		});
+		const err = await ownDuplicate(ctx, 'https://x.workers.dev', '/o', {
+			globals: testGlobals({}, ctx)
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(DranglerError);
+		expect((err as DranglerError).message).toContain(
+			'may have been claimed with its token lost'
+		);
+		expect((err as DranglerError).next).toContain('recover-token');
+	});
+
 	it('says the updates were not run when the worker has no migrated claim', async () => {
 		const ctx = testContext({
 			fetch: fakeFetch(() =>
@@ -1015,7 +1055,10 @@ describe('the settings step', () => {
 			string
 		>;
 		expect(secrets['REDIS_URL']).toBe('redis://:hunter2@cache.example.com:6379');
-		expect(JSON.parse(secrets['DRUPAL_CONFIG']!)).toEqual({ 'system.site': { name: 'Old' } });
+		expect(JSON.parse(secrets['DRUPAL_CONFIG']!)).toEqual({
+			'system.site': { name: 'Old' },
+			'system.performance': { css: { preprocess: false }, js: { preprocess: false } }
+		});
 		const text = ctx.io.text();
 		expect(text).not.toContain('hunter2');
 		expect(text).toContain('legacy (core_version_requirement ^10)');
@@ -1112,6 +1155,7 @@ describe('the settings step', () => {
 
 		const blanked = await run({ carryKey: [] });
 		expect(blanked.config).toEqual({
+			'system.performance': { css: { preprocess: false }, js: { preprocess: false } },
 			'key.key.cloud_admin': { key_provider_settings: { key_value: '' } },
 			'smtp.settings': { smtp_username: '', smtp_password: '' },
 			'mailsystem.settings': { defaults: { sender: 'cfw_mail' } }
@@ -1124,6 +1168,7 @@ describe('the settings step', () => {
 
 		const carried = await run({ carryKey: ['cloud_admin', 'smtp.settings'] });
 		expect(carried.config).toEqual({
+			'system.performance': { css: { preprocess: false }, js: { preprocess: false } },
 			'mailsystem.settings': { defaults: { sender: 'cfw_mail' } }
 		});
 		expect(carried.text).toContain('3 carried by request');
@@ -1180,6 +1225,27 @@ describe('previewEnv', () => {
 		expect(() => previewEnv(base, { DRANGLER_PREVIEW_PLAN: 'gold' })).toThrow(
 			/DRANGLER_PREVIEW_PLAN is gold/
 		);
+	});
+
+	it('takes the worker from a branch tip when DRANGLER_PREVIEW_EDGE or --edge says so', () => {
+		expect(previewEnv(base, {}).edge).toBeUndefined();
+		expect(previewEnv(base, { DRANGLER_PREVIEW_EDGE: '1' }).edge).toBe('master');
+		expect(previewEnv(base, { DRANGLER_PREVIEW_EDGE: 'next' }).edge).toBe('next');
+		expect(previewEnv(base, { DRANGLER_WORKER_EDGE: 'next' }).edge).toBe('next');
+		expect(previewEnv({ ...base, edge: true }, { DRANGLER_PREVIEW_EDGE: 'next' }).edge).toBe(
+			'master'
+		);
+		expect(previewEnv({ ...base, edge: 'feat/x' }, {}).edge).toBe('feat/x');
+	});
+
+	it('names the edge build in the dry run, so a prerelease is never a surprise', async () => {
+		const ctx = testContext();
+		await runPreviewCommand(ctx, {
+			...base,
+			edge: 'master',
+			globals: testGlobals({ dryRun: true }, ctx)
+		});
+		expect(ctx.io.text()).toMatch(/drangler build --workspace .* --edge master/);
 	});
 
 	it('refuses to hold mail on a deployed duplicate, which would queue without limit', async () => {

@@ -67,6 +67,7 @@ import type { Context } from './context';
 import { UsageError } from './errors';
 import { preloadKeychain } from './owner-token';
 import { VERSION } from './version';
+import { edgeBranch } from './workspace/source';
 
 export { VERSION };
 
@@ -76,11 +77,22 @@ const DESCRIPTION =
 	'or your own Cloudflare account; site, heal --release, modify, reconcile --run and sweep --run ' +
 	'write to a live site and each needs the owner token.';
 
-/** every command that works on a local checkout takes the same two, so they are declared once */
+/** every command that works on a local checkout takes the same three, so they are declared once */
 function withSource(command: Command): Command {
 	return command
 		.option('--source <path-or-url>', 'where to clone the worker from; a local path is fine')
-		.option('--ref <ref>', 'branch or tag to clone');
+		.option('--ref <ref>', 'branch or tag to clone')
+		.option('--edge [branch]', EDGE_HELP);
+}
+
+const EDGE_HELP =
+	'build from the tip of a branch (master when bare) and take its rolling payload from the CDN ' +
+	'instead of a release; a prerelease build that can change on the next push';
+
+/** `--edge`, or `DRANGLER_WORKER_EDGE`, as the resolved branch ready to spread into options */
+function edgeOf(flag: string | boolean | undefined, ctx: Context): { edge?: string } {
+	const edge = edgeBranch(flag, ctx.env);
+	return edge === undefined ? {} : { edge };
 }
 
 /**
@@ -294,7 +306,11 @@ export function buildProgram(ctx: Context): Command {
 				});
 				return;
 			}
-			await runBuildCommand(bound.ctx, { ...opts, globals: bound.globals });
+			await runBuildCommand(bound.ctx, {
+				...opts,
+				...edgeOf(opts.edge, bound.ctx),
+				globals: bound.globals
+			});
 		});
 
 	program
@@ -375,7 +391,11 @@ export function buildProgram(ctx: Context): Command {
 		)
 		.action(async (extra: string[], opts, command) => {
 			const bound = bind(command);
-			await runDevCommand(bound.ctx, extra ?? [], { ...opts, globals: bound.globals });
+			await runDevCommand(bound.ctx, extra ?? [], {
+				...opts,
+				...edgeOf(opts.edge, bound.ctx),
+				globals: bound.globals
+			});
 		});
 
 	withSource(program.command('deploy'))
@@ -402,7 +422,11 @@ export function buildProgram(ctx: Context): Command {
 		.option('--skip-validate', 'deploy without the gate')
 		.action(async (extra: string[], opts, command) => {
 			const bound = bind(command);
-			await runDeployCommand(bound.ctx, extra ?? [], { ...opts, globals: bound.globals });
+			await runDeployCommand(bound.ctx, extra ?? [], {
+				...opts,
+				...edgeOf(opts.edge, bound.ctx),
+				globals: bound.globals
+			});
 		});
 
 	const withPreview = (command: Command): Command =>
@@ -443,6 +467,7 @@ export function buildProgram(ctx: Context): Command {
 				'--hold-mail',
 				'local only: queue the duplicate mail and never send it, so a verification code can be read from the queue'
 			)
+			.option('--edge [branch]', EDGE_HELP)
 			.addOption(
 				new Option(
 					'--plan <plan>',
@@ -476,7 +501,7 @@ export function buildProgram(ctx: Context): Command {
 					'  drangler preview --host deploy@old.example --confirm old.example --deploy',
 					'',
 					'Every decision has a flag and a DRANGLER_PREVIEW_<NAME> variable (ROOT, SITE, CONFIRM, PLAN,',
-					'FOLLOW, FOLLOW_INTERVAL, CHECK, CARRY_KEYS, ACCESS_EMAIL, DEPLOY=1, HOLD_MAIL=1); a flag wins.',
+					'FOLLOW, FOLLOW_INTERVAL, CHECK, CARRY_KEYS, ACCESS_EMAIL, EDGE, DEPLOY=1, HOLD_MAIL=1); a flag wins.',
 					'Anything still open is asked on a terminal and refused without one.'
 				].join('\n')
 			)
@@ -699,6 +724,11 @@ export function buildProgram(ctx: Context): Command {
 			'Get a lost owner token back, by proving you can write to its Cloudflare account'
 		)
 		.option('--store', 'also write the token to the system keychain')
+		.option(
+			'--access-guard <file>',
+			"a preview folder's access-guard.json, so the proof can pass the Access app in front of the site"
+		)
+		.option('--write <file>', 'write the token to this file (mode 600) instead of printing it')
 		.option(
 			'--kv-namespace <id>',
 			'the CONFIG_KV namespace id; found automatically when omitted'

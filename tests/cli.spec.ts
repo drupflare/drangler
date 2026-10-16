@@ -73,6 +73,17 @@ describe('help', () => {
 		expect(clash).toEqual([]);
 	});
 
+	it('offers --edge on every command that builds a checkout, and on preview', () => {
+		const program = buildProgram(testContext());
+		for (const name of ['build', 'dev', 'deploy', 'preview']) {
+			const command = program.commands.find((c) => c.name() === name);
+			expect(
+				command?.options.some((o) => o.long === '--edge'),
+				name
+			).toBe(true);
+		}
+	});
+
 	// the description undercounted: `update` writes too, and the README already said five
 	it('names every command that writes, rather than claiming to be read-only', () => {
 		const description = buildProgram(testContext()).description();
