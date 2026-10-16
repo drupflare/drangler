@@ -26,9 +26,9 @@ async function sourceDigest(label: string): Promise<string> {
 			'db',
 			'sh',
 			'-c',
-			// Drupal refreshes its own cache tables on any bootstrap, drush included, so they are left out
+			// Drupal refreshes its own cache tables on any bootstrap, drush included, and drops the theme list it keeps in state, so both are left out
 			// kept in the container as /tmp/pv-<label>.sql so a mismatch can be diffed
-			`mariadb-dump -u root -prootpass --skip-dump-date --skip-comments --skip-extended-insert drupal | grep -v '^INSERT INTO \`cache' | sed -E 's/ AUTO_INCREMENT=[0-9]+//' > /tmp/pv-${label}.sql && sha256sum < /tmp/pv-${label}.sql`
+			`mariadb-dump -u root -prootpass --skip-dump-date --skip-comments --skip-extended-insert drupal | grep -v -e '^INSERT INTO \`cache' -e "'state','system.theme.files'" | sed -E 's/ AUTO_INCREMENT=[0-9]+//' > /tmp/pv-${label}.sql && sha256sum < /tmp/pv-${label}.sql`
 		],
 		{ timeoutMs: 300_000 }
 	);
@@ -84,6 +84,15 @@ describe.skipIf(skip)('preview', () => {
 			'-c',
 			`cd ${DRUPAL_ROOT} && drush config:set automated_cron.settings interval 0 -y`
 		]);
+		// the first render of each page makes Drupal create its cache bins, its private key and a log row
+		for (const path of [
+			'/',
+			'/user/login',
+			'/node/1',
+			'/sites/default/files/preview-probe.txt'
+		]) {
+			await fetch(`http://localhost:8180${path}`, { redirect: 'manual' });
+		}
 		before = await sourceDigest('before');
 
 		const real = nodeRunner();
