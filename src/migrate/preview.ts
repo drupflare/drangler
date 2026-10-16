@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { DranglerError, UsageError } from '../errors';
 import type { FileHost } from '../host/files';
 import type { Dialect } from './convert';
+import { insertRedisRows, REDIS_STATE_SCRIPT, type RedisRow } from './redis-state';
 import { surveyPlan } from './survey';
 import type { Transport } from './transport';
 
@@ -65,6 +66,40 @@ export function shellWords(command: string): string[] | null {
 
 const PATH = /^\/[A-Za-z0-9._\-/]*$/;
 const DRUSH_READS = new Set(['--version', 'status', 'pm:list', 'sql:query', 'sql:dump']);
+const DRUSH_BIN = /^\/[A-Za-z0-9._\-/]*\/vendor\/bin\/drush$/;
+const SERVER_CONFIG_DIRS = [
+	'/etc/apache2/sites-enabled',
+	'/etc/nginx/sites-enabled',
+	'/etc/nginx/conf.d'
+];
+
+/** why a drush argument list is refused: `--root=` and `--uri=` lead, then one read subcommand */
+function refuseDrush(args: string[]): string | null {
+	let i = 0;
+	while (i < args.length) {
+		const a = args[i]!;
+		if (
+			/^--root=\/[A-Za-z0-9._\-/]*$/.test(a) ||
+			/^--uri=https?:\/\/[A-Za-z0-9.\-:]+$/.test(a)
+		) {
+			i++;
+			continue;
+		}
+		break;
+	}
+	const rest = args.slice(i);
+	const sub = rest[0];
+	if (sub === undefined || !DRUSH_READS.has(sub)) return `drush ${sub ?? ''} writes`;
+	if (rest.some((a) => a.startsWith('--result-file') || a.startsWith('--gzip'))) {
+		return 'a dump goes to stdout';
+	}
+	if (sub === 'sql:query') {
+		const query = rest[1] ?? '';
+		if (rest.length !== 2 || !/^\s*SELECT\s/i.test(query)) return 'sql:query must SELECT';
+		if (/;|\bINTO\s+(OUT|DUMP)FILE\b|\bFOR\s+UPDATE\b/i.test(query)) return 'query writes';
+	}
+	return null;
+}
 
 /** why one segment is refused, or null when it is a read the allow-list knows */
 function refuseSegment(argv: string[], first: boolean): string | null {
@@ -72,6 +107,32 @@ function refuseSegment(argv: string[], first: boolean): string | null {
 	switch (program) {
 		case 'cd':
 			return first && args.length === 1 && PATH.test(args[0]!) ? null : 'cd only as a lead';
+		case 'ls':
+			// directory names only, and only the three places discovery needs
+			return args.length === 1 &&
+				PATH.test(args[0]!) &&
+				(SERVER_CONFIG_DIRS.includes(args[0]!) || /\/(sites|vendor\/bin)$/.test(args[0]!))
+				? null
+				: 'ls lists only web server config, sites/ and vendor/bin/';
+		case 'redis-cli':
+			// the key names, which the survey reduces to counted prefixes, and the one fixed script
+			// that reads the app keys; nothing else is ever built from input
+			return (args.length === 1 && args[0] === '--scan') ||
+				(args.length === 3 &&
+					args[0] === 'eval' &&
+					args[1] === REDIS_STATE_SCRIPT &&
+					args[2] === '0')
+				? null
+				: 'redis-cli only scans and runs the one read script';
+		case 'runuser':
+			// only to run the project's own drush as the web user, so a bootstrap writes no root-owned cache
+			return args.length >= 5 &&
+				args[0] === '-u' &&
+				/^[a-z_][a-z0-9_-]*$/.test(args[1]!) &&
+				args[2] === '--' &&
+				DRUSH_BIN.test(args[3]!)
+				? refuseDrush(args.slice(4))
+				: 'runuser only runs vendor/bin/drush';
 		case 'php':
 			return args.length === 1 && (args[0] === '-v' || args[0] === '-m') ? null : 'php flag';
 		case 'du':
@@ -102,30 +163,27 @@ function refuseSegment(argv: string[], first: boolean): string | null {
 				? null
 				: 'tar must create to stdout';
 		case 'cat':
-			// the settings files, composer.lock and the two .htaccess copies; nothing else is read whole
+			// the settings files, composer.lock, the two .htaccess copies, sites.php and the web
+			// server's own config; nothing else is read whole
 			return args.length === 1 &&
 				PATH.test(args[0]!) &&
-				/(\/sites\/default\/settings(\.local)?\.php|\/composer\.lock|\/\.htaccess|\/core\/assets\/scaffold\/files\/htaccess)$/.test(
+				(/(\/sites\/[A-Za-z0-9._-]+\/settings(\.local)?\.php|\/sites\/sites\.php|\/composer\.lock|\/\.htaccess|\/core\/assets\/scaffold\/files\/htaccess)$/.test(
 					args[0]!
-				)
+				) ||
+					args[0] === '/etc/apache2/envvars' ||
+					args[0] === '/etc/nginx/nginx.conf' ||
+					SERVER_CONFIG_DIRS.some((d) =>
+						new RegExp(`^${d}/[A-Za-z0-9._-]+$`).test(args[0]!)
+					))
 				? null
-				: 'cat reads only the settings files, composer.lock and .htaccess';
-		case 'drush': {
-			const sub = args[0];
-			if (sub === undefined || !DRUSH_READS.has(sub)) return `drush ${sub ?? ''} writes`;
-			if (args.some((a) => a.startsWith('--result-file') || a.startsWith('--gzip'))) {
-				return 'a dump goes to stdout';
-			}
-			if (sub === 'sql:query') {
-				const query = args[1] ?? '';
-				if (args.length !== 2 || !/^\s*SELECT\s/i.test(query))
-					return 'sql:query must SELECT';
-				if (/;|\bINTO\s+(OUT|DUMP)FILE\b|\bFOR\s+UPDATE\b/i.test(query))
-					return 'query writes';
-			}
-			return null;
-		}
+				: 'cat reads only the settings files, composer.lock, .htaccess and web server config';
+		case 'drush':
+			return refuseDrush(args);
+		case 'id':
+			return args.length === 1 && args[0] === '-u' ? null : 'id only reads the user id';
 		default:
+			// the project's own drush, run as the ssh user when that user is not root
+			if (program !== undefined && DRUSH_BIN.test(program)) return refuseDrush(args);
 			return `${program ?? '(empty)'} is not on the list`;
 	}
 }
@@ -189,15 +247,13 @@ export function dialectOf(driver: string | null): Dialect | null {
 }
 
 /** The dump, to stdout. `--hex-blob` keeps binary columns ASCII so the stream survives any pipe. */
-export function dumpCommand(root: string, dialect: Dialect): string {
-	return dialect === 'mysql'
-		? `cd ${root} && drush sql:dump --extra-dump=--hex-blob`
-		: `cd ${root} && drush sql:dump`;
+export function dumpCommand(root: string, dialect: Dialect, drush = `cd ${root} && drush`): string {
+	return dialect === 'mysql' ? `${drush} sql:dump --extra-dump=--hex-blob` : `${drush} sql:dump`;
 }
 
 /** The public files tree as a tar on stdout. */
-export function filesCommand(root: string): string {
-	return `tar -cf - -C ${root}/sites/default files`;
+export function filesCommand(root: string, siteDir = 'default'): string {
+	return `tar -cf - -C ${root}/sites/${siteDir} files`;
 }
 
 /**
@@ -312,10 +368,10 @@ export function wellKnownCommand(root: string): string {
 	return `tar -cf - -C ${root} .well-known`;
 }
 
-export function settingsCommands(root: string): string[] {
+export function settingsCommands(root: string, siteDir = 'default'): string[] {
 	return [
-		`cat ${root}/sites/default/settings.php`,
-		`cat ${root}/sites/default/settings.local.php`
+		`cat ${root}/sites/${siteDir}/settings.php`,
+		`cat ${root}/sites/${siteDir}/settings.local.php`
 	];
 }
 
@@ -453,6 +509,37 @@ export function parseSettings(php: string): SettingsAssignment[] {
 	return out;
 }
 
+export interface SettingsOverrides {
+	/** module-namespaced `$settings` keys with a literal value, which `DRUPAL_SETTINGS` carries */
+	settings: Record<string, unknown>;
+	/** the same kind of key set by expression, which cannot be carried */
+	expressions: string[];
+}
+
+/**
+ * The `$settings` keys a module reads by name, such as `mantle2.cloud_endpoint`.
+ *
+ * Only a dotted top-level key with a literal value travels. Core's own keys (`hash_salt`,
+ * `trusted_host_patterns`), `redis.connection` and every nested key are handled elsewhere or are
+ * the worker's to set. Later assignments win, the way `settings.local.php` overrides.
+ */
+export function settingsOverrides(assignments: readonly SettingsAssignment[]): SettingsOverrides {
+	const out: SettingsOverrides = { settings: {}, expressions: [] };
+	for (const a of assignments) {
+		const key = a.keys[0] ?? '';
+		if (a.scope !== 'settings' || a.keys.length !== 1) continue;
+		if (!/^[a-z0-9_]+\.[A-Za-z0-9_.-]+$/.test(key) || key === 'redis.connection') continue;
+		if (a.value === null) {
+			if (!out.expressions.includes(key)) out.expressions.push(key);
+			delete out.settings[key];
+			continue;
+		}
+		out.expressions = out.expressions.filter((e) => e !== key);
+		out.settings[key] = a.value.literal;
+	}
+	return out;
+}
+
 export interface TrustedHosts {
 	/** patterns that name exactly one host, as that host */
 	hosts: string[];
@@ -513,6 +600,10 @@ export interface SettingsReport {
 
 const REDIS_DEFAULT_PORT = 6379;
 
+/** loopback, RFC 1918 and link-local names and addresses: places only the source machine can see */
+const PRIVATE_HOST =
+	/^(localhost|0\.0\.0\.0|\[?::1\]?|127\.[\d.]+|10\.[\d.]+|192\.168\.[\d.]+|172\.(1[6-9]|2\d|3[01])\.[\d.]+|169\.254\.[\d.]+|[^.]+|.+\.(local|internal|localhost|home\.arpa))$/i;
+
 /** Reduces assignments to a report; later assignments win, the way settings.local.php overrides. */
 export function settingsReport(assignments: readonly SettingsAssignment[]): SettingsReport {
 	const report: SettingsReport = {
@@ -565,6 +656,10 @@ export function settingsReport(assignments: readonly SettingsAssignment[]): Sett
 		report.redisNote = 'the host is a unix socket, which a worker cannot reach';
 		return report;
 	}
+	if (PRIVATE_HOST.test(host)) {
+		report.redisNote = `the host is ${host}, an address on the source machine's own network, which a worker cannot reach, so REDIS_URL is not written`;
+		return report;
+	}
 	const port = redis.get('port');
 	const password = redis.get('password');
 	const auth =
@@ -575,21 +670,25 @@ export function settingsReport(assignments: readonly SettingsAssignment[]): Sett
 }
 
 /** Every command preview can send to the host, which is what the allow-list property test walks. */
-export function previewCommands(root: string): string[] {
+export function previewCommands(
+	root: string,
+	layout: { drush?: string; siteDir?: string } = {}
+): string[] {
 	return [
-		...surveyPlan(root).map((s) => s.command),
-		dumpCommand(root, 'mysql'),
-		dumpCommand(root, 'pgsql'),
-		filesCommand(root),
+		...surveyPlan(root, layout).map((s) => s.command),
+		dumpCommand(root, 'mysql', layout.drush),
+		dumpCommand(root, 'pgsql', layout.drush),
+		filesCommand(root, layout.siteDir),
 		privateFilesCommand(root, '../private')!,
 		privateFilesCommand(root, '/var/private-files')!,
 		...CODE_DIRS.map((d) => codeCommand(root, d)),
 		rootListCommand(root),
 		rootFilesCommand(root, ['robots.txt', 'google0123abcd.html', 'ads.txt']),
 		wellKnownCommand(root),
-		...settingsCommands(root),
+		...settingsCommands(root, layout.siteDir),
 		...composerLockCommands(root),
-		...serverRulesCommands(root)
+		...serverRulesCommands(root),
+		`redis-cli eval "${REDIS_STATE_SCRIPT}" 0`
 	];
 }
 
@@ -989,6 +1088,8 @@ export interface SiteDbReport {
 	filesStored: number;
 	fileBytes: number;
 	codeFiles: number;
+	/** Redis keys written into `key_value_expire` for the stand-in */
+	redisKeys: number;
 }
 
 function count(db: DatabaseSync, sql: string): number | null {
@@ -1011,7 +1112,8 @@ export function buildSiteDb(
 	sql: string,
 	files: readonly { rel: string; bytes: Uint8Array; scheme?: 'public' | 'private' }[],
 	nowMs: number,
-	code: CodeTree['files'] = []
+	code: CodeTree['files'] = [],
+	redis: readonly RedisRow[] = []
 ): SiteDbReport {
 	const db = new DatabaseSync(path);
 	try {
@@ -1051,6 +1153,7 @@ export function buildSiteDb(
 			 VALUES (?, ?, 'migrated', ?, ?)`
 		);
 		for (const f of code) module.run(f.path, f.package, f.text, nowMs);
+		const redisKeys = redis.length === 0 ? 0 : insertRedisRows(db, redis);
 		db.exec('COMMIT');
 		return {
 			tables: count(db, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'") ?? 0,
@@ -1058,7 +1161,8 @@ export function buildSiteDb(
 			fileRows: count(db, 'SELECT COUNT(*) FROM file_managed'),
 			filesStored: files.length,
 			fileBytes,
-			codeFiles: code.length
+			codeFiles: code.length,
+			redisKeys
 		};
 	} finally {
 		db.close();
