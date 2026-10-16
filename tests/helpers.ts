@@ -138,3 +138,13 @@ export function workerTree(over: Record<string, string> = {}): Record<string, st
 		...over
 	};
 }
+
+/** PHP serialize() for the shapes config uses, so a fixture is the bytes Drupal would store */
+export function phpSerialize(value: unknown): string {
+	if (value === null) return 'N;';
+	if (typeof value === 'boolean') return `b:${value ? 1 : 0};`;
+	if (typeof value === 'number') return `i:${value};`;
+	if (typeof value === 'string') return `s:${Buffer.byteLength(value, 'latin1')}:"${value}";`;
+	const entries = Object.entries(value as Record<string, unknown>);
+	return `a:${entries.length}:{${entries.map(([k, v]) => phpSerialize(k) + phpSerialize(v)).join('')}}`;
+}
