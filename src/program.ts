@@ -37,6 +37,7 @@ import {
 	runModifyDrop,
 	runModifyEnable,
 	runModifyInit,
+	runModifyList,
 	runModifyRelease,
 	runModifyRequire,
 	runModifyRevisions,
@@ -410,15 +411,52 @@ export function buildProgram(ctx: Context): Command {
 				'Make a working duplicate of a VPS site on drupflare, with read-only commands on the VPS'
 			)
 			.requiredOption('--host <target>', 'ssh destination, as [user@]host[:port]')
-			.requiredOption('--root <path>', 'absolute Drupal root on that host')
+			.option(
+				'--root <path>',
+				'absolute Drupal docroot on that host; found from the web server config when omitted'
+			)
+			.option('--site <hostname>', 'which site to take when the host serves several')
 			.option('--identity <file>', 'ssh private key, passed to ssh as -i')
 			.option('--out <dir>', 'where the dump, files and preview workspace land')
 			.option('--full', 'run every step after one typed confirmation')
 			.option(
+				'--confirm <host>',
+				'run every step without a prompt; the value must name the host, as typing it would'
+			)
+			.option(
+				'--check <path...>',
+				'pages to compare against the source beside / and the login page'
+			)
+			.option(
+				'--follow <module=repository...>',
+				'keep a module current from a git repository once the duplicate is up, as mantle2=owner/repo'
+			)
+			.option(
+				'--follow-interval <minutes>',
+				'minutes between polls of a followed repository (default 5, the least the worker allows)'
+			)
+			.option(
+				'--carry-key <name...>',
+				'carry a credential into the duplicate instead of blanking it, by key id (mantle2_api_key), config name or config:leaf'
+			)
+			.option(
+				'--hold-mail',
+				'local only: queue the duplicate mail and never send it, so a verification code can be read from the queue'
+			)
+			.addOption(
+				new Option(
+					'--plan <plan>',
+					'the Workers plan the duplicate models; detected from the account with --deploy, paid for a local run'
+				).choices(['free', 'paid'])
+			)
+			.option(
 				'--deploy',
 				'deploy the duplicate as drupflare-preview-<host> instead of running it'
 			)
-			.option('--url <origin>', 'with --deploy, the origin to check once it is up')
+			.option(
+				'--access-email <email>',
+				'with --deploy, who may open the copy through Access; defaults to the wrangler login'
+			)
 			.option(
 				'--source-url <origin>',
 				'the live site, so each checked page must match its status'
@@ -433,9 +471,13 @@ export function buildProgram(ctx: Context): Command {
 				[
 					'',
 					'Examples:',
-					'  drangler preview --host deploy@old.example --root /var/www/html',
+					'  drangler preview --host deploy@old.example',
 					'  drangler preview --host deploy@old.example --root /var/www/html --dry-run',
-					'  drangler preview --host deploy@old.example --root /var/www/html --full --deploy'
+					'  drangler preview --host deploy@old.example --confirm old.example --deploy',
+					'',
+					'Every decision has a flag and a DRANGLER_PREVIEW_<NAME> variable (ROOT, SITE, CONFIRM, PLAN,',
+					'FOLLOW, FOLLOW_INTERVAL, CHECK, CARRY_KEYS, ACCESS_EMAIL, DEPLOY=1, HOLD_MAIL=1); a flag wins.',
+					'Anything still open is asked on a terminal and refused without one.'
 				].join('\n')
 			)
 			.action(async (opts, sub: Command) => {
@@ -873,6 +915,20 @@ export function buildProgram(ctx: Context): Command {
 			});
 		});
 
+	modify
+		.command('list')
+		.description(
+			'Every module the site keeps current: uploaded packages and followed repositories'
+		)
+		.addHelpText(
+			'after',
+			['', 'Examples:', '  drangler modify list', '  drangler modify list --json'].join('\n')
+		)
+		.action(async (_opts, command) => {
+			const bound = bind(command);
+			await runModifyList(bound.ctx, { globals: bound.globals });
+		});
+
 	withProject(modify.command('status'))
 		.description('What is live on the site, against what is on this disk')
 		.addHelpText(
@@ -1010,7 +1066,7 @@ export function buildProgram(ctx: Context): Command {
 		.command('require')
 		.argument('<names...>', 'composer or npm package names')
 		.description('Install a package from a registry, and optionally turn it on')
-		.option('--version <constraint>', 'a version constraint')
+		.option('--constraint <constraint>', 'a version constraint, such as ^1.10 or 3.5.0')
 		.addOption(
 			new Option('--registry <registry>', 'where to fetch it from').choices([
 				'composer',
@@ -1025,12 +1081,16 @@ export function buildProgram(ctx: Context): Command {
 				'',
 				'Examples:',
 				'  drangler modify require drupal/key --enable',
-				'  drangler modify require drupal/redis --version ^1.10'
+				'  drangler modify require drupal/redis --constraint ^1.10'
 			].join('\n')
 		)
 		.action(async (names: string[], opts, command) => {
 			const bound = bind(command);
-			await runModifyRequire(bound.ctx, names, { ...opts, globals: bound.globals });
+			await runModifyRequire(bound.ctx, names, {
+				...opts,
+				version: opts.constraint,
+				globals: bound.globals
+			});
 		});
 
 	modify

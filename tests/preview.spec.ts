@@ -5,15 +5,19 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+	bootDuplicate,
 	ownDuplicate,
 	PREVIEW_MIN_WORKER,
+	previewEnv,
 	previewName,
+	previewPlan,
 	publishRootFiles,
 	refuseOldWorker,
 	runPreviewCommand,
-	verify
+	verify,
+	WRANGLER_DEV_FIXED
 } from '../src/commands/preview';
-import { FindingError, UsageError } from '../src/errors';
+import { DranglerError, FindingError, UsageError } from '../src/errors';
 import { nodeRunner, type CommandResult, type CommandRunner } from '../src/host/exec';
 import { memoryFiles, nodeFiles } from '../src/host/files';
 import {
@@ -25,17 +29,19 @@ import {
 	missingLibraries,
 	parseConfigOverrides,
 	parseHtaccess,
+	parseSettings,
 	previewCommands,
 	privateFilesCommand,
 	publishableRootFiles,
 	readOnlyTransport,
 	refuseRemote,
+	settingsOverrides,
 	trustedHosts,
 	walkFiles
 } from '../src/migrate/preview';
 import { surveyPlan } from '../src/migrate/survey';
 import type { Transport } from '../src/migrate/transport';
-import { fakeFetch, ok, testContext, testGlobals } from './helpers';
+import { fakeFetch, ok, phpSerialize, testContext, testGlobals } from './helpers';
 
 const ROOT = '/var/www/html';
 
@@ -264,6 +270,14 @@ describe('previewName', () => {
 		expect(long.length).toBeLessThanOrEqual(63);
 		expect(long.endsWith('-')).toBe(false);
 	});
+
+	it('keeps two sites behind one host apart, and cuts the host before the id', () => {
+		expect(previewName('earth-app', 'a1b2c3d4')).toBe('drupflare-preview-earth-app-a1b2c3d4');
+		expect(previewName('earth-app', 'a1b2c3d4')).not.toBe(previewName('earth-app', 'e5f6a7b8'));
+		const long = previewName(`${'a'.repeat(80)}.example`, 'a1b2c3d4');
+		expect(long.length).toBeLessThanOrEqual(63);
+		expect(long.endsWith('-a1b2c3d4')).toBe(true);
+	});
 });
 
 describe('interaction', () => {
@@ -335,12 +349,120 @@ describe('interaction', () => {
 		expect(calls).toEqual([]);
 	});
 
+	it('--confirm names the host in place of typing it, and a wrong name runs nothing', async () => {
+		const wrong = recording();
+		const ctx = testContext();
+		await expect(
+			runPreviewCommand(ctx, {
+				...base,
+				confirm: 'old.exampel',
+				transport: wrong.transport,
+				globals: testGlobals({}, ctx)
+			})
+		).rejects.toThrow(/does not name old\.example; nothing ran/);
+		expect(wrong.calls).toEqual([]);
+
+		const right = recording();
+		const second = testContext();
+		await expect(
+			runPreviewCommand(second, {
+				...base,
+				confirm: 'old.example',
+				transport: right.transport,
+				globals: testGlobals({}, second)
+			})
+		).rejects.not.toThrow(/no terminal|nothing ran/);
+		expect(right.calls.length).toBeGreaterThan(0);
+	});
+
 	it('stops at the first step answered no and reports what did not run', async () => {
 		const { transport, calls } = recording();
 		const ctx = testContext({ ask: async () => 'n' });
 		await runPreviewCommand(ctx, { ...base, transport, globals: testGlobals({}, ctx) });
 		expect(calls).toEqual([]);
-		expect(ctx.io.text()).toContain('stopped before survey');
+		expect(ctx.io.text()).toContain('stopped before discover');
+	});
+});
+
+describe('previewPlan', () => {
+	const base = { host: 'h', globals: undefined as never };
+	const subscriptions = (id: string) =>
+		fakeFetch(
+			() => new Response(JSON.stringify({ success: true, result: [{ rate_plan: { id } }] }))
+		);
+	const account = { CLOUDFLARE_API_TOKEN: 'tok', CLOUDFLARE_ACCOUNT_ID: 'acct' };
+
+	it('takes a stated plan as given', async () => {
+		expect(await previewPlan(testContext(), { ...base, plan: 'free', deploy: true })).toEqual({
+			plan: 'free',
+			source: 'stated'
+		});
+	});
+
+	it('assumes paid for a local run, which has no bill, and says it assumed it', async () => {
+		expect(await previewPlan(testContext(), base)).toEqual({ plan: 'paid', source: 'assumed' });
+	});
+
+	it('reads the account subscription for a deploy', async () => {
+		for (const [id, plan] of [
+			['workers_paid', 'paid'],
+			['workers_free', 'free']
+		] as const) {
+			const ctx = testContext({ env: account, fetch: subscriptions(id) });
+			expect(await previewPlan(ctx, { ...base, deploy: true })).toEqual({
+				plan,
+				source: 'detected'
+			});
+		}
+	});
+
+	it('falls back to free, marked assumed, when the subscription names no Workers product', async () => {
+		const ctx = testContext({ env: account, fetch: subscriptions('something_else') });
+		expect(await previewPlan(ctx, { ...base, deploy: true })).toEqual({
+			plan: 'free',
+			source: 'assumed'
+		});
+	});
+});
+
+describe('module settings', () => {
+	it('carries a dotted module key with a literal value, the way earth-app sets mantle2.cloud_endpoint', () => {
+		const found = settingsOverrides(
+			parseSettings(
+				[
+					"$settings['mantle2.cloud_endpoint'] = 'https://cloud.earth-app.com';",
+					"$settings['hash_salt'] = 'abc';",
+					"$settings['redis.connection']['host'] = '127.0.0.1';",
+					"$settings['trusted_host_patterns'] = ['^a$'];",
+					"$settings['mymodule.limit'] = 12;"
+				].join('\n')
+			)
+		);
+		expect(found).toEqual({
+			settings: {
+				'mantle2.cloud_endpoint': 'https://cloud.earth-app.com',
+				'mymodule.limit': 12
+			},
+			expressions: []
+		});
+	});
+
+	it('names a key set by expression, and lets a later assignment win', () => {
+		const found = settingsOverrides(
+			parseSettings(
+				[
+					"$settings['a.b'] = 'one';",
+					"$settings['a.b'] = 'two';",
+					"$settings['c.d'] = getenv('D');",
+					"$settings['e.f'] = getenv('F');",
+					"$settings['e.f'] = 'literal';"
+				].join('\n')
+			)
+		);
+		expect(found).toEqual({
+			settings: { 'a.b': 'two', 'e.f': 'literal' },
+			expressions: ['c.d']
+		});
 	});
 });
 
@@ -555,7 +677,15 @@ describe('ownDuplicate', () => {
 
 describe('verify', () => {
 	const survey = { nodes: 2, fileRows: 1 } as Parameters<typeof verify>[2];
-	const db = { tables: 3, nodes: 2, fileRows: 1, filesStored: 1, fileBytes: 1, codeFiles: 0 };
+	const db = {
+		tables: 3,
+		nodes: 2,
+		fileRows: 1,
+		filesStored: 1,
+		fileBytes: 1,
+		codeFiles: 0,
+		redisKeys: 0
+	};
 
 	it('passes when the counts agree and the pages and a file answer', async () => {
 		const ctx = testContext({ fetch: fakeFetch(() => new Response('', { status: 200 })) });
@@ -584,6 +714,61 @@ describe('verify', () => {
 		expect(got.failed?.message).toContain('/user/login');
 		expect(got.failed?.message).not.toContain('/node/1');
 		expect(fetch.urls).toContain('http://old.example/node/1');
+	});
+
+	it('does not compare a path the source answers from Cloudflare Access, and says so', async () => {
+		const gate = 'https://team.cloudflareaccess.com/cdn-cgi/access/login/old.example?kid=1';
+		const fetch = fakeFetch((url) => {
+			const source = url.startsWith('http://old.example');
+			if (source && url.endsWith('/user/login')) {
+				return new Response('', { status: 302, headers: { location: gate } });
+			}
+			if (source && url.endsWith('/node/1')) {
+				return new Response('', {
+					status: 401,
+					headers: { 'www-authenticate': 'Cloudflare-Access resource_metadata="x"' }
+				});
+			}
+			return new Response('', { status: 200 });
+		});
+		const ctx = testContext({ fetch });
+		const got = await verify(
+			ctx,
+			'http://localhost:8787',
+			survey,
+			db,
+			['a.png'],
+			'http://old.example'
+		);
+		expect(got.failed).toBeNull();
+		expect(got.summary).toContain('4 of 4 checks passed');
+		expect(got.summary).toContain('2 not compared (/user/login, /node/1 sit behind');
+		expect(ctx.io.stderr.join('\n')).toContain(
+			'/user/login  not compared: the source is behind Cloudflare Access on this path'
+		);
+	});
+
+	it('still fails a path whose redirect leaves for somewhere other than Access', async () => {
+		const fetch = fakeFetch((url) => {
+			const source = url.startsWith('http://old.example');
+			if (source && url.endsWith('/user/login')) {
+				return new Response('', {
+					status: 302,
+					headers: { location: 'https://sso.example.edu/login' }
+				});
+			}
+			return new Response('', { status: 200 });
+		});
+		const ctx = testContext({ fetch });
+		const got = await verify(
+			ctx,
+			'http://localhost:8787',
+			survey,
+			db,
+			['a.png'],
+			'http://old.example'
+		);
+		expect(got.failed?.message).toContain('/user/login');
 	});
 
 	it('reports every mismatch before failing', async () => {
@@ -666,7 +851,7 @@ describe('the flow through install', () => {
 			[`cd ${ROOT} && drush sql:query "SELECT COUNT(*) FROM node"`]: ok('2'),
 			[`cd ${ROOT} && drush sql:query "SELECT COUNT(*) FROM file_managed"`]: ok('1'),
 			[`cat ${ROOT}/sites/default/settings.php`]: ok(
-				"<?php\n$settings['redis.connection']['host'] = 'cache.internal';\n"
+				"<?php\n$settings['redis.connection']['host'] = 'cache.example.com';\n"
 			),
 			[`cat ${ROOT}/.htaccess`]: ok(
 				`${STOCK_HTACCESS}\nRedirect 301 /about-us /about\nHeader always set X-Frame-Options "SAMEORIGIN"\n`
@@ -728,7 +913,7 @@ describe('the flow through install', () => {
 			{ path: 'modules/custom/agency/agency.module', package: 'migrated/agency' }
 		]);
 		const devVars = readFileSync(join(workspace, '.dev.vars'), 'utf8');
-		expect(devVars).toContain("REDIS_URL='redis://cache.internal:6379'\n");
+		expect(devVars).toContain("REDIS_URL='redis://cache.example.com:6379'\n");
 		expect(JSON.parse(wranglerDotenv(devVars)['REDIRECTS']!)).toEqual([
 			{ from: '/about-us', to: '/about', status: 301 },
 			{ from: '/about-us/*', to: '/about/*', status: 301 }
@@ -786,7 +971,7 @@ describe('the settings step', () => {
 				[
 					'<?php',
 					"$settings['redis.connection']['interface'] = 'PhpRedis';",
-					"$settings['redis.connection']['host'] = 'cache.internal';",
+					"$settings['redis.connection']['host'] = 'cache.example.com';",
 					"$settings['redis.connection']['password'] = 'hunter2';",
 					"$settings['memcache']['servers'] = [];",
 					"$config['system.site']['name'] = 'Old';",
@@ -829,7 +1014,7 @@ describe('the settings step', () => {
 			string,
 			string
 		>;
-		expect(secrets['REDIS_URL']).toBe('redis://:hunter2@cache.internal:6379');
+		expect(secrets['REDIS_URL']).toBe('redis://:hunter2@cache.example.com:6379');
 		expect(JSON.parse(secrets['DRUPAL_CONFIG']!)).toEqual({ 'system.site': { name: 'Old' } });
 		const text = ctx.io.text();
 		expect(text).not.toContain('hunter2');
@@ -841,6 +1026,231 @@ describe('the settings step', () => {
 		expect(readFileSync(join(out, 'domains.txt'), 'utf8')).toBe(
 			'drangler domain add www.old.example\nnot one host, choose one by hand: ^.+\\.old\\.example$\n'
 		);
+	});
+
+	it('blanks every credential the database holds, lists them by name, and carries one on request', async () => {
+		const hex = (v: unknown) => Buffer.from(phpSerialize(v), 'latin1').toString('hex');
+		const dump = [
+			'CREATE TABLE `node` (`nid` int(10) unsigned NOT NULL);',
+			'CREATE TABLE `config` (`collection` varchar(255) NOT NULL, `name` varchar(255) NOT NULL, `data` longblob, PRIMARY KEY (`collection`, `name`));',
+			`INSERT INTO \`config\` VALUES ('', 'key.key.cloud_admin', 0x${hex({ key_provider: 'config', key_provider_settings: { key_value: 'live-admin-key' } })});`,
+			`INSERT INTO \`config\` VALUES ('', 'smtp.settings', 0x${hex({ smtp_username: 'mailer', smtp_password: 'hunter2' })});`,
+			`INSERT INTO \`config\` VALUES ('', 'mailsystem.settings', 0x${hex({ defaults: { sender: 'SMTPMailSystem', formatter: 'mime_mail' } })});`
+		].join('\n');
+		const run = async (extra: { carryKey?: string[]; confirm?: string }, into?: string) => {
+			const out = into ?? tmp();
+			const workspace = join(out, 'worker');
+			mkdirSync(workspace, { recursive: true });
+			writeFileSync(
+				join(workspace, 'package.json'),
+				JSON.stringify({ name: '@drupflare/worker' })
+			);
+			const src = tmp();
+			mkdirSync(join(src, 'files'), { recursive: true });
+			writeFileSync(join(src, 'files', 'a.txt'), 'a');
+			execFileSync('tar', ['-cf', join(src, 'files.tar'), '-C', src, 'files']);
+			mkdirSync(join(src, 'modules'), { recursive: true });
+			execFileSync('tar', ['-cf', join(src, 'modules.tar'), '-C', src, 'modules']);
+			const { transport } = recording(
+				{
+					'php -v': ok('PHP 8.3.6 (cli)'),
+					'php -m': ok('[PHP Modules]\npdo_mysql\n'),
+					[`cd ${ROOT} && drush status --format=json`]: ok(
+						JSON.stringify({
+							'drupal-version': '10.4.0',
+							'db-driver': 'mysql',
+							root: ROOT
+						})
+					),
+					[`cd ${ROOT} && drush pm:list --status=enabled --type=module --format=json`]:
+						ok(JSON.stringify({ node: {} })),
+					[`cat ${ROOT}/sites/default/settings.php`]: ok('<?php\n')
+				},
+				{
+					[`cd ${ROOT} && drush sql:dump --extra-dump=--hex-blob`]:
+						new TextEncoder().encode(dump),
+					[`tar -cf - -C ${ROOT}/sites/default files`]: new Uint8Array(
+						readFileSync(join(src, 'files.tar'))
+					),
+					[`tar -cf - -C ${ROOT} modules`]: new Uint8Array(
+						readFileSync(join(src, 'modules.tar'))
+					)
+				}
+			);
+			const real = nodeRunner();
+			const runner: CommandRunner = {
+				run: (file, args, opts) => real.run(file, args, opts),
+				runToFile: (file, args, o, opts) => real.runToFile(file, args, o, opts),
+				spawn: async () => 0
+			};
+			const ctx = testContext({
+				files: nodeFiles(),
+				runner,
+				ask: async (question) => (question.startsWith('Install Into') ? 'n' : 'y')
+			});
+			await runPreviewCommand(ctx, {
+				host: 'deploy@old.example',
+				root: ROOT,
+				out,
+				transport,
+				globals: testGlobals({}, ctx),
+				...extra
+			});
+			return {
+				out,
+				text: ctx.io.stderr.join('\n'),
+				config: JSON.parse(
+					(
+						JSON.parse(readFileSync(join(out, 'secrets.json'), 'utf8')) as Record<
+							string,
+							string
+						>
+					)['DRUPAL_CONFIG'] ?? '{}'
+				) as Record<string, unknown>
+			};
+		};
+
+		const blanked = await run({ carryKey: [] });
+		expect(blanked.config).toEqual({
+			'key.key.cloud_admin': { key_provider_settings: { key_value: '' } },
+			'smtp.settings': { smtp_username: '', smtp_password: '' },
+			'mailsystem.settings': { defaults: { sender: 'cfw_mail' } }
+		});
+		expect(blanked.text).toContain('Mail System sender SMTPMailSystem opens its own socket');
+		expect(blanked.text).toContain('3 blanked in the duplicate');
+		expect(blanked.text).toContain('cloud_admin, smtp.settings:smtp_username');
+		expect(blanked.text).not.toContain('live-admin-key');
+		expect(blanked.text).not.toContain('hunter2');
+
+		const carried = await run({ carryKey: ['cloud_admin', 'smtp.settings'] });
+		expect(carried.config).toEqual({
+			'mailsystem.settings': { defaults: { sender: 'cfw_mail' } }
+		});
+		expect(carried.text).toContain('3 carried by request');
+
+		// a second run into the same folder would replay into a filled database, so it is refused
+		await expect(run({ carryKey: [] }, carried.out)).rejects.toThrow(
+			/already holds a preview database/
+		);
+	});
+});
+
+describe('previewEnv', () => {
+	const base = { host: 'root@old.example', globals: testGlobals({}, testContext()) };
+
+	it('answers each open decision from DRANGLER_PREVIEW_*, with lists split on commas', () => {
+		const got = previewEnv(base, {
+			DRANGLER_PREVIEW_CONFIRM: 'old.example',
+			DRANGLER_PREVIEW_PLAN: 'paid',
+			DRANGLER_PREVIEW_FOLLOW: 'mantle2=earth-app/mantle2, bright=o/bright',
+			DRANGLER_PREVIEW_CARRY_KEYS: 'mantle2_api_key,smtp.settings',
+			DRANGLER_PREVIEW_CHECK: '/v2/info',
+			DRANGLER_PREVIEW_DEPLOY: '1',
+			DRANGLER_PREVIEW_HOLD_MAIL: '1',
+			DRANGLER_PREVIEW_FOLLOW_INTERVAL: '10'
+		});
+		expect(got.confirm).toBe('old.example');
+		expect(got.plan).toBe('paid');
+		expect(got.follow).toEqual(['mantle2=earth-app/mantle2', 'bright=o/bright']);
+		expect(got.carryKey).toEqual(['mantle2_api_key', 'smtp.settings']);
+		expect(got.check).toEqual(['/v2/info']);
+		expect(got.deploy).toBe(true);
+		expect(got.holdMail).toBe(true);
+		expect(got.followInterval).toBe('10');
+	});
+
+	it('lets a flag win and leaves an unset variable open', () => {
+		const got = previewEnv(
+			{ ...base, confirm: 'flag.example', plan: 'free', carryKey: [] },
+			{
+				DRANGLER_PREVIEW_CONFIRM: 'env.example',
+				DRANGLER_PREVIEW_PLAN: 'paid',
+				DRANGLER_PREVIEW_CARRY_KEYS: 'x',
+				DRANGLER_PREVIEW_SITE: ''
+			}
+		);
+		expect(got.confirm).toBe('flag.example');
+		expect(got.plan).toBe('free');
+		expect(got.carryKey).toEqual([]);
+		expect(got.site).toBeUndefined();
+		expect(got.deploy).toBeUndefined();
+	});
+
+	it('refuses a plan that is neither free nor paid, naming the variable', () => {
+		expect(() => previewEnv(base, { DRANGLER_PREVIEW_PLAN: 'gold' })).toThrow(
+			/DRANGLER_PREVIEW_PLAN is gold/
+		);
+	});
+
+	it('refuses to hold mail on a deployed duplicate, which would queue without limit', async () => {
+		const ctx = testContext();
+		await expect(
+			runPreviewCommand(ctx, {
+				...base,
+				holdMail: true,
+				deploy: true,
+				globals: testGlobals({}, ctx)
+			})
+		).rejects.toThrow(/--hold-mail is for a local duplicate/);
+	});
+});
+
+describe('bootDuplicate', () => {
+	const ORIGIN = 'http://localhost:8787';
+	const up = fakeFetch(() => new Response('', { status: 200 }));
+	const forever = () => new Promise<void>(() => {});
+	const ended = () => Promise.reject(new DranglerError('wrangler', 'wrangler dev exited 1'));
+
+	it('starts wrangler again when it ends before the site answers, and says so', async () => {
+		const ctx = testContext({ fetch: up });
+		let starts = 0;
+		const { running } = await bootDuplicate(
+			ctx,
+			ORIGIN,
+			() => (++starts === 1 ? ended() : forever()),
+			0
+		);
+		expect(starts).toBe(2);
+		expect(running).toBeInstanceOf(Promise);
+		expect(ctx.io.stderr.join('\n')).toContain(
+			'wrangler dev exited 1 during the first boot; starting it again'
+		);
+		expect(ctx.io.stderr.join('\n')).toContain('boot 2 of 5');
+		expect(ctx.io.stderr.join('\n')).toContain(`wrangler before ${WRANGLER_DEV_FIXED} ends`);
+	});
+
+	it('gives up after five boots and raises wrangler own exit', async () => {
+		const ctx = testContext({ fetch: fakeFetch(() => new Response('', { status: 503 })) });
+		let starts = 0;
+		await expect(
+			bootDuplicate(ctx, ORIGIN, () => (starts++, ended()), 0)
+		).rejects.toMatchObject({
+			code: 'wrangler',
+			message: 'wrangler dev exited 1'
+		});
+		expect(starts).toBe(5);
+	});
+
+	it('does not retry a refusal that would repeat, such as the workspace gate', async () => {
+		const ctx = testContext({ fetch: up });
+		let starts = 0;
+		await expect(
+			bootDuplicate(
+				ctx,
+				ORIGIN,
+				() => (starts++, Promise.reject(new UsageError('no workspace'))),
+				0
+			)
+		).rejects.toBeInstanceOf(UsageError);
+		expect(starts).toBe(1);
+	});
+
+	it('counts the site up only after two answers in a row, so a first render that kills it is seen', async () => {
+		const answers = [200, 500, 200, 200];
+		const fetch = fakeFetch(() => new Response('', { status: answers.shift() ?? 200 }));
+		const ctx = testContext({ fetch });
+		await bootDuplicate(ctx, ORIGIN, forever, 0);
+		expect(fetch.urls).toHaveLength(4);
 	});
 });
 
@@ -989,13 +1399,13 @@ describe('refuseOldWorker', () => {
 	};
 
 	it('refuses a checkout older than the first release preview runs on, naming the move', () => {
-		expect(at('1.0.2')).toThrow(UsageError);
-		expect(at('1.0.2')).toThrow(`drangler update --to v${PREVIEW_MIN_WORKER}`);
+		expect(at('1.0.3')).toThrow(UsageError);
+		expect(at('1.0.3')).toThrow(`drangler update --to v${PREVIEW_MIN_WORKER}`);
 		expect(at('0.9.0')).toThrow(UsageError);
 	});
 
-	it('compares numerically, so 1.0.10 is newer than 1.0.3', () => {
-		expect(at('1.0.3')).not.toThrow();
+	it('compares numerically, so 1.0.10 is newer than 1.0.4', () => {
+		expect(at('1.0.4')).not.toThrow();
 		expect(at('1.0.10')).not.toThrow();
 		expect(at('1.1.0')).not.toThrow();
 	});

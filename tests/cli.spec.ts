@@ -58,6 +58,21 @@ describe('help', () => {
 		expect(ctx.io.text()).toContain('Usage: drangler ');
 	});
 
+	// the root `--version` is read wherever it appears, so a subcommand flag of that name printed the
+	// CLI version and installed nothing; `preview` printed `modify require ... --version` for users
+	it('gives no subcommand a flag the root --version would swallow', () => {
+		const clash: string[] = [];
+		const walk = (command: ReturnType<typeof buildProgram>, path: string) => {
+			for (const sub of command.commands) {
+				if (sub.options.some((o) => o.long === '--version'))
+					clash.push(`${path} ${sub.name()}`);
+				walk(sub, `${path} ${sub.name()}`);
+			}
+		};
+		walk(buildProgram(testContext()), 'drangler');
+		expect(clash).toEqual([]);
+	});
+
 	// the description undercounted: `update` writes too, and the README already said five
 	it('names every command that writes, rather than claiming to be read-only', () => {
 		const description = buildProgram(testContext()).description();

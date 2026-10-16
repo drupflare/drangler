@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
 	moduleNameOf,
 	onlyMissingPackages,
+	requirePackages,
 	runModifyActivate,
 	runModifyCheck,
 	runModifyDiff,
 	runModifyDrop,
 	runModifyEnable,
 	runModifyInit,
+	runModifyList,
 	runModifyRelease,
 	runModifyRequire,
 	runModifyRevisions,
@@ -774,6 +776,39 @@ describe('modify require and enable', () => {
 		expect(new URL(install?.url as string).searchParams.has('force')).toBe(false);
 	});
 
+	it('installs each library at its own version and reports a refusal as a row, not a throw', async () => {
+		const site = fakeSite();
+		const ctx = ctxFor(memoryFiles(tree()), site.fetch);
+		const rows = await requirePackages(
+			ctx,
+			ownerTarget(globalsFor(ctx)),
+			[
+				{ name: 'phpmailer/phpmailer', version: 'v6.12.0' },
+				{ name: 'google/auth', version: 'v1.53.0' }
+			],
+			{}
+		);
+		expect(rows.map((r) => [r.name, r.installed])).toEqual([
+			['phpmailer/phpmailer', true],
+			['google/auth', true]
+		]);
+		const versions = site.state.calls
+			.filter((c) => new URL(c.url).pathname === '/install')
+			.map((c) => new URL(c.url).searchParams.get('version'));
+		expect(versions).toEqual(['v6.12.0', 'v1.53.0']);
+
+		const refusing = fakeSite({ installable: 'blocked' });
+		const second = ctxFor(memoryFiles(tree()), refusing.fetch);
+		const refused = await requirePackages(
+			second,
+			ownerTarget(globalsFor(second)),
+			[{ name: 'x/y', version: '1' }],
+			{}
+		);
+		expect(refused[0]).toMatchObject({ installed: false });
+		expect(refused[0]?.error).toContain('blocked');
+	});
+
 	it('still refuses a platform or version conflict, which no registry install supplies', () => {
 		expect(onlyMissingPackages([{ requires: 'drupal/consumers', reason: 'missing' }])).toBe(
 			true
@@ -1066,5 +1101,74 @@ describe('resolving the project', () => {
 			/does not hold/
 		);
 		expect(ctx.io.json<UploadResult>().notes.join(' ')).toContain('does not hold');
+	});
+});
+
+describe('modify list', () => {
+	const answer =
+		(packages: unknown[], remotes: unknown[]): FetchLike =>
+		async (url) => {
+			const path = new URL(String(url)).pathname;
+			return new Response(
+				JSON.stringify(path === '/git' ? { ok: true, remotes } : { ok: true, packages }),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			);
+		};
+
+	it('names uploaded packages and followed repositories side by side', async () => {
+		const ctx = ctxFor(
+			memoryFiles(tree()),
+			answer(
+				[
+					{
+						package: 'custom_a',
+						rev: 'a'.repeat(64),
+						files: 4,
+						revisions: 2,
+						kind: 'upload',
+						label: 'v2'
+					}
+				],
+				[
+					{
+						id: 'generic:earth-app/mantle2@master',
+						mount: 'modules/mantle2',
+						installed: 'e0b02785bec991ca',
+						head: 'e0b02785bec991ca',
+						intervalMinutes: 5,
+						files: 78,
+						lastError: null
+					}
+				]
+			)
+		);
+		await runModifyList(ctx, { globals: globalsFor(ctx, { json: false }) });
+		const text = ctx.io.text();
+		expect(text).toContain('uploaded packages');
+		expect(text).toContain('custom_a');
+		expect(text).toContain('followed repositories');
+		expect(text).toContain('generic:earth-app/mantle2@master');
+		expect(text).toContain('modules/mantle2');
+		expect(text).toContain('e0b0278');
+		expect(text).toContain('5 min');
+	});
+
+	it('says plainly when nothing is kept current', async () => {
+		const ctx = ctxFor(memoryFiles(tree()), answer([], []));
+		await runModifyList(ctx, { globals: globalsFor(ctx, { json: false }) });
+		expect(ctx.io.text()).toContain(
+			'no package has a stored revision and no repository is followed'
+		);
+	});
+
+	it('prints both lists as one object under --json', async () => {
+		const ctx = ctxFor(
+			memoryFiles(tree()),
+			answer([{ package: 'p', rev: null, files: 0, revisions: 0 }], [{ id: 'r', files: 1 }])
+		);
+		await runModifyList(ctx, { globals: globalsFor(ctx, { json: true }) });
+		const out = ctx.io.json<{ packages: unknown[]; remotes: unknown[] }>();
+		expect(out.packages).toHaveLength(1);
+		expect(out.remotes).toHaveLength(1);
 	});
 });

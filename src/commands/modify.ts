@@ -734,6 +734,73 @@ export async function runModifyRevisions(
 	);
 }
 
+export interface ModifyListOptions {
+	globals: ModifyOptions['globals'];
+}
+
+/**
+ * Every module the site keeps current, from both places that can: packages uploaded through
+ * `modify`, which have revisions, and repositories the site follows, which have a mount and a sha.
+ *
+ * Code that was only carried from another host appears in neither. It is not being kept current by
+ * anything, which is exactly what this listing exists to say.
+ */
+export async function runModifyList(ctx: Context, opts: ModifyListOptions): Promise<void> {
+	const owner = ownerTarget(opts.globals);
+	const uploaded = await ownerCall(ctx, owner, '/modify', { params: { action: 'status' } });
+	const followed = await ownerCall(ctx, owner, '/git', { params: { action: 'list' } });
+	const packages = Array.isArray(uploaded.body['packages'])
+		? (uploaded.body['packages'] as Record<string, unknown>[])
+		: [];
+	const remotes = Array.isArray(followed.body['remotes'])
+		? (followed.body['remotes'] as Record<string, unknown>[])
+		: [];
+
+	emit(ctx.io, opts.globals.json, { packages, remotes }, () => {
+		const lines: string[] = [];
+		if (packages.length === 0 && remotes.length === 0) {
+			return ['no package has a stored revision and no repository is followed on this site'];
+		}
+		if (packages.length > 0) {
+			lines.push(
+				'uploaded packages',
+				...table(
+					['package', 'rev', 'files', 'revisions', 'kind', 'label'],
+					packages.map((row) => [
+						String(row['package'] ?? ''),
+						row['rev'] === null || row['rev'] === undefined
+							? '-'
+							: shortRev(String(row['rev'])),
+						String(row['files'] ?? 0),
+						String(row['revisions'] ?? 0),
+						String(row['kind'] ?? ''),
+						String(row['label'] ?? '')
+					])
+				)
+			);
+		}
+		if (remotes.length > 0) {
+			if (lines.length > 0) lines.push('');
+			lines.push(
+				'followed repositories',
+				...table(
+					['remote', 'mount', 'installed', 'head', 'every', 'files', 'last error'],
+					remotes.map((row) => [
+						String(row['id'] ?? ''),
+						String(row['mount'] ?? 'modules/custom/...'),
+						String(row['installed'] ?? '-').slice(0, 7),
+						String(row['head'] ?? '-').slice(0, 7),
+						`${row['intervalMinutes'] ?? '?'} min`,
+						String(row['files'] ?? 0),
+						String(row['lastError'] ?? '')
+					])
+				)
+			);
+		}
+		return lines;
+	});
+}
+
 export interface ModifyActivateOptions extends ModifyOptions {
 	/** the previous revision rather than a named one, which is what a rollback means */
 	previous?: boolean;
@@ -851,62 +918,17 @@ export async function runModifyRequire(
 	opts: ModifyRequireOptions
 ): Promise<void> {
 	if (names.length === 0) throw new UsageError('name at least one package to require');
-	const owner = ownerTarget(opts.globals);
-	const results: {
-		name: string;
-		verdict: string | null;
-		version: string | null;
-		installed: boolean;
-		enabled: boolean | null;
-		error: string | null;
-	}[] = [];
-
-	for (const name of names) {
-		const row = {
-			name,
-			verdict: null as string | null,
-			version: null as string | null,
-			installed: false,
-			enabled: null as boolean | null,
-			error: null as string | null
-		};
-		results.push(row);
-
-		const check = await ownerCall(ctx, owner, '/installable', { params: { module: name } });
-		row.verdict = typeof check.body['verdict'] === 'string' ? check.body['verdict'] : null;
-		row.version = typeof check.body['version'] === 'string' ? check.body['version'] : null;
-		// a requirement the site lacks but the registry has is installed alongside it, which is
-		// the same allowance the site's own install route makes for deps=1
-		if (row.verdict === 'blocked' && onlyMissingPackages(check.body['conflicts'])) {
-			row.verdict = 'installable';
+	const results = await requirePackages(
+		ctx,
+		ownerTarget(opts.globals),
+		names.map((name) => ({ name, version: opts.version })),
+		{
+			registry: opts.registry,
+			enable: opts.enable,
+			force: opts.force,
+			dryRun: opts.globals.dryRun
 		}
-		if (row.verdict !== 'installable' && opts.force !== true) {
-			row.error = `${row.verdict ?? 'unknown'}; pass --force to install anyway`;
-			continue;
-		}
-		if (opts.globals.dryRun) continue;
-
-		const installed = await ownerCall(ctx, owner, '/install', {
-			method: 'POST',
-			params: {
-				module: name,
-				deps: '1',
-				...(opts.version === undefined ? {} : { version: opts.version }),
-				...(opts.registry === undefined ? {} : { registry: opts.registry }),
-				...(opts.force === true ? { force: '1' } : {})
-			}
-		});
-		row.installed = installed.body['ok'] !== false && installed.status < 400;
-		if (!row.installed) {
-			row.error = replyError(installed, 'the site refused the install');
-			continue;
-		}
-		if (opts.enable === true) {
-			const enabled = await enableModule(ctx, owner, moduleNameOf(name));
-			row.enabled = enabled.ok;
-			if (!enabled.ok) row.error = enabled.error;
-		}
-	}
+	);
 
 	emit(ctx.io, opts.globals.json, { packages: results }, () =>
 		table(
@@ -925,6 +947,77 @@ export async function runModifyRequire(
 	if (failed.length > 0) {
 		throw new DranglerError('modify', `${failed.length} package(s) did not land`);
 	}
+}
+
+export interface RequireRow {
+	name: string;
+	verdict: string | null;
+	version: string | null;
+	installed: boolean;
+	enabled: boolean | null;
+	error: string | null;
+}
+
+/** installs each package the way `modify require` does and reports one row each, never throwing */
+export async function requirePackages(
+	ctx: Context,
+	owner: OwnerTarget,
+	wanted: readonly { name: string; version?: string | undefined }[],
+	opts: {
+		registry?: string | undefined;
+		enable?: boolean | undefined;
+		force?: boolean | undefined;
+		dryRun?: boolean | undefined;
+	}
+): Promise<RequireRow[]> {
+	const results: RequireRow[] = [];
+	for (const { name, version } of wanted) {
+		const row: RequireRow = {
+			name,
+			verdict: null,
+			version: null,
+			installed: false,
+			enabled: null,
+			error: null
+		};
+		results.push(row);
+
+		const check = await ownerCall(ctx, owner, '/installable', { params: { module: name } });
+		row.verdict = typeof check.body['verdict'] === 'string' ? check.body['verdict'] : null;
+		row.version = typeof check.body['version'] === 'string' ? check.body['version'] : null;
+		// a requirement the site lacks but the registry has is installed alongside it, which is
+		// the same allowance the site's own install route makes for deps=1
+		if (row.verdict === 'blocked' && onlyMissingPackages(check.body['conflicts'])) {
+			row.verdict = 'installable';
+		}
+		if (row.verdict !== 'installable' && opts.force !== true) {
+			row.error = `${row.verdict ?? 'unknown'}; pass --force to install anyway`;
+			continue;
+		}
+		if (opts.dryRun === true) continue;
+
+		const installed = await ownerCall(ctx, owner, '/install', {
+			method: 'POST',
+			params: {
+				module: name,
+				deps: '1',
+				...(version === undefined ? {} : { version }),
+				...(opts.registry === undefined ? {} : { registry: opts.registry }),
+				...(opts.force === true ? { force: '1' } : {})
+			}
+		});
+		row.installed = installed.body['ok'] !== false && installed.status < 400;
+		if (!row.installed) {
+			row.error = replyError(installed, 'the site refused the install');
+			continue;
+		}
+		if (opts.enable === true) {
+			const enabled = await enableModule(ctx, owner, moduleNameOf(name));
+			row.enabled = enabled.ok;
+			if (!enabled.ok) row.error = enabled.error;
+		}
+	}
+	return results;
 }
 
 /** whether every conflict is a package the site lacks, which a registry install can supply */
