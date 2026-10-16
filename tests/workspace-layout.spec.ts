@@ -12,8 +12,10 @@ import {
 } from '../src/workspace/layout';
 import {
 	cloneArgs,
+	DEFAULT_EDGE_BRANCH,
 	DEFAULT_WORKER_REF,
 	DEFAULT_WORKER_SOURCE,
+	edgeBranch,
 	latestRelease,
 	pinRelease,
 	resolveSource
@@ -229,6 +231,45 @@ describe('resolveSource', () => {
 
 	it('refuses an empty source', () => {
 		expect(() => resolveSource({}, '  ')).toThrow(UsageError);
+	});
+});
+
+describe('edgeBranch', () => {
+	it('is undefined without the flag or the variable, so a release stays the default', () => {
+		expect(edgeBranch(undefined, {})).toBeUndefined();
+		expect(edgeBranch(false, {})).toBeUndefined();
+		expect(edgeBranch(undefined, { DRANGLER_WORKER_EDGE: '' })).toBeUndefined();
+		expect(edgeBranch(undefined, { DRANGLER_WORKER_EDGE: '0' })).toBeUndefined();
+	});
+
+	it('means the default branch when bare, from the flag or from 1', () => {
+		expect(edgeBranch(true, {})).toBe(DEFAULT_EDGE_BRANCH);
+		expect(edgeBranch(undefined, { DRANGLER_WORKER_EDGE: '1' })).toBe(DEFAULT_EDGE_BRANCH);
+	});
+
+	it('takes the flag over the variable, and a branch name as it is written', () => {
+		expect(edgeBranch('feat/x', { DRANGLER_WORKER_EDGE: 'other' })).toBe('feat/x');
+		expect(edgeBranch(undefined, { DRANGLER_WORKER_EDGE: 'next' })).toBe('next');
+	});
+
+	it('refuses what git would not take as a branch or could pass for an option', () => {
+		for (const bad of ['--upload-pack=x', '-x', 'a..b', 'a b']) {
+			expect(() => edgeBranch(bad, {}), bad).toThrow(UsageError);
+		}
+	});
+});
+
+describe('resolveSource with an edge', () => {
+	it('clones the edge branch and says the flag chose it', () => {
+		expect(resolveSource({}, undefined, undefined, 'next')).toMatchObject({ ref: 'next' });
+	});
+
+	it('refuses a different ref beside it, from the flag or the environment', () => {
+		expect(() => resolveSource({}, undefined, 'v1.0.3', 'next')).toThrow(UsageError);
+		expect(() =>
+			resolveSource({ DRANGLER_WORKER_REF: 'v1.0.3' }, undefined, undefined, 'next')
+		).toThrow(UsageError);
+		expect(resolveSource({}, undefined, 'next', 'next').ref).toBe('next');
 	});
 });
 

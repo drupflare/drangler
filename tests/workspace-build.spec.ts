@@ -115,6 +115,20 @@ describe('planBuild', () => {
 		]);
 	});
 
+	it('asks hydrate for the branch tip when --edge says so, and keeps --payload-only beside it', () => {
+		expect(hydrateArgs({ edge: 'master' })).toEqual(['--dev=master']);
+		expect(hydrateArgs({ edge: 'feat/x', payloadOnly: true })).toEqual([
+			'--dev=feat/x',
+			'--payload-only'
+		]);
+		expect(planBuild(stateOf(), SOURCE, { edge: 'master' })[3]?.command).toEqual([
+			'bun',
+			'run',
+			'hydrate',
+			'--dev=master'
+		]);
+	});
+
 	it('lets a named payload win over --from-source, because a tarball IS a payload', () => {
 		expect(hydrateArgs({ from: '/tmp/p.tar.gz', fromSource: true })).toEqual([
 			'--from=/tmp/p.tar.gz'

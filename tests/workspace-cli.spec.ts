@@ -102,6 +102,51 @@ describe('drangler build', () => {
 		expect(lines(ctx.runner)).toEqual(['bun run hydrate --from=/tmp/p.tar.gz']);
 	});
 
+	describe('--edge', () => {
+		const EDGE_CLONE = `git clone --branch next /src/worker ${WORKSPACE}`;
+
+		it('clones the named branch without asking for a release tag, then hydrates its tip', async () => {
+			const ctx = ctxFor({}, { [EDGE_CLONE]: ok(''), 'bun run hydrate --dev=next': ok('') });
+			expect(await run(ctx, ['build', '--edge', 'next'])).toBe(EXIT.OK);
+			expect(lines(ctx.runner)).toEqual([
+				EDGE_CLONE,
+				'bun install',
+				'bun run hydrate --dev=next'
+			]);
+		});
+
+		it('means master when bare, and prints the hydrate it will run under --dry-run', async () => {
+			const ctx = ctxFor({});
+			expect(await run(ctx, ['build', '--edge', '--dry-run'])).toBe(EXIT.OK);
+			expect(ctx.runner.calls).toEqual([]);
+			expect(ctx.io.text()).toContain('$ bun run hydrate --dev=master');
+		});
+
+		it('reads DRANGLER_WORKER_EDGE when there is no flag', async () => {
+			const ctx = ctxFor({});
+			ctx.env.DRANGLER_WORKER_EDGE = '1';
+			try {
+				expect(await run(ctx, ['build', '--dry-run'])).toBe(EXIT.OK);
+				expect(ctx.io.text()).toContain('$ bun run hydrate --dev=master');
+			} finally {
+				delete ctx.env.DRANGLER_WORKER_EDGE;
+			}
+		});
+
+		it('refuses a tarball or a source build beside it, which name other bytes', async () => {
+			const ctx = ctxFor({});
+			expect(await run(ctx, ['build', '--edge', '--from=/tmp/p.tar.gz'])).toBe(EXIT.USAGE);
+			expect(await run(ctx, ['build', '--edge', '--from-source'])).toBe(EXIT.USAGE);
+			expect(ctx.runner.calls).toEqual([]);
+		});
+
+		it('refuses a ref that names another branch', async () => {
+			const ctx = ctxFor({});
+			expect(await run(ctx, ['build', '--edge', 'next', '--ref', 'v1.0.3'])).toBe(EXIT.USAGE);
+			expect(ctx.runner.calls).toEqual([]);
+		});
+	});
+
 	it('refuses a populated directory that is not a worker checkout', async () => {
 		const ctx = ctxFor({ '/ws/mine/notes.txt': 'hello' });
 		expect(await run(ctx, ['build', '--workspace', '/ws/mine'])).toBe(EXIT.USAGE);

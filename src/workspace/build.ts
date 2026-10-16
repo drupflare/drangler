@@ -33,6 +33,13 @@ export interface BuildOptions {
 	 * `--payload-only` would make the one command that has to work be the one command that cannot.
 	 */
 	payloadOnly?: boolean;
+	/**
+	 * Take the rolling payload of this branch's tip from the CDN rather than a release.
+	 *
+	 * For a checkout of a branch whose version has no release yet, or a prerelease build somebody
+	 * wants to try. It is `hydrate --dev=<branch>`, so the checkout decides how the line is resolved.
+	 */
+	edge?: string;
 }
 
 /**
@@ -119,13 +126,18 @@ export function planBuild(
  * route here would override a decision the checkout is better placed to make, since only it can see
  * whether a payload answered.
  *
- * The three overrides are mutually exclusive and `--from` wins: a tarball that was handed over is a
+ * The overrides are mutually exclusive and `--from` wins: a tarball that was handed over is a
  * payload, so asking for a source build alongside it is a contradiction rather than a refinement.
+ * `edge` is the one that combines, with `--payload-only` only: both say where the bytes come from
+ * and what to do when there are none.
  */
 export function hydrateArgs(opts: BuildOptions): string[] {
 	if (opts.from !== undefined) return [`--from=${opts.from}`];
 	if (opts.fromSource === true) return ['--from-source'];
-	return opts.payloadOnly === true ? ['--payload-only'] : [];
+	return [
+		...(opts.edge === undefined ? [] : [`--dev=${opts.edge}`]),
+		...(opts.payloadOnly === true ? ['--payload-only'] : [])
+	];
 }
 
 /** what a build did, and what it left behind */

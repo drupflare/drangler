@@ -24,6 +24,34 @@ export interface WorkerSource {
 	from: 'flag' | 'env' | 'default';
 }
 
+/**
+ * The branch whose rolling payload `--edge` takes when it names none.
+ *
+ * The worker publishes the tip of a branch to the CDN as `payloads/dev-<branch>/` on every push,
+ * composer's `dev-master` spelling, and `hydrate --dev=<branch>` reads it.
+ */
+export const DEFAULT_EDGE_BRANCH = 'master';
+
+/**
+ * The branch `--edge` asks for, from the flag first and `DRANGLER_WORKER_EDGE` second.
+ *
+ * A bare flag (commander hands over `true`) and `1` mean the default branch; anything else is the
+ * branch itself. A name git would refuse or that could pass for an option is a usage error here
+ * rather than a clone that fails with git's wording.
+ */
+export function edgeBranch(
+	flag: string | boolean | undefined,
+	env: NodeJS.ProcessEnv
+): string | undefined {
+	const raw = flag ?? env.DRANGLER_WORKER_EDGE?.trim();
+	if (raw === undefined || raw === false || raw === '' || raw === '0') return undefined;
+	if (raw === true || raw === '1' || raw === 'true') return DEFAULT_EDGE_BRANCH;
+	if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(raw) || raw.includes('..')) {
+		throw new UsageError(`--edge takes a branch name; ${raw} is not one`);
+	}
+	return raw;
+}
+
 /** `scheme://...` or scp-style `user@host:path`, both of which git resolves over a network */
 function looksRemote(value: string): boolean {
 	return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(value) || /^[^/\s]+@[^/\s]+:/.test(value);
@@ -37,13 +65,25 @@ function looksRemote(value: string): boolean {
  * below `clone` exercisable before `drupflare/worker` is published -- and what lets somebody run
  * this against a fork without publishing one.
  */
-export function resolveSource(env: NodeJS.ProcessEnv, flag?: string, ref?: string): WorkerSource {
+export function resolveSource(
+	env: NodeJS.ProcessEnv,
+	flag?: string,
+	ref?: string,
+	edge?: string
+): WorkerSource {
 	const fromEnv = env.DRANGLER_WORKER_SOURCE;
 	const url = flag ?? fromEnv ?? DEFAULT_WORKER_SOURCE;
 	if (url.trim() === '') throw new UsageError('--source was given an empty value');
+	const stated = ref ?? env.DRANGLER_WORKER_REF;
+	if (edge !== undefined && stated !== undefined && stated !== edge) {
+		throw new UsageError(
+			`--edge names the branch ${edge} and the ref is ${stated}`,
+			'drop --ref and DRANGLER_WORKER_REF, or name the same branch in --edge'
+		);
+	}
 	return {
 		url,
-		ref: ref ?? env.DRANGLER_WORKER_REF ?? DEFAULT_WORKER_REF,
+		ref: edge ?? stated ?? DEFAULT_WORKER_REF,
 		local: !looksRemote(url),
 		from: flag !== undefined ? 'flag' : fromEnv !== undefined ? 'env' : 'default'
 	};

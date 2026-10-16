@@ -21,6 +21,21 @@ import {
 	type ValidationReport
 } from '../workspace/validate';
 
+/** a branch tip and a tarball or a source build name different bytes, so asking for both is a usage error */
+export function refuseEdgeWith(opts: {
+	edge?: string | undefined;
+	from?: string | undefined;
+	fromSource?: boolean | undefined;
+}): void {
+	if (opts.edge === undefined) return;
+	if (opts.from !== undefined || opts.fromSource === true) {
+		throw new UsageError(
+			'--edge takes the rolling payload of a branch tip; --from and --from-source name other bytes',
+			'drop --edge, or drop --from and --from-source'
+		);
+	}
+}
+
 export interface BuildCommandOptions extends WorkspaceOptions, BuildOptions {
 	source?: string;
 	ref?: string;
@@ -39,11 +54,16 @@ export async function runBuildCommand(ctx: Context, opts: BuildCommandOptions): 
 	const location = resolveWorkspace(ctx, opts, opts.globals.config);
 	const state = readState(ctx.files, location.path);
 	assertUsable(state);
-	const stated = opts.ref !== undefined || ctx.env.DRANGLER_WORKER_REF !== undefined;
+	refuseEdgeWith(opts);
+	const stated =
+		opts.ref !== undefined ||
+		ctx.env.DRANGLER_WORKER_REF !== undefined ||
+		opts.edge !== undefined;
+	const resolved = resolveSource(ctx.env, opts.source, opts.ref, opts.edge);
 	const source =
 		opts.globals.dryRun || (state.checkout && opts.refresh !== true)
-			? resolveSource(ctx.env, opts.source, opts.ref)
-			: await pinRelease(ctx.runner, resolveSource(ctx.env, opts.source, opts.ref), stated);
+			? resolved
+			: await pinRelease(ctx.runner, resolved, stated);
 
 	const steps = planBuild(state, source, opts);
 	if (opts.globals.dryRun) {
@@ -194,6 +214,8 @@ export interface RunCommandOptions extends WorkspaceOptions {
 	fromSource?: boolean;
 	/** fail when no payload exists, rather than building from source */
 	payloadOnly?: boolean;
+	/** the branch whose rolling payload to take instead of a release */
+	edge?: string;
 	/** local module projects to mount into the dev site; repeatable */
 	modify?: string[];
 	/** re-upload on change; on by default when --modify is given */
@@ -253,16 +275,20 @@ async function runWrangler(
 	const location = resolveWorkspace(ctx, opts, opts.globals.config);
 	const state = readState(ctx.files, location.path);
 	assertUsable(state);
-	const stated = opts.ref !== undefined || ctx.env.DRANGLER_WORKER_REF !== undefined;
-	const source = state.checkout
-		? resolveSource(ctx.env, opts.source, opts.ref)
-		: await pinRelease(ctx.runner, resolveSource(ctx.env, opts.source, opts.ref), stated);
+	refuseEdgeWith(opts);
+	const stated =
+		opts.ref !== undefined ||
+		ctx.env.DRANGLER_WORKER_REF !== undefined ||
+		opts.edge !== undefined;
+	const resolved = resolveSource(ctx.env, opts.source, opts.ref, opts.edge);
+	const source = state.checkout ? resolved : await pinRelease(ctx.runner, resolved, stated);
 
 	if (opts.build !== false) {
 		const steps = planBuild(state, source, {
 			...(opts.from === undefined ? {} : { from: opts.from }),
 			...(opts.fromSource === true ? { fromSource: true } : {}),
-			...(opts.payloadOnly === true ? { payloadOnly: true } : {})
+			...(opts.payloadOnly === true ? { payloadOnly: true } : {}),
+			...(opts.edge === undefined ? {} : { edge: opts.edge })
 		});
 		if (steps.some((s) => s.run)) await runPlan(ctx, steps, location.path, source);
 	}
