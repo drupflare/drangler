@@ -1,5 +1,5 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>drupflare/drangler - v0.3.0</title><meta name="description" content="Documentation for drupflare/drangler"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script><script async src="assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
-<div class="tsd-toolbar-contents container"><a href="index.html" class="title">drupflare/drangler - v0.3.0</a>
+<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>drupflare/drangler - v0.4.0</title><meta name="description" content="Documentation for drupflare/drangler"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script><script async src="assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<div class="tsd-toolbar-contents container"><a href="index.html" class="title">drupflare/drangler - v0.4.0</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
 <div id="tsd-search-status" aria-live="polite" aria-atomic="true">
@@ -7,7 +7,7 @@
 <div class="container container-main">
 <div class="col-content">
 <div class="tsd-page-title">
-<h1>drupflare/drangler - v0.3.0</h1></div>
+<h1>drupflare/drangler - v0.4.0</h1></div>
 <div class="tsd-panel tsd-typography"><h1 id="drangler" class="tsd-anchor-link">drangler<a href="#drangler" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1>
 <blockquote>
 <p>Start, maintain and migrate a drupflare site, in either direction</p>
@@ -404,6 +404,10 @@ one-file edit sends one file, and rolling back sends nothing at all.</p>
 <td>upload from a tagged commit, refusing a dirty tree</td>
 </tr>
 <tr>
+<td><code>modify list</code></td>
+<td>uploaded packages, and the repositories the site follows</td>
+</tr>
+<tr>
 <td><code>modify require &lt;name&gt;</code></td>
 <td>install a package from a registry, and optionally turn it on</td>
 </tr>
@@ -427,9 +431,13 @@ bare module directory, and a directory of patches, which is refused by name. App
 the thing it patches, which lives on the site rather than on the developer's disk; patch the checkout
 and upload the result, or use <code>composer-patches</code> in a source tree and upload the patched directory.</p>
 <p>Contrib is not uploaded by <code>modify</code>. A package with a registry entry belongs to the registry:</p>
-<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">modify</span><span class="hl-1"> </span><span class="hl-2">require</span><span class="hl-1"> </span><span class="hl-2">drupal/key</span><span class="hl-1"> </span><span class="hl-2">drupal/redis</span><span class="hl-1"> </span><span class="hl-3">--enable</span>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">modify</span><span class="hl-1"> </span><span class="hl-2">require</span><span class="hl-1"> </span><span class="hl-2">drupal/key</span><span class="hl-1"> </span><span class="hl-2">drupal/redis</span><span class="hl-1"> </span><span class="hl-3">--enable</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">modify</span><span class="hl-1"> </span><span class="hl-2">require</span><span class="hl-1"> </span><span class="hl-2">phpmailer/phpmailer</span><span class="hl-1"> </span><span class="hl-3">--constraint</span><span class="hl-1"> </span><span class="hl-2">v6.12.0</span>
 </code><button type="button">Copy</button></pre>
 
+<p>The version flag is <code>--constraint</code>. <code>--version</code> belongs to the root command, which reads it wherever
+it appears and would print drangler's own version.</p>
+<p><code>modify list</code> shows what the site holds apart from its own code: packages uploaded with <code>modify upload</code>, and each followed repository with its mount, the commit installed and how often it is
+polled. A module carried over by <code>preview</code> and followed from git appears there.</p>
 <p>A project with patches, private repositories or VCS-only dependencies goes through
 <a href="#build-a-project"><code>build --project</code></a>.</p>
 <p><code>drangler dev --modify &lt;dir&gt;</code> mounts a local project into the local dev site and re-uploads on
@@ -1140,32 +1148,45 @@ read the status instead of grepping the output.</p>
 <hr>
 <h2 id="preview" class="tsd-anchor-link">Preview<a href="#preview" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p><code>preview</code> makes a working duplicate of a VPS site on drupflare in one command. Every command it sends
-to the VPS is read-only. Drupal on the VPS may still refresh its own caches when drush starts, and a
-<code>--source-url</code> check views pages the way any visitor does, which can trigger automated cron.</p>
-<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">preview</span><span class="hl-1"> </span><span class="hl-3">--host</span><span class="hl-1"> </span><span class="hl-2">deploy@old.example</span><span class="hl-1"> </span><span class="hl-3">--root</span><span class="hl-1"> </span><span class="hl-2">/var/www/html</span>
+to the VPS is read-only. Drupal on the VPS may still refresh its own caches and rebuild its theme list
+when drush starts. A <code>--source-url</code> check views pages the way any visitor does, so a Drupal that has
+never rendered them creates its cache tables, its private key and a log entry on the first view, and
+automated cron can run.</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">preview</span><span class="hl-1"> </span><span class="hl-3">--host</span><span class="hl-1"> </span><span class="hl-2">deploy@old.example</span>
 </code><button type="button">Copy</button></pre>
 
-<p>It runs ten steps, and asks before each one:</p>
+<p><code>--root</code> is optional. Without it, preview finds the Drupal docroot from the host's web server
+configuration, so a site that lives in an unusual place, runs from a composer root above the docroot,
+or sits under a multisite <code>sites/</code> directory is found from evidence on the host, not from a
+convention. It runs twelve steps, and asks before each one:</p>
 <ol>
-<li>Survey the source over SSH, the same read-only commands as <code>migrate survey</code>.</li>
+<li>Find the site on the host: read the Apache or nginx virtual hosts, take the docroot that looks
+like Drupal, find the composer root and the project's <code>vendor/bin/drush</code>, work out the web user
+and the site directory, and name the source with a short id. <code>--site &lt;hostname&gt;</code> picks one when
+the host serves several.</li>
+<li>Survey the source over SSH, the same read-only commands as <code>migrate survey</code>, run as the web
+user.</li>
 <li>Score the move. A blocker stops the run here.</li>
 <li>Stream the database back with <code>drush sql:dump</code> on stdout.</li>
-<li>Stream <code>sites/default/files</code> back as a tar, and the private files directory when drush reports
-one.</li>
+<li>Stream <code>sites/&lt;dir&gt;/files</code> back as a tar, and the private files directory when drush reports one.</li>
 <li>Stream <code>modules/</code>, <code>themes/</code>, <code>profiles/</code> and <code>libraries/</code>. Text files travel as the site's
 installed code; binaries are listed in <code>code-skipped.txt</code>.</li>
 <li>Read <code>$config</code> and <code>$settings</code> from <code>settings.php</code> and <code>settings.local.php</code>, the source's
 <code>composer.lock</code>, the site's <code>.htaccess</code>, and the docroot files a browser fetches by name, such as
-verification pages, <code>ads.txt</code> and <code>.well-known/</code>. The streamed code is scored here for Drupal 11 support, extension
-calls and the settings below; a blocker stops the run.</li>
-<li>Convert the dump to SQLite (MySQL, MariaDB or PostgreSQL) and store the uploads and the code in the
-same database, in the tables the worker serves them from.</li>
+verification pages, <code>ads.txt</code> and <code>.well-known/</code>. The streamed code is scored here for Drupal 11
+support, extension calls and the settings below; a blocker stops the run.</li>
+<li>Read the application state kept in Redis. The database dump cannot hold it, so one fixed
+read-only script lists the keys outside Drupal's cache bins (at most 5,000 keys, 64 KiB each).</li>
+<li>Convert the dump to SQLite (MySQL, MariaDB or PostgreSQL), store the uploads and the code in the
+same database, put the Redis keys into <code>key_value_expire</code> for the worker's <code>\Redis</code> stand-in, and
+blank the credentials the database holds (see below).</li>
 <li>Install that database into a preview workspace of its own and repack it.</li>
 <li>Bring the duplicate up on <code>wrangler dev</code>, or deploy it with <code>--deploy</code>, then claim it with
-<code>--migrated</code> semantics and run its database updates. The owner token is kept in <code>owner-token</code>
-under <code>--out</code>.</li>
-<li>Check it: node and managed-file counts against the survey, then <code>/</code>, <code>/user/login</code> and one public
-file against the running duplicate.</li>
+<code>--migrated</code> semantics and run its database updates. Composer libraries the duplicate lacks are
+installed from the registry, and <code>--follow</code> repositories are added and pulled. The owner token
+is kept in <code>owner-token</code> under <code>--out</code>.</li>
+<li>Check it: node and managed-file counts against the survey, then <code>/</code>, <code>/user/login</code>, one public
+file and every <code>--check</code> path against the running duplicate.</li>
 </ol>
 <p><code>--dry-run</code> prints the plan in three parts: the numbered steps it will ask about, the <strong>read-only
 commands on the host</strong>, which run on the server over SSH, and the <strong>local commands</strong>, which run on
@@ -1188,16 +1209,52 @@ the list are refused before they reach the host.</p>
 <td>Print every step and command, and run none of them</td>
 </tr>
 <tr>
+<td><code>--root &lt;path&gt;</code></td>
+<td>The Drupal docroot, when you would rather not have it found</td>
+</tr>
+<tr>
+<td><code>--site &lt;hostname&gt;</code></td>
+<td>Which site to take when the host serves several</td>
+</tr>
+<tr>
 <td><code>--full</code></td>
 <td>Run every step after typing the host name once</td>
 </tr>
 <tr>
-<td><code>--deploy</code></td>
-<td>Deploy as <code>drupflare-preview-&lt;host&gt;</code> instead of running <code>wrangler dev</code></td>
+<td><code>--confirm &lt;host&gt;</code></td>
+<td>Run every step with no prompt; the value must name the host, as typing it would</td>
 </tr>
 <tr>
-<td><code>--url &lt;origin&gt;</code></td>
-<td>With <code>--deploy</code>, the origin to check; wrangler prints it after uploading</td>
+<td><code>--check &lt;path...&gt;</code></td>
+<td>Pages to compare with the source, beside <code>/</code> and the login page</td>
+</tr>
+<tr>
+<td><code>--follow &lt;module=repo...&gt;</code></td>
+<td>Keep a module current from a git repository, as <code>mantle2=earth-app/mantle2</code></td>
+</tr>
+<tr>
+<td><code>--follow-interval &lt;min&gt;</code></td>
+<td>Minutes between polls of a followed repository (default 5, the least the worker allows)</td>
+</tr>
+<tr>
+<td><code>--carry-key &lt;name...&gt;</code></td>
+<td>Carry a credential into the duplicate instead of blanking it</td>
+</tr>
+<tr>
+<td><code>--hold-mail</code></td>
+<td>Local only: queue the duplicate's mail and never send it</td>
+</tr>
+<tr>
+<td><code>--plan &lt;free|paid&gt;</code></td>
+<td>The Workers plan the duplicate models; read from the account with <code>--deploy</code></td>
+</tr>
+<tr>
+<td><code>--deploy</code></td>
+<td>Deploy as <code>drupflare-preview-&lt;host&gt;</code> behind Cloudflare Access</td>
+</tr>
+<tr>
+<td><code>--access-email &lt;email&gt;</code></td>
+<td>With <code>--deploy</code>, who may open the copy; defaults to the wrangler login</td>
 </tr>
 <tr>
 <td><code>--source-url &lt;origin&gt;</code></td>
@@ -1213,10 +1270,108 @@ the list are refused before they reach the host.</p>
 </tr>
 </tbody>
 </table>
-<p><code>preview</code> needs worker 1.0.3 or later in its workspace and refuses an older checkout before
-installing, naming the <code>drangler update</code> command that moves it. It always asks, and <code>--yes</code> does not
-change that. With no terminal it refuses, <code>--full</code> included. The duplicate uses its own workspace under <code>--out</code>, so the checkout you deploy your own
-site from is not touched. A deployed preview is removed with <code>wrangler delete --name drupflare-preview-&lt;host&gt;</code>.</p>
+<p><code>preview</code> needs worker 1.0.4 or later in its workspace and refuses an older checkout before
+installing, naming the <code>drangler update</code> command that moves it. The duplicate uses its own workspace
+under <code>--out</code>, so the checkout you deploy your own site from is not touched. A deployed preview is
+removed with <code>wrangler delete --name drupflare-preview-&lt;host&gt;</code>.</p>
+<h3 id="answering-without-a-prompt" class="tsd-anchor-link">Answering without a prompt<a href="#answering-without-a-prompt" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>Every decision has a flag, a <code>DRANGLER_PREVIEW_&lt;NAME&gt;</code> variable, and a prompt on a terminal. A flag
+wins over a variable, and anything still open is asked on a terminal and refused without one, so a
+CI step never hangs. Lists are comma separated and booleans are <code>1</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Same as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DRANGLER_PREVIEW_ROOT</code></td>
+<td><code>--root</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_SITE</code></td>
+<td><code>--site</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_CONFIRM</code></td>
+<td><code>--confirm</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_PLAN</code></td>
+<td><code>--plan</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_CHECK</code></td>
+<td><code>--check</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_FOLLOW</code></td>
+<td><code>--follow</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_FOLLOW_INTERVAL</code></td>
+<td><code>--follow-interval</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_CARRY_KEYS</code></td>
+<td><code>--carry-key</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_ACCESS_EMAIL</code></td>
+<td><code>--access-email</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_DEPLOY</code></td>
+<td><code>--deploy</code> (set to <code>1</code>)</td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_HOLD_MAIL</code></td>
+<td><code>--hold-mail</code> (set to <code>1</code>)</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="sh"><span class="hl-6">DRANGLER_PREVIEW_CONFIRM</span><span class="hl-1">=</span><span class="hl-2">old.example</span><span class="hl-1"> </span><span class="hl-6">DRANGLER_PREVIEW_FOLLOW</span><span class="hl-1">=</span><span class="hl-6">mantle2</span><span class="hl-1">=</span><span class="hl-2">earth-app/mantle2</span><span class="hl-1"> </span><span class="hl-0">\</span><br/><span class="hl-1">  </span><span class="hl-2">drangler</span><span class="hl-1"> </span><span class="hl-2">preview</span><span class="hl-1"> </span><span class="hl-3">--host</span><span class="hl-1"> </span><span class="hl-2">deploy@old.example</span>
+</code><button type="button">Copy</button></pre>
+
+<h3 id="what-preview-decides-for-you" class="tsd-anchor-link">What preview decides for you<a href="#what-preview-decides-for-you" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p><strong>Credentials are blanked.</strong> Sites that keep secrets in Drupal config, through the Key module's
+<code>config</code> provider or in <code>smtp.settings</code> and OAuth client settings, carry them in the database, and a
+copy holding live keys can act as production: write to a cloud API, call a payment provider, push to
+real devices. Preview finds every credential-bearing value in the converted database and in the
+literal <code>$config</code> overrides, empties each one through the <code>DRUPAL_CONFIG</code> override at runtime, and
+lists them by name. Nothing is rewritten in the database, and a public certificate is left alone.
+<code>--carry-key mantle2_api_key</code> restores one by key id, config name or <code>config:leaf</code>. A copy with a
+blank key can still read, and anything that needs the key fails closed.</p>
+<p><strong>Mail leaves through the worker.</strong> A Mail System sender such as <code>SMTPMailSystem</code> opens its own
+socket, which a Worker cannot do, so preview points <code>mailsystem.settings</code> at the worker's mail layer.
+With the credentials blank that layer has no relay, so a copy sends nothing until you configure one.
+<code>--hold-mail</code> goes further for a local run: messages queue in <code>cfw_mail_queue</code> and are never sent, so
+a verification code can be read from the queue. It is refused with <code>--deploy</code>, where the queue would
+grow without limit.</p>
+<p><strong>Redis state comes along.</strong> Keys outside the cache bins, such as mailed tokens and markers that stop
+a notification repeating, are read with a fixed script and written into the site's own database, where
+the worker's <code>\Redis</code> stand-in serves them. The stand-in answers the phpredis calls a module makes; a
+command it cannot answer throws <code>RedisException</code>.</p>
+<p><strong>A deploy is private.</strong> <code>--deploy</code> creates a Cloudflare Access application on the <code>workers.dev</code>
+hostname, with a service token and a policy for one email, before the first upload, then waits until
+the edge turns visitors away. drangler claims and checks the copy with the service token. Nothing in
+DNS changes. If the source answers a path from your own Cloudflare Access, that path is reported as
+not compared, since the edge answered for the source there.</p>
+<p><strong>A first boot can take a few tries.</strong> A fresh Durable Object replays the whole database on its first
+boot, and a wrangler older than 4.129.1 ends <code>wrangler dev</code> with an empty error when a request
+arrives while the site is still booting its second interpreter. The replay resumes, so preview starts
+wrangler again, up to five boots, and counts the site up after two answers in a row. A worker
+checkout of 1.0.4 or later installs a wrangler without the defect and needs no second boot.</p>
+<p><strong>A followed module stays current.</strong> <code>--follow mantle2=earth-app/mantle2</code> adds the repository to the
+duplicate after it is claimed, mounted where the carried module already sits, and the worker polls it
+every five minutes. A public repository needs no token. The repository's <code>vendor/</code> is never
+delivered, so a commit that adds a composer dependency needs <code>drangler build --project</code> in the
+module's own CI.</p>
+<p><strong>Missing libraries are installed.</strong> Composer libraries the source locks and the duplicate lacks are
+installed from the registry after the claim; any that fail are listed in <code>composer-missing.txt</code> as
+<code>drangler modify require</code> commands.</p>
 <p>Literal <code>$config</code> values are carried as a <code>DRUPAL_CONFIG</code> secret: in the workspace's <code>.dev.vars</code> for
 <code>wrangler dev</code>, and through <code>wrangler secret bulk</code> on <code>--deploy</code>. They are never printed. An override
 set by an expression, such as <code>getenv()</code>, is named in the report and left for you to set.</p>
@@ -1759,6 +1914,10 @@ checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <li><a href="#workspaces"><span>Workspaces</span></a></li>
 <li><a href="#validation"><span>Validation</span></a></li>
 <li><a href="#preview"><span>Preview</span></a></li>
+<li>
+<ul>
+<li><a href="#answering-without-a-prompt"><span>Answering without a prompt</span></a></li>
+<li><a href="#what-preview-decides-for-you"><span>What preview decides for you</span></a></li></ul></li>
 <li><a href="#migrating-to-workers"><span>Migrating to <wbr/>Workers</span></a></li>
 <li><a href="#migrating-back-to-a-vps"><span>Migrating <wbr/>Back to a <wbr/>VPS</span></a></li>
 <li><a href="#installing-a-migrated-site"><span>Installing a <wbr/>Migrated <wbr/>Site</span></a></li>
@@ -1773,7 +1932,7 @@ checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <li><a href="#related-repositories"><span>Related <wbr/>Repositories</span></a></li>
 <li><a href="#license"><span>License</span></a></li></ul></div></details></div>
 <div class="site-menu">
-<nav class="tsd-navigation"><a href="modules.html">drupflare/drangler - v0.3.0</a>
+<nav class="tsd-navigation"><a href="modules.html">drupflare/drangler - v0.4.0</a>
 <ul class="tsd-small-nested-navigation" id="tsd-nav-container">
 <li>Loading...</li></ul></nav></div></div></div><footer>
 <p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer>
