@@ -96,6 +96,7 @@ export const CODES: Record<string, { exit: number; retryable: boolean; next: str
 	reconcile: { exit: EXIT.FAILED, retryable: true, next: null },
 	sweep: { exit: EXIT.FAILED, retryable: true, next: null },
 	git: { exit: EXIT.FAILED, retryable: false, next: null },
+	guard: { exit: EXIT.FAILED, retryable: false, next: null },
 	'export-unauthorized': { exit: EXIT.FAILED, retryable: false, next: 'drangler site claim' },
 	'export-missing': { exit: EXIT.FAILED, retryable: false, next: 'drangler update' },
 	'export-unreplayable': { exit: EXIT.FAILED, retryable: false, next: null },
