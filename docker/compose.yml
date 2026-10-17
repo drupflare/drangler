@@ -1,6 +1,6 @@
 services:
   db:
-    image: mariadb@sha256:2fd6d83be13d6f95119fe7823c4a445a771d973ce15a4f4621e3c14898f9f1ab
+    image: mariadb@sha256:0e4bb0f339feba125d1154fbacd36c16ec8518f52e44e1f82ecec7d6771caf39
     environment:
       MARIADB_ROOT_PASSWORD: rootpass
       MARIADB_DATABASE: drupal
