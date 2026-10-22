@@ -1,4 +1,5 @@
 import { Command, Option } from 'commander';
+import { runAudit } from './commands/audit';
 import { runCpu, runWhoami, runWorkers } from './commands/cf';
 import {
 	runAssets,
@@ -561,6 +562,11 @@ export function buildProgram(ctx: Context): Command {
 			'after',
 			[
 				'',
+				'The owner token is returned once, by the claim that mints it, and the site keeps only',
+				'its hash. On a current worker a repeat claim or --force returns no token, and the one',
+				'you hold still works.',
+				'A lost token is replaced, not read back, with `drangler recover-token`.',
+				'',
 				'Examples:',
 				'  drangler site claim https://mysite.example',
 				'  drangler site claim https://migrated.example --migrated --save',
@@ -686,6 +692,40 @@ export function buildProgram(ctx: Context): Command {
 			await runSweep(bound.ctx, target, { ...opts, globals: bound.globals });
 		});
 
+	program
+		.command('audit')
+		.argument('[target]', 'the site origin; defaults to --site or the config')
+		.description("Read the site's owner audit log, and check its hash chain")
+		.option(
+			'--verify',
+			'recompute every hash here instead of trusting the site; exit 3 if it breaks'
+		)
+		.option('--limit <n>', 'how many of the newest entries to list; --json always carries all')
+		.addHelpText(
+			'after',
+			[
+				'',
+				'Every owner call that changes state or reads a secret is one entry: the route, the',
+				'status, and the first 8 hex characters of the SHA-256 of the token that made it',
+				'(`proof` for a token recovery). Each entry carries the hash of the one before it.',
+				"The site keeps the last 1,000 and writes each entry's seq and hash to Workers",
+				'observability, which is the copy to compare when the log itself is in doubt.',
+				'',
+				'Failed token attempts are a count and never an entry. The log is evidence against',
+				'an attacker on the site. Whoever holds the Cloudflare account can edit Durable',
+				'Object storage, so it is not evidence against them.',
+				'',
+				'Examples:',
+				'  drangler audit',
+				'  drangler audit --verify',
+				'  drangler audit https://mysite.example --verify --json'
+			].join('\n')
+		)
+		.action(async (target: string | undefined, opts, command) => {
+			const bound = bind(command);
+			await runAudit(bound.ctx, target, { ...opts, globals: bound.globals });
+		});
+
 	// THE SWEEP DEFAULT INVERTED. It runs unless `SWEEP` is `0`, and the help text below said the
 	// opposite for as long as it had been wrong.
 	program
@@ -721,9 +761,12 @@ export function buildProgram(ctx: Context): Command {
 		.command('recover-token')
 		.argument('[target]', 'the site origin; defaults to --site or the config')
 		.description(
-			'Get a lost owner token back, by proving you can write to its Cloudflare account'
+			'Replace a lost owner token, by proving you can write to its Cloudflare account'
 		)
-		.option('--store', 'also write the token to the system keychain')
+		.option(
+			'--store',
+			'replace the token in the system keychain and in the global config entry for the site'
+		)
 		.option(
 			'--access-guard <file>',
 			"a preview folder's access-guard.json, so the proof can pass the Access app in front of the site"
@@ -741,8 +784,12 @@ export function buildProgram(ctx: Context): Command {
 				'',
 				"Writes a one-minute, single-use proof into the site's CONFIG_KV namespace through",
 				'wrangler, so it needs a `wrangler login` (or CLOUDFLARE_API_TOKEN) that can edit KV',
-				'on the account holding the site. The site checks the proof, deletes it and returns',
-				'the owner token. The token is not rotated: whatever else holds it keeps working.',
+				'on the account holding the site. The site checks the proof, deletes it, rotates the',
+				'owner token and returns the new one. The previous token stops working at once, so',
+				'anything else that holds it (CI secrets, other machines, DRUPFLARE_OWNER_TOKEN or',
+				'--token) is stale and the output names each one. The site keeps only a hash, so',
+				'this is the only way back to a token. A worker that predates rotation returns the',
+				'existing token and the output says it did not rotate it.',
 				'',
 				'Not the same as `drangler recover`, which reads the 30-day database recovery window.',
 				'',

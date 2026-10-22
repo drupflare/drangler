@@ -115,7 +115,7 @@ on a machine with no keychain.
 A command finds the token in this order: `--token`, `DRUPFLARE_OWNER_TOKEN`, the keychain, then the
 global config. A config-stored token is not copied into the keychain on first use. A read command
 that quietly writes to a credential store, or deletes a token another tool reads from the file,
-would be a surprise; `drangler recover-token --store` is the explicit way to move one. With no
+would be a surprise; `drangler recover-token --store` is the explicit way to replace one. With no
 keychain backend (a headless Linux box with no secret service), drangler prints one line on stderr
 and uses the config file.
 
@@ -185,16 +185,22 @@ A claim waits for a fresh site's database replay to finish first, up to `--wait`
 default). A claim sent during the replay would write rows the replay then collides with, leaving the
 site unable to finish provisioning, so drangler refuses to send one and names the chunk it reached.
 
+The site keeps only a hash of the owner token, so only the claim that mints it can show it. On a
+current worker a repeat claim, or `--force`, answers with no `ownerToken` and says so; the token you
+hold is unchanged and still works. An older worker returns the existing token and drangler stores it
+as before.
+
 The password goes in a JSON body. The route refuses `?pass=` outright, because a query string lands
 in tail, in observability and in every intermediary between the terminal and the object. The token is
 stored in the system keychain without asking. `--save` also writes it to the global config. With no
 keychain and no `--save`, drangler asks whether to write the config, and in a pipe it prints the
 token and writes nothing.
 
-### Recovering the owner token
+### Replacing the owner token
 
-The token is shown once, and it is easy to lose. If you can write to the Cloudflare account the site
-is deployed on, you can get it back:
+The token is shown once, and it is easy to lose. The site keeps only a hash of it, so nothing can
+read it back, and a repeat `site claim` or `--force` returns no token. If you can write to the
+Cloudflare account the site is deployed on, you can replace it:
 
 ```sh
 drangler recover-token my-site.example --store
@@ -203,8 +209,8 @@ drangler recover-token my-site.example --store
 drangler generates a random nonce and writes its sha256, bound to the site's host, into the site's
 `CONFIG_KV` namespace through `wrangler kv key put`, with a 60-second TTL. It then presents the
 nonce to the site's public `/recover-token` route. The site checks it, spends it, deletes the KV
-record and answers with the owner token. Only someone with KV edit rights on that account can write
-the record, so the proof is no weaker than redeploying the worker, which would also reveal the token.
+record, rotates the owner token and answers with the new one. Only someone with KV edit rights on
+that account can write the record, so the proof is no weaker than redeploying the worker.
 
 - It needs a `wrangler login`, or `CLOUDFLARE_API_TOKEN`, that can edit KV. `--account` picks the
   account when the login reaches several.
@@ -213,9 +219,17 @@ the record, so the proof is no weaker than redeploying the worker, which would a
 - A new proof can take up to a minute to reach the site, since KV is eventually consistent. drangler
   retries with growing pauses, at most eight times, because the site refuses an address after 12
   failed attempts in a minute.
-- Recovery does not rotate the token. Anything else that holds it keeps working.
-- `--store` writes the token to the keychain, replacing a stale entry. The command also works with
+- Recovery rotates the token. The previous one stops working at once, for every machine and CI
+  secret that holds it. The output says `rotated: yes`, and `--json` carries `rotated: true`.
+- Anything still holding the old token is listed in the output and in the `stale` field of
+  `--json`: the `--token` flag, `DRUPFLARE_OWNER_TOKEN`, the keychain and the global config. Rotate,
+  then update each of them.
+- `--store` replaces the token in the keychain and in the global config's entry for the site. It
+  does not add an entry to the config file that was not there. The command also works with
   `--json`, which puts the token in the `ownerToken` field.
+- A worker that predates rotation returns its existing token with no `rotated: true`. drangler says
+  it did not rotate, stores nothing differently, and lists no stale holder, since the old token still
+  works. Run `drangler update`, then the command again.
 - It is not `drangler recover`, which reads the 30-day database recovery window.
 
 A migrated site already has an administrator, and a normal claim would overwrite uid 1. `--migrated`
@@ -262,6 +276,7 @@ drangler migrate export --url my-site.example --out worker.sql
 | Is anything wrong with it?                   | `drangler heal <target>`            |
 | Is it on the pack that ships today?          | `drangler reconcile <target>`       |
 | How much of it has a stored page?            | `drangler sweep <target>`           |
+| Who changed it, and is the log intact?       | `drangler audit <target> --verify`  |
 | Is anything wrong with the VPS I am leaving? | `drangler doctor --source <target>` |
 | Can this site move, and what breaks?         | `drangler migrate eligibility`      |
 | Is my machine set up to work on it?          | `drangler doctor`                   |
@@ -647,6 +662,31 @@ one: a forced call that took no step is showing you an earlier firing, and the s
 
 ---
 
+## Auditing Owner Calls
+
+The site records every owner call that changes state or reads a secret: an install, a module upload,
+a git pull, an export, a restore, a settings write, a token recovery. `drangler audit` prints them
+with who made each call (the first 8 hex characters of the SHA-256 of the token, `proof` for a
+recovery), the route, the status and the time. Each entry carries the hash of the one before it.
+
+```sh
+drangler audit my-site.example
+drangler audit my-site.example --verify
+```
+
+`--verify` recomputes every hash on this machine and does not use the site's own `verified` field, so
+a site holding an edited log cannot vouch for it. A broken chain exits 3 and names the first `seq`
+that fails; an edit shows at the edited entry, and an edit that also rewrites its hash shows at the
+next one. `--json` carries every retained entry (the site keeps the last 1,000), and `--limit <n>`
+sets how many the text report lists.
+
+Failed token attempts are a count on the report and never an entry. The log is evidence against an
+attacker on the site and not against whoever holds the Cloudflare account, who can edit Durable
+Object storage. Each entry's `seq` and `hash` are also written to Workers observability, and that
+copy is the one to compare when the log itself is in doubt. A point-in-time restore is expected to
+rewind the log with the database, since the key-value table is part of the same SQLite file. The
+chain then still verifies and ends earlier than the anchor.
+
 ## Optional Levers
 
 `drangler config levers <file>` reads the optional levers out of a wrangler config and reports the
@@ -843,8 +883,9 @@ a line saying `--verbose` prints the rest.
 | `heal <target>`            | Report the repair ladder, and perform the repairs a route allows             |
 | `reconcile <target>`       | What a site still owes the shipping pack, and drive the steps                |
 | `sweep <target>`           | Coverage of the addressable space, and what the governor decided             |
+| `audit <target>`           | The site's owner audit log, and `--verify` to recompute its hash chain       |
 | `site claim <target>`      | Mint the administrator password and the owner token                          |
-| `recover-token <target>`   | Get a lost owner token back by proving write access to the account           |
+| `recover-token <target>`   | Replace a lost owner token by proving write access to the account            |
 | `site updb <target>`       | Read the Drupal update chain, and drive one beat of it                       |
 | `site invalidate`          | Purge a site cache, by tag or by bumping the generation                      |
 | `site upgrade <target>`    | Deploy, wait for the replay, then run the update chain                       |
@@ -1245,9 +1286,10 @@ drangler migrate convert --from sqlite --to mysql --in worker.sql --out vps.sql
 about that path are worth knowing before relying on it:
 
 - **`/export` needs the site owner token.** It sits on the owner tier: pass `--token`, or set
-  `DRUPFLARE_OWNER_TOKEN`. The token is minted per site and returned once by `drangler site claim`.
-  Without one the route answers 401 with a `WWW-Authenticate: Bearer` challenge, and drangler reports
-  that as a missing credential rather than a missing route. `/restore` and `/sql` remain
+  `DRUPFLARE_OWNER_TOKEN`. The token is minted per site and returned once by `drangler site claim`;
+  a lost one is replaced with `drangler recover-token`, which makes the old one stale. Without one
+  the route answers 401 with a `WWW-Authenticate: Bearer` challenge, and drangler reports that as a
+  missing credential rather than a missing route. `/restore` and `/sql` remain
   diagnostic-only, which is why there is no import counterpart to this command.
 - **Some tables come back as schema with no rows.** Which ones is reported in the envelope's
   `structureOnly` field and printed verbatim; drangler does not restate the rule. `--all` includes
@@ -1256,7 +1298,10 @@ about that path are worth knowing before relying on it:
   Drupal pack; copy them separately.
 - **The hash salt does not travel.** The shipped tree assigns an empty `$settings['hash_salt']` and
   the object mints one per site. A restored VPS needs its own, and links minted by the worker stop
-  validating.
+  validating. A dump taken directly with `?secrets=1` is the exception: it also carries the SHA-256
+  of the owner token, the Cloudflare OAuth token and the git tokens and webhook secrets, and an
+  import onto a new site brings the same owner token and credentials with it. Store such a dump
+  like a credential. A default dump carries none of them.
 
 ---
 

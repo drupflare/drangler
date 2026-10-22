@@ -95,9 +95,10 @@ export const CODES: Record<string, { exit: number; retryable: boolean; next: str
 	invalidate: { exit: EXIT.FAILED, retryable: true, next: null },
 	reconcile: { exit: EXIT.FAILED, retryable: true, next: null },
 	sweep: { exit: EXIT.FAILED, retryable: true, next: null },
+	audit: { exit: EXIT.FAILED, retryable: false, next: null },
 	git: { exit: EXIT.FAILED, retryable: false, next: null },
 	guard: { exit: EXIT.FAILED, retryable: false, next: null },
-	'export-unauthorized': { exit: EXIT.FAILED, retryable: false, next: 'drangler site claim' },
+	'export-unauthorized': { exit: EXIT.FAILED, retryable: false, next: 'drangler recover-token' },
 	'export-missing': { exit: EXIT.FAILED, retryable: false, next: 'drangler update' },
 	'export-unreplayable': { exit: EXIT.FAILED, retryable: false, next: null },
 	'export-failed': { exit: EXIT.FAILED, retryable: true, next: null },
@@ -118,6 +119,7 @@ export const CODES: Record<string, { exit: number; retryable: boolean; next: str
 	'reconcile-refused': { exit: EXIT.FINDING, retryable: false, next: null },
 	// the meter drains, so the same command succeeds later with nothing else changing
 	'sweep-refused': { exit: EXIT.FINDING, retryable: true, next: null },
+	'audit-broken': { exit: EXIT.FINDING, retryable: false, next: null },
 	'replay-stalled': { exit: EXIT.FINDING, retryable: false, next: null },
 	'eligibility-unmeasured': {
 		exit: EXIT.FAILED,
