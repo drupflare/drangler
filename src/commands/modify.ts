@@ -191,8 +191,14 @@ export async function runModifyInit(ctx: Context, opts: ModifyInitOptions): Prom
 
 	if (report.claimed === 'unclaimed') report.next.push(`drangler site claim ${report.site}`);
 	else if (report.site === null) report.next.push('drangler modify init --site <origin>');
-	else if (!report.token) report.next.push(`drangler site claim ${report.site}`);
-	else report.next.push('drangler modify check');
+	else if (!report.token) {
+		// a claimed site cannot hand its token back, so the way to one is a rotation
+		report.next.push(
+			report.claimed === 'claimed'
+				? `drangler recover-token ${report.site} --store`
+				: `drangler site claim ${report.site}`
+		);
+	} else report.next.push('drangler modify check');
 
 	emit(ctx.io, globals.json, report, () => {
 		const lines = kv([

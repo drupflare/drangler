@@ -260,6 +260,57 @@ describe('site claim', () => {
 		).rejects.toBeInstanceOf(UsageError);
 	});
 
+	// the site keeps a hash after the first claim, so a repeat claim has no token to hand back
+	it('says the held token still works when --force returns none, and saves nothing', async () => {
+		const files = memoryFiles({});
+		const ctx = ctxFor(
+			recorder(() => json({ ok: true })),
+			files
+		);
+		await runSiteClaim(ctx, ORIGIN, { force: true, save: true, globals: globalsFor(ctx) });
+
+		const report = ctx.io.json<SiteClaimReport>();
+		expect(report).toMatchObject({ claimed: true, ownerToken: null, saved: null });
+		const notes = report.notes.join(' ');
+		expect(notes).toContain('already holds one');
+		expect(notes).toContain('still works');
+		expect(notes).not.toContain('shown once');
+		expect(files.written.size).toBe(0);
+	});
+
+	it('prints no "token saved to nowhere" row when no token came back', async () => {
+		const ctx = ctxFor(recorder(() => json({ ok: true })));
+		await runSiteClaim(ctx, ORIGIN, {
+			force: true,
+			globals: globalsFor(ctx, { json: false })
+		});
+		expect(ctx.io.text()).not.toContain('token saved to');
+		expect(ctx.io.text()).toContain('not returned; the one you hold still works');
+	});
+
+	it('still stores the token a worker that predates hashing returns on --force', async () => {
+		const fetch = recorder(() => json({ ok: true, ownerToken: TOKEN }));
+		const ctx = ctxFor(fetch);
+		await runSiteClaim(ctx, ORIGIN, { force: true, save: true, globals: globalsFor(ctx) });
+		expect(ctx.io.json<SiteClaimReport>()).toMatchObject({ ownerToken: TOKEN, saved: GLOBAL });
+	});
+
+	it('points a 409 and a missing --force token at recover-token', async () => {
+		const conflict = ctxFor(
+			recorder(() => json({ ok: false, error: 'already configured' }, 409))
+		);
+		await runSiteClaim(conflict, ORIGIN, { globals: globalsFor(conflict) }).catch(() => {});
+		expect(conflict.io.json<SiteClaimReport>().notes.join(' ')).toContain('recover-token');
+
+		const ctx = ctxFor(recorder(() => json({ ok: true })));
+		await expect(
+			runSiteClaim(ctx, ORIGIN, {
+				force: true,
+				globals: testGlobals({ json: true }, ctx, { site: ORIGIN })
+			})
+		).rejects.toThrow(/recover-token/);
+	});
+
 	it('skips the replay wait under --force, which only a provisioned site reaches', async () => {
 		const fetch = recorder(() => json({ ok: true, ownerToken: 'minted-token' }));
 		const ctx = ctxFor(fetch);
@@ -577,6 +628,16 @@ describe('refusals the flags own', () => {
 		await expect(runSiteUpdb(ctx, ORIGIN, { globals: globalsFor(ctx) })).rejects.toThrow(
 			/refused the owner token/
 		);
+	});
+
+	// recover-token rotates, so a 401 on a token that used to work is a stale copy
+	it('says a refused token may have been rotated, and names the command that replaces it', async () => {
+		const ctx = ctxFor(recorder(() => new Response('', { status: 401 })));
+		const failure = await runSiteUpdb(ctx, ORIGIN, { globals: globalsFor(ctx) }).catch(
+			(e: unknown) => e
+		);
+		expect((failure as Error).message).toMatch(/stale.*rotates the token/);
+		expect((failure as Error).message).toContain(`drangler recover-token ${ORIGIN} --store`);
 	});
 
 	it('reports an origin that could not be reached at all', async () => {

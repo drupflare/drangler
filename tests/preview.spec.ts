@@ -686,6 +686,19 @@ describe('ownDuplicate', () => {
 		);
 	});
 
+	// the site keeps a hash after a claim, so an ok with no token is a site that cannot show it
+	it('names the recovery when the claim answers ok and returns no token', async () => {
+		const ctx = testContext({ fetch: fakeFetch(() => Response.json({ ok: true })) });
+		const err = await ownDuplicate(ctx, 'https://x.workers.dev', '/o', {
+			globals: testGlobals({}, ctx)
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(DranglerError);
+		expect((err as DranglerError).message).toContain('returned no owner token');
+		expect((err as DranglerError).next).toContain(
+			'drangler recover-token https://x.workers.dev --access-guard /o/access-guard.json --write /o/owner-token'
+		);
+	});
+
 	it('says the token may be lost when the claim itself times out', async () => {
 		const ctx = testContext({
 			fetch: fakeFetch(() => {

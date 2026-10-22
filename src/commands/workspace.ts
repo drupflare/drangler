@@ -454,7 +454,9 @@ async function claimDevSite(ctx: Context, opts: MountOptions): Promise<string | 
 			if (typeof minted.ownerToken === 'string' && minted.ownerToken !== '') {
 				return minted.ownerToken;
 			}
-			ctx.io.err('the dev site did not return an owner token, so nothing was mounted');
+			ctx.io.err(
+				'the dev site did not return an owner token, because it already holds one and keeps only a hash; pass --token, so nothing was mounted'
+			);
 			return null;
 		} catch {
 			// the server is not listening yet, which is the normal case for the first few ticks

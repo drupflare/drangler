@@ -297,6 +297,18 @@ describe('modify init', () => {
 		});
 	});
 
+	// a claimed site keeps only a hash, so the way to a token is a rotation and not a claim
+	it('sends a claimed site with no token to recover-token, not to a claim', async () => {
+		const ctx = ctxFor(memoryFiles(tree()));
+		await runModifyInit(ctx, {
+			globals: testGlobals({ json: true }, ctx, { site: ORIGIN })
+		});
+		expect(ctx.io.json<ModifyInitReport>()).toMatchObject({
+			claimed: 'claimed',
+			next: [`drangler recover-token ${ORIGIN} --store`]
+		});
+	});
+
 	it('exits 2 on a directory that matches no shape, naming what it looked for', async () => {
 		const ctx = ctxFor(memoryFiles({ '/work/mantle2/notes.txt': 'x' }));
 		await expect(runModifyInit(ctx, { globals: globalsFor(ctx) })).rejects.toBeInstanceOf(

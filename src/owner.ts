@@ -67,7 +67,7 @@ export function ownerTarget(globals: GlobalOptions, target?: string | null): Own
 	const token = pinned ? resolved.value : (globals.keychain?.[origin] ?? resolved.value);
 	if (token === null) {
 		throw new UsageError(
-			`no owner token for ${origin}; pass --token, set DRUPFLARE_OWNER_TOKEN, run \`drangler recover-token ${origin} --store\`, or run \`drangler site claim ${origin}\``
+			`no owner token for ${origin}; pass --token, set DRUPFLARE_OWNER_TOKEN, run \`drangler recover-token ${origin} --store\` (which replaces a lost token), or run \`drangler site claim ${origin}\` if nobody has claimed it`
 		);
 	}
 	return {
@@ -125,7 +125,7 @@ export async function ownerCall(
 	}
 	if (response.status === 401 || response.status === 403) {
 		throw new UsageError(
-			`${owner.origin} refused the owner token on ${path}; re-read it from \`drangler site claim\` or pass --token`
+			`${owner.origin} refused the owner token on ${path}; it may be stale, since \`drangler recover-token\` rotates the token and the old one stops working. Pass the current one with --token, or run \`drangler recover-token ${owner.origin} --store\``
 		);
 	}
 	return { status: response.status, body: await readJsonBody(response) };

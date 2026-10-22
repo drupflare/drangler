@@ -45,6 +45,8 @@ function site(
 	over: {
 		visibleAfter?: number;
 		claimed?: boolean;
+		/** false models a worker that predates rotation: it returns the token and no `rotated` */
+		rotates?: boolean;
 		namespaces?: string;
 		wranglerFails?: string;
 		respond?: (call: { host: string; nonce: string }) => Response | undefined;
@@ -102,7 +104,11 @@ function site(
 		}
 		spent.add(key);
 		if (over.claimed === false) return Response.json({ reason: 'unclaimed' }, { status: 409 });
-		return Response.json({ ok: true, ownerToken: OWNER_TOKEN });
+		return Response.json({
+			ok: true,
+			ownerToken: OWNER_TOKEN,
+			...(over.rotates === false ? {} : { rotated: true })
+		});
 	}) as unknown as typeof globalThis.fetch;
 
 	return { runner, fetch, puts, posts, calls };
@@ -454,6 +460,189 @@ describe('recover-token keychain', () => {
 		const ctx = context(site());
 		await recover(ctx, { globals: globalsFor(ctx, { json: false }) });
 		expect(ctx.io.text()).toMatch(new RegExp(`owner token\\s+${OWNER_TOKEN}`));
+	});
+});
+
+describe('recover-token rotation', () => {
+	const GLOBAL = '/home/me/.config/drangler/config.json';
+	const OTHER = 'https://other.example';
+	const config = (sites: Record<string, { ownerToken: string }>) =>
+		JSON.stringify({ site: { origin: ORIGIN }, sites });
+
+	it('says the token was rotated and that the previous one no longer works', async () => {
+		const ctx = context(site());
+		await recover(ctx);
+		const report = ctx.io.json<RecoverTokenReport>();
+		expect(report.rotated).toBe(true);
+		expect(report.notes.join(' ')).toMatch(/rotated.*previous one no longer works/);
+		expect(report.stale).toEqual([]);
+	});
+
+	it('prints the rotation in the text render', async () => {
+		const ctx = context(site());
+		await recover(ctx, { globals: globalsFor(ctx, { json: false }) });
+		expect(ctx.io.text()).toMatch(/rotated\s+yes; the previous token no longer works/);
+	});
+
+	// the field is the signal; the token's value says nothing about whether it changed
+	it('does not claim a rotation a worker that predates it never made', async () => {
+		const ctx = context(site({ rotates: false }), {
+			env: { HOME: '/home/me', DRUPFLARE_OWNER_TOKEN: 'held-by-ci' }
+		});
+		await recover(ctx);
+		const report = ctx.io.json<RecoverTokenReport>();
+		expect(report).toMatchObject({ rotated: false, ownerToken: OWNER_TOKEN, stale: [] });
+		expect(report.notes.join(' ')).toMatch(/did not rotate.*predates rotation/);
+		expect(report.notes.join(' ')).not.toMatch(/no longer works/);
+	});
+
+	it('treats a rotated flag that is not true as no rotation', async () => {
+		const model = site({
+			respond: () => Response.json({ ok: true, ownerToken: OWNER_TOKEN, rotated: 'yes' })
+		});
+		const ctx = context(model);
+		await recover(ctx);
+		expect(ctx.io.json<RecoverTokenReport>().rotated).toBe(false);
+	});
+
+	it('--store replaces the keychain and the config entry for this origin only', async () => {
+		const keychain = memoryKeychain();
+		keychain.entries.set(ORIGIN, 'old-keychain');
+		const files = memoryFiles();
+		files.writeSecret(
+			GLOBAL,
+			config({
+				[ORIGIN]: { ownerToken: 'old-config' },
+				[OTHER]: { ownerToken: 'other-token' }
+			})
+		);
+		const ctx = context(site(), { keychain, files });
+		await recover(ctx, { store: true });
+
+		expect(keychain.entries.get(ORIGIN)).toBe(OWNER_TOKEN);
+		const written = JSON.parse(ctx.files.readText(GLOBAL)) as {
+			site: { origin: string };
+			sites: Record<string, { ownerToken: string }>;
+		};
+		expect(written.sites[ORIGIN]?.ownerToken).toBe(OWNER_TOKEN);
+		expect(written.sites[OTHER]?.ownerToken).toBe('other-token');
+		expect(written.site.origin).toBe(ORIGIN);
+		const report = ctx.io.json<RecoverTokenReport>();
+		expect(report).toMatchObject({ stored: 'replaced', storedConfig: 'replaced', stale: [] });
+	});
+
+	it('--store adds no plaintext entry to a config that had none', async () => {
+		const files = memoryFiles();
+		files.writeSecret(GLOBAL, config({ [OTHER]: { ownerToken: 'other-token' } }));
+		const before = files.readText(GLOBAL);
+		const ctx = context(site(), { keychain: memoryKeychain(), files });
+		await recover(ctx, { store: true });
+		expect(ctx.files.readText(GLOBAL)).toBe(before);
+		expect(ctx.io.json<RecoverTokenReport>().storedConfig).toBe('none');
+
+		const bare = context(site(), { keychain: memoryKeychain() });
+		await recover(bare, { store: true });
+		expect(bare.files.exists(GLOBAL)).toBe(false);
+	});
+
+	it('keeps the new token when the config file cannot be written, and says the old one is still in it', async () => {
+		const seeded = memoryFiles();
+		seeded.writeSecret(GLOBAL, config({ [ORIGIN]: { ownerToken: 'old-config' } }));
+		const files = {
+			...seeded,
+			writeSecret: (path: string) => {
+				throw new Error(`EACCES: ${path}`);
+			}
+		};
+		const ctx = context(site(), { keychain: memoryKeychain(), files });
+		await recover(ctx, { store: true });
+		const report = ctx.io.json<RecoverTokenReport>();
+		expect(report).toMatchObject({ ownerToken: OWNER_TOKEN, storedConfig: 'unreadable' });
+		expect(ctx.io.stderr.join('\n')).toContain('the old owner token is still in it');
+	});
+
+	it('without --store names the stale keychain entry and config entry, and changes neither', async () => {
+		const keychain = memoryKeychain();
+		keychain.entries.set(ORIGIN, 'old-keychain');
+		const files = memoryFiles();
+		files.writeSecret(GLOBAL, config({ [ORIGIN]: { ownerToken: 'old-config' } }));
+		const ctx = context(site(), { keychain, files });
+		await recover(ctx);
+
+		const report = ctx.io.json<RecoverTokenReport>();
+		expect(report.stale).toEqual(['the system keychain', GLOBAL]);
+		expect(report.notes.join(' ')).toContain(
+			'--store replaces the keychain and the global config'
+		);
+		expect(keychain.entries.get(ORIGIN)).toBe('old-keychain');
+		expect(ctx.files.readText(GLOBAL)).toContain('old-config');
+	});
+
+	it('calls out DRUPFLARE_OWNER_TOKEN and --token as stale even after --store', async () => {
+		const keychain = memoryKeychain();
+		const files = memoryFiles();
+		const env = { HOME: '/home/me', DRUPFLARE_OWNER_TOKEN: 'old-env' };
+		const ctx = context(site(), { keychain, files, env });
+		await recover(ctx, {
+			store: true,
+			globals: testGlobals({ json: true }, ctx, { token: 'old-flag' })
+		});
+		const report = ctx.io.json<RecoverTokenReport>();
+		expect(report.stale).toEqual(['--token', 'DRUPFLARE_OWNER_TOKEN']);
+		expect(report.notes.join(' ')).toContain(
+			'still holding the old token: --token, DRUPFLARE_OWNER_TOKEN'
+		);
+		expect(keychain.entries.get(ORIGIN)).toBe(OWNER_TOKEN);
+	});
+
+	it('does not call a holder stale when it already holds the new token', async () => {
+		const keychain = memoryKeychain();
+		keychain.entries.set(ORIGIN, OWNER_TOKEN);
+		const ctx = context(site(), {
+			keychain,
+			env: { HOME: '/home/me', DRUPFLARE_OWNER_TOKEN: OWNER_TOKEN }
+		});
+		await recover(ctx);
+		expect(ctx.io.json<RecoverTokenReport>().stale).toEqual([]);
+	});
+
+	it('names stale holders in the text render', async () => {
+		const ctx = context(site(), {
+			env: { HOME: '/home/me', DRUPFLARE_OWNER_TOKEN: 'old-env' }
+		});
+		await recover(ctx, { globals: globalsFor(ctx, { json: false }) });
+		expect(ctx.io.text()).toContain('still holding the old token: DRUPFLARE_OWNER_TOKEN');
+	});
+
+	it('--write keeps the token out of the report and still lists the stale holders', async () => {
+		const keychain = memoryKeychain();
+		keychain.entries.set(ORIGIN, 'old-keychain');
+		const ctx = context(site(), { keychain });
+		await recover(ctx, { write: '/out/owner-token' });
+		const report = ctx.io.json<RecoverTokenReport>();
+		expect(report).toMatchObject({ ownerToken: null, rotated: true });
+		expect(report.stale).toEqual(['the system keychain']);
+	});
+
+	it('says a dry run would rotate the token', async () => {
+		const ctx = context(site());
+		await recover(ctx, { globals: globalsFor(ctx, { dryRun: true }) });
+		const report = ctx.io.json<RecoverTokenReport>();
+		expect(report.rotated).toBeNull();
+		expect(report.notes.join(' ')).toMatch(/real run rotates the owner token/);
+	});
+
+	// the proof is spent on arrival, so a lost reply can mean a rotation nobody saw
+	it('tells the caller to run again when the reply is lost after the proof was sent', async () => {
+		const ctx = context(site(), {
+			fetch: (async () => {
+				throw new Error('connection reset');
+			}) as unknown as typeof fetch
+		});
+		const failure = await recover(ctx).catch((e: unknown) => e);
+		expect(failure).toBeInstanceOf(ProbeError);
+		expect((failure as Error).message).toContain('already rotated the owner token');
+		expect(failure).toMatchObject({ next: `drangler recover-token ${ORIGIN}` });
 	});
 });
 

@@ -1,10 +1,15 @@
 /**
- * Gets a lost owner token back by proving write access to the site's Cloudflare account.
+ * Replaces a lost owner token by proving write access to the site's Cloudflare account.
  *
- * The owner token is shown once, at the claim. This is the other way to it: drangler writes a
- * one-minute, single-use proof into the site's `CONFIG_KV` namespace through wrangler, so only
- * somebody holding KV edit rights on that account can produce it, then presents the proof to the
- * site's public `/recover-token` route, which checks it, deletes it and answers with the token.
+ * The owner token is shown once, at the claim, and the site keeps only its hash. This is the other
+ * way to a working token: drangler writes a one-minute, single-use proof into the site's
+ * `CONFIG_KV` namespace through wrangler, so only somebody holding KV edit rights on that account
+ * can produce it, then presents the proof to the site's public `/recover-token` route, which
+ * checks it, deletes it, ROTATES the token and answers with the new one. The previous token stops
+ * working at once.
+ *
+ * A worker that predates rotation answers with the existing token and no `rotated: true`. That
+ * field, not the token's value, is how this command tells the two apart.
  *
  * The nonce never leaves this process except in that one request. What reaches KV, and so
  * wrangler's argv, is its sha256, which proves nothing to anyone who reads it.
@@ -19,7 +24,13 @@ import type { Context } from '../context';
 import { AuthError, DranglerError, ProbeError, UsageError } from '../errors';
 import { emit, kv } from '../format';
 import { pause, siteOriginOf } from '../owner';
-import { storeOwnerToken, type StoreResult } from '../owner-token';
+import {
+	otherTokenHolders,
+	replaceConfigToken,
+	storeOwnerToken,
+	type ConfigStoreResult,
+	type StoreResult
+} from '../owner-token';
 import { numberFlag } from './site';
 
 /** the KV key prefix the worker reads; the worker's `RECOVER_KEY_PREFIX` is the same string */
@@ -59,10 +70,19 @@ export interface RecoverTokenReport {
 	/** the KV key written; it carries a hash of the nonce, never the nonce */
 	key: string | null;
 	attempts: number;
+	/**
+	 * Whether the site replaced its token. True only when the reply said so; false for a worker
+	 * that predates rotation; null when no reply was read.
+	 */
+	rotated: boolean | null;
 	ownerToken: string | null;
 	/** where the token was written when --write took it, so the report never carries it */
 	written: string | null;
 	stored: StoreResult | 'not requested';
+	/** what --store did to the global config's entry for this site */
+	storedConfig: ConfigStoreResult | 'not requested';
+	/** where a token that no longer works is still held, after this run; empty when none is */
+	stale: string[];
 	error: string | null;
 	notes: string[];
 }
@@ -112,9 +132,12 @@ export async function runRecoverToken(
 		namespace: null,
 		key: null,
 		attempts: 0,
+		rotated: null,
 		ownerToken: null,
 		written: null,
 		stored: 'not requested',
+		storedConfig: 'not requested',
+		stale: [],
 		error: null,
 		notes: []
 	};
@@ -123,7 +146,10 @@ export async function runRecoverToken(
 	report.namespace = await findNamespace(ctx, opts.kvNamespace, env);
 
 	if (globals.dryRun) {
-		report.notes.push('dry run: nothing was written and nothing was sent');
+		report.notes.push(
+			'dry run: nothing was written and nothing was sent',
+			'a real run rotates the owner token, so the one every other holder has stops working'
+		);
 		emit(ctx.io, globals.json, report, () => render(report));
 		return;
 	}
@@ -164,9 +190,19 @@ export async function runRecoverToken(
 	for (let n = 0; n < attempts; n++) {
 		if (n > 0) await pause(intervalMs * n);
 		report.attempts = n + 1;
-		const reply = await present(ctx, globals, `${origin}/recover-token`, nonce, headers);
+		let reply: ProofReply;
+		try {
+			reply = await present(ctx, globals, `${origin}/recover-token`, nonce, headers);
+		} catch (e) {
+			if (!(e instanceof ProbeError)) throw e;
+			throw new ProbeError(
+				`${e.message}; if the site received the proof it already rotated the owner token, so run the command again`,
+				`drangler recover-token ${origin}`
+			);
+		}
 		if (reply.status === 200 && typeof reply.body['ownerToken'] === 'string') {
 			report.ownerToken = reply.body['ownerToken'];
+			report.rotated = reply.body['rotated'] === true;
 			break;
 		}
 		if (reply.status === 404 && reply.body['reason'] === 'unknown') continue;
@@ -182,7 +218,30 @@ export async function runRecoverToken(
 		});
 	}
 
-	if (opts.store === true) report.stored = await storeOwnerToken(ctx, origin, report.ownerToken);
+	if (opts.store === true) {
+		report.stored = await storeOwnerToken(ctx, origin, report.ownerToken);
+		report.storedConfig = replaceConfigToken(ctx, origin, report.ownerToken);
+	}
+	if (report.rotated === true) {
+		report.stale = await otherTokenHolders(
+			ctx,
+			origin,
+			report.ownerToken,
+			globals.config.token.origin === 'flag'
+		);
+		report.notes.push(
+			'the owner token was rotated: the previous one no longer works, for this machine and for anything else that holds it'
+		);
+		if (report.stale.length > 0) {
+			report.notes.push(
+				`still holding the old token: ${report.stale.join(', ')}; replace it${opts.store === true ? '' : ' (--store replaces the keychain and the global config)'}`
+			);
+		}
+	} else {
+		report.notes.push(
+			'this site did not rotate the token: the worker predates rotation and returned the existing one, so everything that held it still works. Run `drangler update`, then this command again to rotate'
+		);
+	}
 	if (opts.write !== undefined) {
 		ctx.files.writeSecret(opts.write, `${report.ownerToken}\n`);
 		report.written = opts.write;
@@ -343,12 +402,18 @@ function render(report: RecoverTokenReport): string[] {
 		['kv namespace', report.namespace ?? 'unresolved'],
 		['attempts', String(report.attempts)]
 	];
+	if (report.rotated !== null) {
+		rows.push(['rotated', report.rotated ? 'yes; the previous token no longer works' : 'no']);
+	}
 	if (report.ownerToken !== null) rows.push(['owner token', report.ownerToken]);
 	if (report.written !== null) rows.push(['owner token', `written to ${report.written}`]);
 	rows.push([
 		'stored in keychain',
 		report.stored === 'not requested' ? 'no; pass --store' : report.stored
 	]);
+	if (report.storedConfig !== 'not requested') {
+		rows.push(['global config', report.storedConfig]);
+	}
 	if (report.error !== null) rows.push(['error', report.error]);
 	const lines = kv(rows);
 	if (report.notes.length > 0) lines.push('', ...report.notes.map((n) => `  ${n}`));

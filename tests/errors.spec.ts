@@ -28,7 +28,8 @@ describe('the code table', () => {
 		const failed = new DranglerError('export-unauthorized', 'nope');
 		expect(failed.exitCode).toBe(EXIT.FAILED);
 		expect(failed.retryable).toBe(false);
-		expect(failed.next).toBe('drangler site claim');
+		// a claimed site cannot hand its token back, so a lost one is replaced
+		expect(failed.next).toBe('drangler recover-token');
 
 		const stalled = new DranglerError('export-stalled', 'the cursor did not move');
 		expect(stalled.exitCode).toBe(EXIT.FINDING);

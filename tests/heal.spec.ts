@@ -277,7 +277,7 @@ describe('drangler heal', () => {
 		expect(await run(ctx, ['heal', ORIGIN, '--token', 'wrong', '--site', ORIGIN])).toBe(
 			EXIT.USAGE
 		);
-		expect(ctx.io.stderr.join('\n')).toContain('site claim');
+		expect(ctx.io.stderr.join('\n')).toContain('recover-token');
 	});
 });
 

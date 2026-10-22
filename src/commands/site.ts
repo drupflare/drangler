@@ -92,7 +92,7 @@ export async function runSiteClaim(
 	}
 	if (opts.force === true && owner.token === '') {
 		throw new UsageError(
-			'--force reconfigures a site that is already claimed, which needs the owner token; pass --token or set DRUPFLARE_OWNER_TOKEN'
+			'--force reconfigures a site that is already claimed, which needs the owner token; pass --token, set DRUPFLARE_OWNER_TOKEN, or replace a lost one with `drangler recover-token`'
 		);
 	}
 
@@ -146,7 +146,7 @@ export async function runSiteClaim(
 		report.alreadyClaimed = true;
 		report.error = replyError(reply, 'already configured');
 		report.notes.push(
-			'somebody has already claimed this site; `--force` reconfigures it and needs the owner token the first claim returned'
+			'somebody has already claimed this site; `--force` reconfigures it and needs the owner token the first claim returned. If nobody holds it, `drangler recover-token` replaces it'
 		);
 		emit(ctx.io, globals.json, report, () => renderClaim(report));
 		throw new FindingError('already-claimed', `${origin} was already claimed`);
@@ -163,11 +163,16 @@ export async function runSiteClaim(
 	report.claimed = true;
 	report.adminPass = stringOrNull(reply.body['adminPass']);
 	report.ownerToken = stringOrNull(reply.body['ownerToken']);
-	report.notes.push(
-		'the password and the token are shown once; `drangler recover-token` gets the token back'
-	);
 	if (report.ownerToken !== null) {
+		report.notes.push(
+			'the password and the token are shown once and the site keeps only a hash of the token; a lost one is replaced with `drangler recover-token`, which rotates it'
+		);
 		report.saved = await saveClaimToken(ctx, origin, report.ownerToken, opts.save === true);
+	} else {
+		// a repeat claim never mints: the site holds a hash and cannot hand the token back
+		report.notes.push(
+			'the site returned no owner token because it already holds one and keeps only its hash; the token you hold is unchanged and still works. A lost one is replaced with `drangler recover-token`, which rotates it'
+		);
 	}
 	emit(ctx.io, globals.json, report, () => renderClaim(report));
 }
@@ -241,7 +246,11 @@ function renderClaim(report: SiteClaimReport): string[] {
 	];
 	if (report.adminPass !== null) rows.push(['admin password', report.adminPass]);
 	if (report.ownerToken !== null) rows.push(['owner token', report.ownerToken]);
-	rows.push(['token saved to', report.saved ?? 'nowhere; keep it yourself']);
+	if (report.ownerToken !== null) {
+		rows.push(['token saved to', report.saved ?? 'nowhere; keep it yourself']);
+	} else if (report.claimed) {
+		rows.push(['owner token', 'not returned; the one you hold still works']);
+	}
 	if (report.error !== null) rows.push(['error', report.error]);
 	const lines = kv(rows);
 	if (report.notes.length > 0) {

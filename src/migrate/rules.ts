@@ -669,7 +669,7 @@ export const RULES: readonly Rule[] = [
 					'export-token',
 					'blocker',
 					'/export refused the credential it was given',
-					'`/export` is in `OWNER_ROUTES` and answers 401 with a `WWW-Authenticate: Bearer` challenge when the token is absent or belongs to another site. The token is minted once by `drangler site claim`, and it is per SITE',
+					'`/export` is in `OWNER_ROUTES` and answers 401 with a `WWW-Authenticate: Bearer` challenge when the token is absent or belongs to another site. The token is minted once by `drangler site claim`, it is per SITE, and `drangler recover-token` replaces it, which makes the previous one stale',
 					'the /export status'
 				);
 			}
@@ -763,7 +763,7 @@ export const RULES: readonly Rule[] = [
 						'export-secrets',
 						'warning',
 						'this dump carries the site credentials',
-						'`?secrets=1` includes the owner token, the Cloudflare OAuth tokens and the hash salt. A restore needs the salt and nothing else does, so this file may not be stored anywhere a backup normally goes; `drangler secrets scan` finds all four',
+						'`?secrets=1` includes the hash salt, the site SMTP settings (which hold the SMTP password), the SHA-256 of the owner token, the Cloudflare OAuth token and the git tokens and webhook secrets. Import writes them back and the site moves them into sealed storage on its next alarm, so an import onto a new site keeps the same owner token and the same credentials. A restore needs only the salt, so this file may not be stored anywhere a backup normally goes; a default dump carries none of these. A dump from a worker that predates sealed storage carries the owner token itself in the clear',
 						'the ?secrets=1 parameter on the export'
 					)
 				: found(

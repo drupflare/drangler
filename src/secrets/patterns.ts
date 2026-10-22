@@ -70,6 +70,6 @@ export const CREDENTIAL_PATTERNS: readonly CredentialPattern[] = [
 		id: 'owner-token',
 		kind: 'drupflare site owner token',
 		re: /\bDRUPFLARE_OWNER_TOKEN\s*[=:]\s*['"]?[A-Za-z0-9_-]{30,}/,
-		risk: 'exports the whole site database and resets the administrator password'
+		risk: 'exports the whole site database and resets the administrator password; `drangler recover-token` rotates a leaked one'
 	}
 ];

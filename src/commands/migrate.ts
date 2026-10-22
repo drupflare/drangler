@@ -294,8 +294,8 @@ export async function runExportCommand(ctx: Context, opts: ExportOptions): Promi
 		throw new DranglerError(
 			'export-unauthorized',
 			token === ''
-				? `${url.origin}/export needs the site owner token${challenge === '' ? '' : ` (${challenge})`}. It is minted per site and returned once by /firstrun as \`ownerToken\`; pass it with --token or set DRUPFLARE_OWNER_TOKEN`
-				: `${url.origin}/export rejected the owner token supplied. It is per SITE, so check --site matches the site the token was minted for`
+				? `${url.origin}/export needs the site owner token${challenge === '' ? '' : ` (${challenge})`}. It is minted per site and returned once by /firstrun as \`ownerToken\`; pass it with --token or set DRUPFLARE_OWNER_TOKEN, or replace a lost one with \`drangler recover-token\``
+				: `${url.origin}/export rejected the owner token supplied. It is per SITE, so check --site matches the site the token was minted for, and that \`drangler recover-token\` has not rotated it since (the old token stops working)`
 		);
 	}
 	if (response.status === 404) {

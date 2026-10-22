@@ -1419,6 +1419,14 @@ export async function claimDuplicate(
 			);
 		}
 		const minted = claim.body['ownerToken'];
+		// ok with no token is a worker that already held one and keeps only its hash
+		if (claim.body['ok'] === true && typeof minted !== 'string') {
+			throw new DranglerError(
+				'up',
+				`${origin} accepted the claim but returned no owner token, because it already holds one and keeps only a hash of it; ${stored} holds none`,
+				{ next: recover }
+			);
+		}
 		if (claim.body['ok'] !== true || typeof minted !== 'string') {
 			return {
 				summary:

@@ -1,4 +1,10 @@
-import { resolveConfig, siteOrigin, type ResolvedConfig } from './config/file';
+import {
+	globalConfigPath,
+	resolveConfig,
+	siteOrigin,
+	type DranglerConfig,
+	type ResolvedConfig
+} from './config/file';
 import type { RawGlobals } from './config/globals';
 import type { Context } from './context';
 import { KeychainUnavailable } from './host/keychain';
@@ -32,6 +38,71 @@ export async function storeOwnerToken(
 		unavailable(ctx, e.message, 'the owner token was not stored there');
 		return 'unavailable';
 	}
+}
+
+/** what {@link replaceConfigToken} did to the global config */
+export type ConfigStoreResult = 'replaced' | 'already' | 'none' | 'unreadable';
+
+/**
+ * Overwrites the owner token the global config holds for a site, and only that one.
+ *
+ * It never adds an entry: a plaintext token that was not in the file is not moved there. A file it
+ * cannot parse or write is a result, not an exception, because the caller holds the only copy of a
+ * token that has already been rotated.
+ */
+export function replaceConfigToken(ctx: Context, origin: string, token: string): ConfigStoreResult {
+	const path = globalConfigPath(ctx.env);
+	try {
+		if (!ctx.files.exists(path)) return 'none';
+		const config = JSON.parse(ctx.files.readText(path)) as DranglerConfig;
+		const held = config.sites?.[origin]?.ownerToken;
+		if (held === undefined) return 'none';
+		if (held === token) return 'already';
+		const merged: DranglerConfig = {
+			...config,
+			sites: { ...config.sites, [origin]: { ...config.sites?.[origin], ownerToken: token } }
+		};
+		ctx.files.writeSecret(path, `${JSON.stringify(merged, null, '\t')}\n`);
+		return 'replaced';
+	} catch (e) {
+		ctx.io.err(
+			`drangler: could not update ${path} (${e instanceof Error ? e.message : String(e)}); the old owner token is still in it`
+		);
+		return 'unreadable';
+	}
+}
+
+/**
+ * Where a token other than `current` is still held for a site: the flag, the environment, the
+ * keychain and the global config. Read straight from each place rather than from the resolved
+ * config, because the keychain preload skips itself when the flag or the environment answers.
+ */
+export async function otherTokenHolders(
+	ctx: Context,
+	origin: string,
+	current: string,
+	flagged: boolean
+): Promise<string[]> {
+	const holders: string[] = [];
+	const differs = (value: string | undefined | null): boolean =>
+		value !== undefined && value !== null && value.trim() !== '' && value !== current;
+	if (flagged) holders.push('--token');
+	if (differs(ctx.env.DRUPFLARE_OWNER_TOKEN)) holders.push('DRUPFLARE_OWNER_TOKEN');
+	try {
+		if (differs(await ctx.keychain.get(origin))) holders.push('the system keychain');
+	} catch (e) {
+		if (!(e instanceof KeychainUnavailable)) throw e;
+	}
+	const path = globalConfigPath(ctx.env);
+	try {
+		if (ctx.files.exists(path)) {
+			const config = JSON.parse(ctx.files.readText(path)) as DranglerConfig;
+			if (differs(config.sites?.[origin]?.ownerToken)) holders.push(path);
+		}
+	} catch {
+		// an unreadable file is reported when a write to it is attempted
+	}
+	return holders;
 }
 
 /** whether an argument looks like a site rather than a file or a word */
