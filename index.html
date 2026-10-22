@@ -84,7 +84,7 @@ on a machine with no keychain.</p>
 <p>A command finds the token in this order: <code>--token</code>, <code>DRUPFLARE_OWNER_TOKEN</code>, the keychain, then the
 global config. A config-stored token is not copied into the keychain on first use. A read command
 that quietly writes to a credential store, or deletes a token another tool reads from the file,
-would be a surprise; <code>drangler recover-token --store</code> is the explicit way to move one. With no
+would be a surprise; <code>drangler recover-token --store</code> is the explicit way to replace one. With no
 keychain backend (a headless Linux box with no secret service), drangler prints one line on stderr
 and uses the config file.</p>
 <p>These flags are inherited by every command:</p>
@@ -171,22 +171,27 @@ whoever reaches the URL first can claim the site.</p>
 <p>A claim waits for a fresh site's database replay to finish first, up to <code>--wait</code> (ten minutes by
 default). A claim sent during the replay would write rows the replay then collides with, leaving the
 site unable to finish provisioning, so drangler refuses to send one and names the chunk it reached.</p>
+<p>The site keeps only a hash of the owner token, so only the claim that mints it can show it. On a
+current worker a repeat claim, or <code>--force</code>, answers with no <code>ownerToken</code> and says so; the token you
+hold is unchanged and still works. An older worker returns the existing token and drangler stores it
+as before.</p>
 <p>The password goes in a JSON body. The route refuses <code>?pass=</code> outright, because a query string lands
 in tail, in observability and in every intermediary between the terminal and the object. The token is
 stored in the system keychain without asking. <code>--save</code> also writes it to the global config. With no
 keychain and no <code>--save</code>, drangler asks whether to write the config, and in a pipe it prints the
 token and writes nothing.</p>
-<h3 id="recovering-the-owner-token" class="tsd-anchor-link">Recovering the owner token<a href="#recovering-the-owner-token" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<p>The token is shown once, and it is easy to lose. If you can write to the Cloudflare account the site
-is deployed on, you can get it back:</p>
+<h3 id="replacing-the-owner-token" class="tsd-anchor-link">Replacing the owner token<a href="#replacing-the-owner-token" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>The token is shown once, and it is easy to lose. The site keeps only a hash of it, so nothing can
+read it back, and a repeat <code>site claim</code> or <code>--force</code> returns no token. If you can write to the
+Cloudflare account the site is deployed on, you can replace it:</p>
 <pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">recover-token</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--store</span>
 </code><button type="button">Copy</button></pre>
 
 <p>drangler generates a random nonce and writes its sha256, bound to the site's host, into the site's
 <code>CONFIG_KV</code> namespace through <code>wrangler kv key put</code>, with a 60-second TTL. It then presents the
 nonce to the site's public <code>/recover-token</code> route. The site checks it, spends it, deletes the KV
-record and answers with the owner token. Only someone with KV edit rights on that account can write
-the record, so the proof is no weaker than redeploying the worker, which would also reveal the token.</p>
+record, rotates the owner token and answers with the new one. Only someone with KV edit rights on
+that account can write the record, so the proof is no weaker than redeploying the worker.</p>
 <ul>
 <li>It needs a <code>wrangler login</code>, or <code>CLOUDFLARE_API_TOKEN</code>, that can edit KV. <code>--account</code> picks the
 account when the login reaches several.</li>
@@ -195,9 +200,17 @@ working directory, else the one account namespace with <code>CONFIG_KV</code> in
 <li>A new proof can take up to a minute to reach the site, since KV is eventually consistent. drangler
 retries with growing pauses, at most eight times, because the site refuses an address after 12
 failed attempts in a minute.</li>
-<li>Recovery does not rotate the token. Anything else that holds it keeps working.</li>
-<li><code>--store</code> writes the token to the keychain, replacing a stale entry. The command also works with
+<li>Recovery rotates the token. The previous one stops working at once, for every machine and CI
+secret that holds it. The output says <code>rotated: yes</code>, and <code>--json</code> carries <code>rotated: true</code>.</li>
+<li>Anything still holding the old token is listed in the output and in the <code>stale</code> field of
+<code>--json</code>: the <code>--token</code> flag, <code>DRUPFLARE_OWNER_TOKEN</code>, the keychain and the global config. Rotate,
+then update each of them.</li>
+<li><code>--store</code> replaces the token in the keychain and in the global config's entry for the site. It
+does not add an entry to the config file that was not there. The command also works with
 <code>--json</code>, which puts the token in the <code>ownerToken</code> field.</li>
+<li>A worker that predates rotation returns its existing token with no <code>rotated: true</code>. drangler says
+it did not rotate, stores nothing differently, and lists no stale holder, since the old token still
+works. Run <code>drangler update</code>, then the command again.</li>
 <li>It is not <code>drangler recover</code>, which reads the 30-day database recovery window.</li>
 </ul>
 <p>A migrated site already has an administrator, and a normal claim would overwrite uid 1. <code>--migrated</code>
@@ -250,6 +263,10 @@ because &quot;I could not tell&quot; and &quot;nobody has claimed it&quot; are d
 <tr>
 <td>How much of it has a stored page?</td>
 <td><code>drangler sweep &lt;target&gt;</code></td>
+</tr>
+<tr>
+<td>Who changed it, and is the log intact?</td>
+<td><code>drangler audit &lt;target&gt; --verify</code></td>
 </tr>
 <tr>
 <td>Is anything wrong with the VPS I am leaving?</td>
@@ -671,6 +688,25 @@ different answers rather than one empty report.</p>
 <p><code>--run</code> forces a step off the interval the alarm chain waits out, and the report says whether it got
 one: a forced call that took no step is showing you an earlier firing, and the site names the reason.</p>
 <hr>
+<h2 id="auditing-owner-calls" class="tsd-anchor-link">Auditing Owner Calls<a href="#auditing-owner-calls" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>The site records every owner call that changes state or reads a secret: an install, a module upload,
+a git pull, an export, a restore, a settings write, a token recovery. <code>drangler audit</code> prints them
+with who made each call (the first 8 hex characters of the SHA-256 of the token, <code>proof</code> for a
+recovery), the route, the status and the time. Each entry carries the hash of the one before it.</p>
+<pre><code class="sh"><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">audit</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><br/><span class="hl-0">drangler</span><span class="hl-1"> </span><span class="hl-2">audit</span><span class="hl-1"> </span><span class="hl-2">my-site.example</span><span class="hl-1"> </span><span class="hl-3">--verify</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>--verify</code> recomputes every hash on this machine and does not use the site's own <code>verified</code> field, so
+a site holding an edited log cannot vouch for it. A broken chain exits 3 and names the first <code>seq</code>
+that fails; an edit shows at the edited entry, and an edit that also rewrites its hash shows at the
+next one. <code>--json</code> carries every retained entry (the site keeps the last 1,000), and <code>--limit &lt;n&gt;</code>
+sets how many the text report lists.</p>
+<p>Failed token attempts are a count on the report and never an entry. The log is evidence against an
+attacker on the site and not against whoever holds the Cloudflare account, who can edit Durable
+Object storage. Each entry's <code>seq</code> and <code>hash</code> are also written to Workers observability, and that
+copy is the one to compare when the log itself is in doubt. A point-in-time restore is expected to
+rewind the log with the database, since the key-value table is part of the same SQLite file. The
+chain then still verifies and ends earlier than the anchor.</p>
 <h2 id="optional-levers" class="tsd-anchor-link">Optional Levers<a href="#optional-levers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p><code>drangler config levers &lt;file&gt;</code> reads the optional levers out of a wrangler config and reports the
 state of each. Every one is off by default and the site is correct without it, so an unset lever is
@@ -889,12 +925,16 @@ a line saying <code>--verbose</code> prints the rest.</p>
 <td>Coverage of the addressable space, and what the governor decided</td>
 </tr>
 <tr>
+<td><code>audit &lt;target&gt;</code></td>
+<td>The site's owner audit log, and <code>--verify</code> to recompute its hash chain</td>
+</tr>
+<tr>
 <td><code>site claim &lt;target&gt;</code></td>
 <td>Mint the administrator password and the owner token</td>
 </tr>
 <tr>
 <td><code>recover-token &lt;target&gt;</code></td>
-<td>Get a lost owner token back by proving write access to the account</td>
+<td>Replace a lost owner token by proving write access to the account</td>
 </tr>
 <tr>
 <td><code>site updb &lt;target&gt;</code></td>
@@ -1604,9 +1644,10 @@ a deployment that does expose it. A figure that was not measured is never printe
 about that path are worth knowing before relying on it:</p>
 <ul>
 <li><strong><code>/export</code> needs the site owner token.</strong> It sits on the owner tier: pass <code>--token</code>, or set
-<code>DRUPFLARE_OWNER_TOKEN</code>. The token is minted per site and returned once by <code>drangler site claim</code>.
-Without one the route answers 401 with a <code>WWW-Authenticate: Bearer</code> challenge, and drangler reports
-that as a missing credential rather than a missing route. <code>/restore</code> and <code>/sql</code> remain
+<code>DRUPFLARE_OWNER_TOKEN</code>. The token is minted per site and returned once by <code>drangler site claim</code>;
+a lost one is replaced with <code>drangler recover-token</code>, which makes the old one stale. Without one
+the route answers 401 with a <code>WWW-Authenticate: Bearer</code> challenge, and drangler reports that as a
+missing credential rather than a missing route. <code>/restore</code> and <code>/sql</code> remain
 diagnostic-only, which is why there is no import counterpart to this command.</li>
 <li><strong>Some tables come back as schema with no rows.</strong> Which ones is reported in the envelope's
 <code>structureOnly</code> field and printed verbatim; drangler does not restate the rule. <code>--all</code> includes
@@ -1615,7 +1656,10 @@ their rows, and the worker answers 409 when that produces a dump it knows cannot
 Drupal pack; copy them separately.</li>
 <li><strong>The hash salt does not travel.</strong> The shipped tree assigns an empty <code>$settings['hash_salt']</code> and
 the object mints one per site. A restored VPS needs its own, and links minted by the worker stop
-validating.</li>
+validating. A dump taken directly with <code>?secrets=1</code> is the exception: it also carries the SHA-256
+of the owner token, the Cloudflare OAuth token and the git tokens and webhook secrets, and an
+import onto a new site brings the same owner token and credentials with it. Store such a dump
+like a credential. A default dump carries none of them.</li>
 </ul>
 <hr>
 <h2 id="installing-a-migrated-site" class="tsd-anchor-link">Installing a Migrated Site<a href="#installing-a-migrated-site" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
@@ -1919,7 +1963,7 @@ checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <ul>
 <li><a href="#first-boot"><span>First <wbr/>Boot</span></a></li>
 <li><a href="#claiming"><span>Claiming</span></a></li>
-<li><a href="#recovering-the-owner-token"><span>Recovering the owner token</span></a></li>
+<li><a href="#replacing-the-owner-token"><span>Replacing the owner token</span></a></li>
 <li><a href="#the-owner-token"><span>The <wbr/>Owner <wbr/>Token</span></a></li>
 <li><a href="#running-day-to-day"><span>Running <wbr/>Day to <wbr/>Day</span></a></li>
 <li><a href="#connecting-cloudflare-and-sending-mail"><span>Connecting <wbr/>Cloudflare and <wbr/>Sending <wbr/>Mail</span></a></li>
@@ -1932,6 +1976,7 @@ checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <li><a href="#repairs"><span>Repairs</span></a></li></ul></li>
 <li><a href="#reconciling"><span>Reconciling</span></a></li>
 <li><a href="#coverage"><span>Coverage</span></a></li>
+<li><a href="#auditing-owner-calls"><span>Auditing <wbr/>Owner <wbr/>Calls</span></a></li>
 <li><a href="#optional-levers"><span>Optional <wbr/>Levers</span></a></li>
 <li><a href="#eligibility"><span>Eligibility</span></a></li>
 <li><a href="#migrating-under-traffic"><span>Migrating <wbr/>Under <wbr/>Traffic</span></a></li>

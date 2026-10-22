@@ -11,11 +11,15 @@
 <li><a href="" aria-current="page">commands/recover-token</a></li></ul>
 <h1>Module commands/recover-token</h1></div>
 <section class="tsd-panel tsd-comment">
-<div class="tsd-comment tsd-typography"><p>Gets a lost owner token back by proving write access to the site's Cloudflare account.</p>
-<p>The owner token is shown once, at the claim. This is the other way to it: drangler writes a
-one-minute, single-use proof into the site's <code>CONFIG_KV</code> namespace through wrangler, so only
-somebody holding KV edit rights on that account can produce it, then presents the proof to the
-site's public <code>/recover-token</code> route, which checks it, deletes it and answers with the token.</p>
+<div class="tsd-comment tsd-typography"><p>Replaces a lost owner token by proving write access to the site's Cloudflare account.</p>
+<p>The owner token is shown once, at the claim, and the site keeps only its hash. This is the other
+way to a working token: drangler writes a one-minute, single-use proof into the site's
+<code>CONFIG_KV</code> namespace through wrangler, so only somebody holding KV edit rights on that account
+can produce it, then presents the proof to the site's public <code>/recover-token</code> route, which
+checks it, deletes it, ROTATES the token and answers with the new one. The previous token stops
+working at once.</p>
+<p>A worker that predates rotation answers with the existing token and no <code>rotated: true</code>. That
+field, not the token's value, is how this command tells the two apart.</p>
 <p>The nonce never leaves this process except in that one request. What reaches KV, and so
 wrangler's argv, is its sha256, which proves nothing to anyone who reads it.</p>
 </div></section>
