@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { E2E_DIR } from './docker';
@@ -218,15 +219,49 @@ export async function seedWorker(
 ): Promise<number> {
 	const url = new URL('/seed', origin);
 	url.searchParams.set('site', site);
-	const response = await fetch(url, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify(statements),
-		signal: AbortSignal.timeout(180_000)
-	});
-	const text = await response.text();
-	if (!response.ok) {
-		throw new Error(`/seed answered ${response.status}: ${text.slice(0, 2000)}`);
+	const { status, text } = await postOnNewConnection(url, JSON.stringify(statements), 180_000);
+	if (status < 200 || status > 299) {
+		throw new Error(`/seed answered ${status}: ${text.slice(0, 2000)}`);
 	}
 	return (JSON.parse(text) as { applied: number }).applied;
+}
+
+/**
+ * `fetch` pools, and the pooled socket is the one the readiness probe opened. workerd closes an idle
+ * keep-alive socket 5s after its last response, and a vitest worker blocked in the synchronous
+ * replay cannot run undici's timer that retires it, so a 5.9 MB POST is written into a dead socket
+ * (`write EPIPE`) and a POST is never retried. `agent: false` is a socket of its own.
+ */
+function postOnNewConnection(
+	url: URL,
+	body: string,
+	timeoutMs: number
+): Promise<{ status: number; text: string }> {
+	return new Promise((resolve, reject) => {
+		const req = httpRequest(
+			url,
+			{
+				method: 'POST',
+				agent: false,
+				signal: AbortSignal.timeout(timeoutMs),
+				headers: {
+					'content-type': 'application/json',
+					'content-length': Buffer.byteLength(body)
+				}
+			},
+			(res) => {
+				const chunks: Buffer[] = [];
+				res.on('data', (c: Buffer) => chunks.push(c));
+				res.on('error', reject);
+				res.on('end', () =>
+					resolve({
+						status: res.statusCode ?? 0,
+						text: Buffer.concat(chunks).toString('utf8')
+					})
+				);
+			}
+		);
+		req.on('error', reject);
+		req.end(body);
+	});
 }
