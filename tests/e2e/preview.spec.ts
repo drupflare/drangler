@@ -9,12 +9,14 @@ import { nodeRunner, type CommandRunner } from '../../src/host/exec';
 import { nodeFiles } from '../../src/host/files';
 import { bufferIo } from '../../src/io';
 import { refuseRemote } from '../../src/migrate/preview';
+import { DEFAULT_WORKER_SOURCE } from '../../src/workspace/source';
 import { testGlobals } from '../helpers';
 import { compose, composeOrThrow, dockerGate, sh } from './helpers/docker';
 import { DRUPAL_ROOT, KEY_PATH, SSH_HOST, SSH_PORT, SSH_USER, stackUp } from './helpers/stack';
 
 const skip = await dockerGate();
 const PORT = 8799;
+const RELEASE = `v${PREVIEW_MIN_WORKER}`;
 const SEEDED = process.env.DRANGLER_E2E_PREVIEW_OUT;
 
 /** the source database and trees, hashed from inside the containers, so the comparison touches nothing */
@@ -95,6 +97,15 @@ describe.skipIf(skip)('preview', () => {
 		}
 		before = await sourceDigest('before');
 
+		// the gate's own version has no tag until it is released; the branch tip carries it meanwhile
+		const pin = process.env.DRANGLER_WORKER_REF;
+		const tagged = await sh(
+			'git',
+			['ls-remote', '--exit-code', '--tags', DEFAULT_WORKER_SOURCE, `refs/tags/${RELEASE}`],
+			{ timeoutMs: 60_000 }
+		);
+		const edge = pin === undefined && tagged.code === 2;
+
 		const real = nodeRunner();
 		const runner: CommandRunner = {
 			...real,
@@ -137,7 +148,7 @@ describe.skipIf(skip)('preview', () => {
 			env: {
 				...process.env,
 				// the oldest release preview accepts, so the pin cannot fall below the gate again
-				DRANGLER_WORKER_REF: process.env.DRANGLER_WORKER_REF ?? `v${PREVIEW_MIN_WORKER}`
+				...(edge ? {} : { DRANGLER_WORKER_REF: pin ?? RELEASE })
 			}
 		};
 		try {
@@ -147,6 +158,7 @@ describe.skipIf(skip)('preview', () => {
 				identity: KEY_PATH,
 				out,
 				full: true,
+				...(edge ? { edge: true } : {}),
 				port: PORT,
 				sourceUrl: 'http://localhost:8180',
 				globals: testGlobals({}, ctx)
