@@ -87,7 +87,7 @@ function withSource(command: Command): Command {
 }
 
 const EDGE_HELP =
-	'build from the tip of a branch (master when bare) and take its rolling payload from the CDN ' +
+	'build from a branch (master when bare) and take its rolling payload from the CDN ' +
 	'instead of a release; a prerelease build that can change on the next push';
 
 /** `--edge`, or `DRANGLER_WORKER_EDGE`, as the resolved branch ready to spread into options */
