@@ -13,7 +13,7 @@
 <h1>Interface AuditReport</h1></div>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">AuditReport</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#entries">entries</a><span class="tsd-signature-symbol">:</span> <a href="commands_audit.AuditEntry.html" class="tsd-signature-type tsd-kind-interface">AuditEntry</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#failedattempts">failedAttempts</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">count</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">since</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#firstbadseq">firstBadSeq</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#floor">floor</a><span class="tsd-signature-symbol">:</span> <a href="commands_audit.AuditPoint.html" class="tsd-signature-type tsd-kind-interface">AuditPoint</a> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#head">head</a><span class="tsd-signature-symbol">:</span> <a href="commands_audit.AuditPoint.html" class="tsd-signature-type tsd-kind-interface">AuditPoint</a> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#notes">notes</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#ring">ring</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#site">site</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#siteverified">siteVerified</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#verified">verified</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L40">src/commands/audit.ts:40</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L40">src/commands/audit.ts:40</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -41,62 +41,62 @@
 <div class="tsd-comment tsd-typography"><p>every retained entry, oldest first</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L55">src/commands/audit.ts:55</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L55">src/commands/audit.ts:55</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="failedattempts"><span>failed<wbr/>Attempts</span><a href="#failedattempts" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">failedAttempts</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">count</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">since</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span> <span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L47">src/commands/audit.ts:47</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L47">src/commands/audit.ts:47</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="firstbadseq"><span>first<wbr/>Bad<wbr/>Seq</span><a href="#firstbadseq" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">firstBadSeq</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the first sequence number at which the local check failed</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L53">src/commands/audit.ts:53</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L53">src/commands/audit.ts:53</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="floor"><span>floor</span><a href="#floor" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">floor</span><span class="tsd-signature-symbol">:</span> <a href="commands_audit.AuditPoint.html" class="tsd-signature-type tsd-kind-interface">AuditPoint</a> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the hash of the last entry the ring dropped, which the first retained entry chains from</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L46">src/commands/audit.ts:46</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L46">src/commands/audit.ts:46</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="head"><span>head</span><a href="#head" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">head</span><span class="tsd-signature-symbol">:</span> <a href="commands_audit.AuditPoint.html" class="tsd-signature-type tsd-kind-interface">AuditPoint</a> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L44">src/commands/audit.ts:44</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L44">src/commands/audit.ts:44</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="notes"><span>notes</span><a href="#notes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">notes</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L56">src/commands/audit.ts:56</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L56">src/commands/audit.ts:56</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="ring"><span>ring</span><a href="#ring" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">ring</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the most entries the site retains</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L43">src/commands/audit.ts:43</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L43">src/commands/audit.ts:43</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="site"><span>site</span><a href="#site" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">site</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L41">src/commands/audit.ts:41</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L41">src/commands/audit.ts:41</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="siteverified"><span>site<wbr/>Verified</span><a href="#siteverified" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">siteVerified</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the site's own verdict, which this command reports and does not rely on</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L49">src/commands/audit.ts:49</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L49">src/commands/audit.ts:49</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="verified"><span>verified</span><a href="#verified" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">verified</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span></div>
 <div class="tsd-comment tsd-typography"><p>the local verdict; null unless <code>--verify</code> ran</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/drupflare/drangler/blob/dbc0051ec7983ee8fe2fde1cccda0e5178a4accb/src/commands/audit.ts#L51">src/commands/audit.ts:51</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/drupflare/drangler/blob/103ce01d06539c19863b9eb6945f320dfdfcdc97/src/commands/audit.ts#L51">src/commands/audit.ts:51</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
