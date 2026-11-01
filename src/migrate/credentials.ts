@@ -135,6 +135,11 @@ export function readCredentials(path: string): Credential[] {
 	}
 }
 
+/** whether a dotted `$settings` key names a credential, such as `mantle2.api_key` */
+export function isSecretName(name: string): boolean {
+	return SECRET_NAME.test(name.replace(/\./g, '_'));
+}
+
 /** the name a `--carry-key` argument matches: the object, its key id, or `object:leaf` */
 export function isCarried(credential: Credential, carry: readonly string[]): boolean {
 	const leaf = credential.path.at(-1) ?? '';

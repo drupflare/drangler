@@ -874,6 +874,7 @@ describe('settings translation', () => {
 		expect(settings).toEqual({
 			memcache: [],
 			redisUrl: null,
+			redisPassword: false,
 			redisNote: null,
 			redisExpressions: [],
 			s3: []

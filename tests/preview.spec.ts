@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	bootDuplicate,
 	ownDuplicate,
@@ -42,6 +42,30 @@ import {
 import { surveyPlan } from '../src/migrate/survey';
 import type { Transport } from '../src/migrate/transport';
 import { fakeFetch, ok, phpSerialize, testContext, testGlobals } from './helpers';
+
+// the dev server runs until it is stopped: by Ctrl-C (release) or by the run aborting its signal
+const dev = vi.hoisted(() => ({
+	stopped: false,
+	aborted: false,
+	release: (): void => {}
+}));
+vi.mock('../src/commands/workspace', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/commands/workspace')>()),
+	runDevCommand: (_ctx: unknown, _extra: unknown, opts: { signal?: AbortSignal }) =>
+		new Promise<void>((resolve) => {
+			dev.stopped = false;
+			dev.aborted = false;
+			const stop = () => {
+				dev.stopped = true;
+				resolve();
+			};
+			dev.release = stop;
+			opts.signal?.addEventListener('abort', () => {
+				dev.aborted = true;
+				stop();
+			});
+		})
+}));
 
 const ROOT = '/var/www/html';
 
@@ -721,10 +745,12 @@ describe('ownDuplicate', () => {
 				Response.json({ ok: false, error: 'adminPass required' }, { status: 400 })
 			)
 		});
-		const summary = await ownDuplicate(ctx, 'http://localhost:8787', '/o', {
+		const err = await ownDuplicate(ctx, 'http://localhost:8787', '/o', {
 			globals: testGlobals({}, ctx)
-		});
-		expect(summary).toContain('not claimed');
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(DranglerError);
+		expect((err as DranglerError).exitCode).not.toBe(0);
+		expect((err as DranglerError).message).toContain('not claimed');
 	});
 });
 
@@ -824,6 +850,67 @@ describe('verify', () => {
 		expect(got.failed?.message).toContain('/user/login');
 	});
 
+	// a 503 is a site warming or refusing writes, so two matching 503s say nothing about the page
+	it('fails when the source and the duplicate both answer 503', async () => {
+		const ctx = testContext({ fetch: fakeFetch(() => new Response('', { status: 503 })) });
+		const got = await verify(
+			ctx,
+			'http://localhost:8787',
+			survey,
+			db,
+			[],
+			'http://old.example'
+		);
+		expect(got.failed).toBeInstanceOf(FindingError);
+		expect(got.failed?.message).toContain('/user/login');
+	});
+
+	// every page is behind Access on the source and nothing else can be compared: no check ran
+	it('fails when every page sits behind Access and the survey has no counts', async () => {
+		const gate = () =>
+			new Response('', {
+				status: 401,
+				headers: { 'www-authenticate': 'Cloudflare-Access resource_metadata="x"' }
+			});
+		const fetch = fakeFetch((url) =>
+			url.startsWith('http://old.example') ? gate() : new Response('', { status: 200 })
+		);
+		const ctx = testContext({ fetch });
+		const got = await verify(
+			ctx,
+			'http://localhost:8787',
+			{ nodes: null, fileRows: null } as Parameters<typeof verify>[2],
+			db,
+			[],
+			'http://old.example'
+		);
+		expect(got.summary).toContain('0 of 0 checks passed');
+		expect(got.failed).toBeInstanceOf(FindingError);
+		expect(got.failed?.message).toContain('Cloudflare Access');
+	});
+
+	it('still passes when one page is checked and the rest sit behind Access', async () => {
+		const fetch = fakeFetch((url) => {
+			if (!url.startsWith('http://old.example')) return new Response('', { status: 200 });
+			if (url.endsWith('/')) return new Response('', { status: 200 });
+			return new Response('', {
+				status: 401,
+				headers: { 'www-authenticate': 'Cloudflare-Access resource_metadata="x"' }
+			});
+		});
+		const ctx = testContext({ fetch });
+		const got = await verify(
+			ctx,
+			'http://localhost:8787',
+			{ nodes: null, fileRows: null } as Parameters<typeof verify>[2],
+			db,
+			[],
+			'http://old.example'
+		);
+		expect(got.failed).toBeNull();
+		expect(got.summary).toContain('1 of 1 checks passed');
+	});
+
 	it('reports every mismatch before failing', async () => {
 		const fetch = fakeFetch(
 			(url) => new Response('', { status: url.endsWith('/a.png') ? 404 : 200 })
@@ -840,13 +927,26 @@ describe('verify', () => {
 });
 
 describe('the flow through install', () => {
-	it('surveys, dumps, streams files and lands a database that carries both', async () => {
+	const failUnpack =
+		(archive: string) =>
+		(runner: CommandRunner): CommandRunner => ({
+			...runner,
+			run: (file, args, opts) =>
+				file === 'tar' && args[0] === '-xf' && args[1]?.endsWith(`/${archive}`)
+					? Promise.resolve({ code: 2, stdout: '', stderr: 'tar: unexpected EOF' })
+					: runner.run(file, args, opts)
+		});
+
+	const startFlow = (
+		wrap: (runner: CommandRunner) => CommandRunner = (r) => r,
+		options: { bringUp?: boolean; fetch?: ReturnType<typeof fakeFetch> } = {}
+	) => {
 		const out = tmp();
 		const workspace = join(out, 'worker');
 		mkdirSync(workspace, { recursive: true });
 		writeFileSync(
 			join(workspace, 'package.json'),
-			JSON.stringify({ name: '@drupflare/worker' })
+			JSON.stringify({ name: '@drupflare/worker', version: PREVIEW_MIN_WORKER })
 		);
 
 		// a real tar of a real files tree, so the stream is bytes and not a fixture string
@@ -877,6 +977,11 @@ describe('the flow through install', () => {
 		mkdirSync(join(src, 'private'), { recursive: true });
 		writeFileSync(join(src, 'private', 'invoice.pdf'), '%PDF-1.4 private');
 		execFileSync('tar', ['-cf', join(src, 'private.tar'), '-C', src, 'private']);
+		writeFileSync(join(src, 'robots.txt'), 'User-agent: *\n');
+		mkdirSync(join(src, '.well-known'), { recursive: true });
+		writeFileSync(join(src, '.well-known', 'security.txt'), 'Contact: x');
+		execFileSync('tar', ['-cf', join(src, 'root.tar'), '-C', src, 'robots.txt']);
+		execFileSync('tar', ['-cf', join(src, 'well-known.tar'), '-C', src, '.well-known']);
 
 		const dump = [
 			'CREATE TABLE `node` (`nid` int(10) unsigned NOT NULL, PRIMARY KEY (`nid`));',
@@ -909,7 +1014,8 @@ describe('the flow through install', () => {
 			[`cat ${ROOT}/.htaccess`]: ok(
 				`${STOCK_HTACCESS}\nRedirect 301 /about-us /about\nHeader always set X-Frame-Options "SAMEORIGIN"\n`
 			),
-			[`cat ${ROOT}/core/assets/scaffold/files/htaccess`]: ok(STOCK_HTACCESS)
+			[`cat ${ROOT}/core/assets/scaffold/files/htaccess`]: ok(STOCK_HTACCESS),
+			[`find ${ROOT} -maxdepth 1 -type f`]: ok(`${ROOT}/robots.txt`)
 		};
 		const { transport, calls } = recording(answers, {
 			[`cd ${ROOT} && drush sql:dump --extra-dump=--hex-blob`]: new TextEncoder().encode(
@@ -923,32 +1029,51 @@ describe('the flow through install', () => {
 			),
 			['tar -cf - -C /var/www private']: new Uint8Array(
 				readFileSync(join(src, 'private.tar'))
+			),
+			[`tar -cf - -C ${ROOT} robots.txt`]: new Uint8Array(
+				readFileSync(join(src, 'root.tar'))
+			),
+			[`tar -cf - -C ${ROOT} .well-known`]: new Uint8Array(
+				readFileSync(join(src, 'well-known.tar'))
 			)
 		});
 
 		const spawned: string[] = [];
 		const real = nodeRunner();
-		const runner: CommandRunner = {
+		const runner = wrap({
 			run: (file, args, opts) => real.run(file, args, opts),
 			runToFile: (file, args, o, opts) => real.runToFile(file, args, o, opts),
 			spawn: async (file, args) => {
 				spawned.push([file, ...args].join(' '));
 				return 0;
 			}
-		};
-		// yes to every step up to and including install; no to bringing it up
+		});
+		// yes to every step up to and including install; no to bringing it up unless asked
 		const ctx = testContext({
 			files: nodeFiles(),
 			runner,
-			ask: async (question) => (question.startsWith('Bring Up') ? 'n' : 'y')
+			...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+			ask: async (question) =>
+				question.startsWith('Bring Up') ? (options.bringUp === true ? 'y' : 'n') : 'y'
 		});
-		await runPreviewCommand(ctx, {
+		const run = runPreviewCommand(ctx, {
 			host: 'deploy@old.example',
 			root: ROOT,
 			out,
 			transport,
 			globals: testGlobals({}, ctx)
 		});
+		return { ctx, out, workspace, calls, spawned, run };
+	};
+
+	const runFlow = async (wrap?: (runner: CommandRunner) => CommandRunner) => {
+		const flow = startFlow(wrap);
+		await flow.run;
+		return flow;
+	};
+
+	it('surveys, dumps, streams files and lands a database that carries both', async () => {
+		const { ctx, out, workspace, calls, spawned } = await runFlow();
 
 		expect(calls.every((c) => refuseRemote(c) === null)).toBe(true);
 		expect(ctx.io.text()).toContain('stopped before up');
@@ -987,10 +1112,94 @@ describe('the flow through install', () => {
 		expect(stored).toEqual([{ uri: 'public://inline/logo.png' }]);
 		installed.close();
 	});
+
+	it('fails the preview when the private files archive does not unpack', async () => {
+		await expect(runFlow(failUnpack('private.tar'))).rejects.toThrow('tar could not unpack');
+	});
+
+	it('fails the preview when the root files archive does not unpack', async () => {
+		await expect(runFlow(failUnpack('root.tar'))).rejects.toThrow('tar could not unpack');
+	});
+
+	it('fails the preview when the .well-known archive does not unpack', async () => {
+		await expect(runFlow(failUnpack('well-known.tar'))).rejects.toThrow('tar could not unpack');
+	});
+
+	const json = (body: unknown, status = 200) =>
+		new Response(JSON.stringify(body), {
+			status,
+			headers: { 'content-type': 'application/json' }
+		});
+	const upFetch = (claim: () => Response, updb: () => Response = () => json({})) =>
+		fakeFetch((url) => {
+			if (url.endsWith('/firstrun')) return claim();
+			if (url.endsWith('/updb')) return updb();
+			return new Response('', { status: 200 });
+		});
+	const halted = () =>
+		json({
+			status: {
+				run: { phase: 'halted', cursorSeq: 0, maxSeq: 1, haltReason: 'a table is missing' },
+				remaining: 1
+			}
+		});
+
+	// the duplicate is up when its claim fails, so the run must stop it before it exits
+	it.each([
+		['a refused claim', upFetch(() => json({ ok: false }, 400)), 'not claimed'],
+		['a worker already claimed', upFetch(() => json({}, 409)), 'is already claimed'],
+		[
+			'an update chain that halts',
+			upFetch(() => json({ ok: true, ownerToken: 'owner-token' }), halted),
+			'a table is missing'
+		]
+	])('stops the duplicate and exits on %s', async (_name, fetch, message) => {
+		// nothing releases the dev server here: the run must abort it, or the terminal stays held
+		const flow = startFlow(undefined, { bringUp: true, fetch });
+		const outcome = await flow.run.then(
+			() => ({ error: undefined }),
+			(error: unknown) => ({ error })
+		);
+		expect(dev.aborted).toBe(true);
+		expect(dev.stopped).toBe(true);
+		expect(outcome.error).toBeInstanceOf(DranglerError);
+		expect((outcome.error as DranglerError).message).toContain(message);
+		expect(flow.ctx.io.stderr.join('\n')).not.toContain('stop it with Ctrl-C');
+		expect(flow.ctx.io.text()).toContain('http://localhost:8787');
+	});
+
+	it('holds the run open until Ctrl-C on a preview that passes', async () => {
+		const flow = startFlow(undefined, {
+			bringUp: true,
+			fetch: upFetch(() => json({ ok: true, ownerToken: 'owner-token' }))
+		});
+		let settled = false;
+		let failure: unknown;
+		const run = flow.run.then(
+			() => {
+				settled = true;
+			},
+			(error: unknown) => {
+				settled = true;
+				failure = error;
+			}
+		);
+		await vi.waitFor(
+			() => expect(flow.ctx.io.stderr.join('\n')).toContain('stop it with Ctrl-C'),
+			{ timeout: 10_000 }
+		);
+		expect(failure).toBeUndefined();
+		expect(settled).toBe(false);
+		expect(dev.aborted).toBe(false);
+		dev.release();
+		await run;
+		expect(failure).toBeUndefined();
+		expect(dev.aborted).toBe(false);
+	});
 });
 
 describe('the settings step', () => {
-	it('carries a phpredis connection as REDIS_URL and reports the source files without printing it', async () => {
+	const runSettings = async (carryKey: string[]) => {
 		const out = tmp();
 		const workspace = join(out, 'worker');
 		mkdirSync(workspace, { recursive: true });
@@ -1026,6 +1235,9 @@ describe('the settings step', () => {
 					"$settings['redis.connection']['interface'] = 'PhpRedis';",
 					"$settings['redis.connection']['host'] = 'cache.example.com';",
 					"$settings['redis.connection']['password'] = 'hunter2';",
+					"$settings['mantle2.api_key'] = 'live-key-value';",
+					"$settings['mantle2.cloud_endpoint'] = 'https://cloud.example';",
+					"$settings['x.y']['password'] = 'nested-secret';",
 					"$settings['memcache']['servers'] = [];",
 					"$config['system.site']['name'] = 'Old';",
 					"$settings['trusted_host_patterns'] = [",
@@ -1060,24 +1272,53 @@ describe('the settings step', () => {
 			root: ROOT,
 			out,
 			transport,
-			globals: testGlobals({}, ctx)
+			globals: testGlobals({}, ctx),
+			carryKey
 		});
+		return { ctx, out };
+	};
 
+	// a redis password and a credential-named module setting stay out of secrets.json without --carry-key
+	it('holds a redis password and a credential-named module setting unless carried', async () => {
+		const { ctx, out } = await runSettings([]);
+		const onDisk = readFileSync(join(out, 'secrets.json'), 'utf8');
+		const secrets = JSON.parse(onDisk) as Record<string, string>;
+		expect(secrets['REDIS_URL']).toBeUndefined();
+		expect(JSON.parse(secrets['DRUPAL_SETTINGS']!)).toEqual({
+			'mantle2.cloud_endpoint': 'https://cloud.example'
+		});
+		expect(JSON.parse(secrets['DRUPAL_CONFIG']!)).toEqual({
+			'system.site': { name: 'Old' },
+			'system.performance': { css: { preprocess: false }, js: { preprocess: false } }
+		});
+		expect(onDisk).not.toMatch(/hunter2|live-key-value|nested-secret/);
+		const text = ctx.io.text();
+		expect(text).not.toMatch(/hunter2|live-key-value|nested-secret/);
+		expect(text).toContain('legacy (core_version_requirement ^10)');
+		expect(text).toContain('modules/contrib/legacy/legacy.module:2');
+		expect(text).toContain('settings-memcache');
+		expect(text).toContain('redis.connection password held, so REDIS_URL is not written');
+		expect(text).toContain('mantle2.api_key');
+	});
+
+	it('writes the redis password and the named setting once they are carried by name', async () => {
+		const { out } = await runSettings(['redis.connection:password', 'mantle2.api_key']);
 		const secrets = JSON.parse(readFileSync(join(out, 'secrets.json'), 'utf8')) as Record<
 			string,
 			string
 		>;
 		expect(secrets['REDIS_URL']).toBe('redis://:hunter2@cache.example.com:6379');
-		expect(JSON.parse(secrets['DRUPAL_CONFIG']!)).toEqual({
-			'system.site': { name: 'Old' },
-			'system.performance': { css: { preprocess: false }, js: { preprocess: false } }
+		expect(JSON.parse(secrets['DRUPAL_SETTINGS']!)).toEqual({
+			'mantle2.api_key': 'live-key-value',
+			'mantle2.cloud_endpoint': 'https://cloud.example'
 		});
+		expect(JSON.parse(secrets['DRUPAL_SETTINGS']!)).not.toHaveProperty('x.y');
+	});
+
+	it('reports the source files without printing a credential', async () => {
+		const { ctx, out } = await runSettings([]);
 		const text = ctx.io.text();
 		expect(text).not.toContain('hunter2');
-		expect(text).toContain('legacy (core_version_requirement ^10)');
-		expect(text).toContain('modules/contrib/legacy/legacy.module:2');
-		expect(text).toContain('settings-memcache');
-		expect(text).toContain('redis.connection carried as REDIS_URL');
 		expect(text).toContain('1 hostname(s) from trusted_host_patterns (domains.txt)');
 		expect(readFileSync(join(out, 'domains.txt'), 'utf8')).toBe(
 			'drangler domain add www.old.example\nnot one host, choose one by hand: ^.+\\.old\\.example$\n'
@@ -1489,8 +1730,17 @@ describe('refuseOldWorker', () => {
 		expect(at('1.1.0')).not.toThrow();
 	});
 
-	it('lets through a checkout with no version to read', () => {
-		expect(at(undefined)).not.toThrow();
+	it('refuses a checkout whose package.json has no version field', () => {
+		expect(at(undefined)).toThrow(UsageError);
+		expect(at(undefined)).toThrow(`drangler update --to v${PREVIEW_MIN_WORKER}`);
+	});
+
+	it('refuses a version it cannot read as a release', () => {
+		expect(at('banana')).toThrow(UsageError);
+		expect(at(7)).toThrow(UsageError);
+	});
+
+	it('does nothing without a package.json to read', () => {
 		expect(() => refuseOldWorker(testContext({ files: memoryFiles() }), '/none')).not.toThrow();
 	});
 });

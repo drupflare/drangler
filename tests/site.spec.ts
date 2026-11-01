@@ -250,6 +250,12 @@ describe('site claim', () => {
 		expect(ctx.io.json<SiteClaimReport>().notes.join(' ')).toContain('JSON body');
 	});
 
+	it('exits nonzero from the command when the site refuses the claim', async () => {
+		const ctx = ctxFor(recorder(() => json({ ok: false, error: 'boom' }, 500)));
+		expect(await run(ctx, ['site', 'claim', ORIGIN, '--json'])).toBe(EXIT.FAILED);
+		expect(ctx.io.stderr.join('\n')).toContain('boom');
+	});
+
 	it('refuses --force without a token, because force on a claimed site is a takeover', async () => {
 		const ctx = ctxFor(recorder(() => json({ ok: true })));
 		await expect(

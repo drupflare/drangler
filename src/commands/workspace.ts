@@ -224,6 +224,8 @@ export interface RunCommandOptions extends WorkspaceOptions {
 	interval?: string | number;
 	/** passed through to wrangler, and used to build the dev site origin */
 	port?: string | number;
+	/** stops the wrangler child when it aborts; see RunOptions.signal */
+	signal?: AbortSignal;
 	globals: GlobalOptions;
 }
 
@@ -336,7 +338,10 @@ async function runWrangler(
 					ctx.io.err(`drangler: ${e instanceof Error ? e.message : String(e)}`);
 				});
 
-	const code = await ctx.runner.spawn('bunx', args, { cwd: location.path });
+	const code = await ctx.runner.spawn('bunx', args, {
+		cwd: location.path,
+		signal: opts.signal
+	});
 	stop.stop();
 	if (mounting !== null) await mounting;
 	if (code !== 0) {

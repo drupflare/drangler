@@ -13,7 +13,11 @@ export interface RunOptions {
 	cwd?: string;
 	env?: NodeJS.ProcessEnv;
 	timeoutMs?: number;
+	/** SIGTERM the child when this aborts, then SIGKILL it after a grace period; `spawn` only */
+	signal?: AbortSignal;
 }
+
+const KILL_GRACE_MS = 3_000;
 
 /**
  * The one seam every subprocess in drangler goes through.
@@ -56,9 +60,21 @@ export function nodeRunner(): CommandRunner {
 					env: opts.env ?? process.env,
 					stdio: 'inherit'
 				});
+				let killer: NodeJS.Timeout | undefined;
+				const stop = () => {
+					child.kill('SIGTERM');
+					killer = setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS);
+				};
+				const finish = (code: number) => {
+					clearTimeout(killer);
+					opts.signal?.removeEventListener('abort', stop);
+					resolve(code);
+				};
+				if (opts.signal?.aborted) stop();
+				else opts.signal?.addEventListener('abort', stop, { once: true });
 				// a signalled child reports code null; 128+SIGTERM is what a shell would report
-				child.on('close', (code, signal) => resolve(code ?? (signal === null ? 1 : 143)));
-				child.on('error', () => resolve(127));
+				child.on('close', (code, signal) => finish(code ?? (signal === null ? 1 : 143)));
+				child.on('error', () => finish(127));
 			});
 		},
 		runToFile(file, args, out, opts = {}) {

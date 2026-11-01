@@ -141,6 +141,27 @@ describe('nodeRunner', () => {
 		]);
 		expect(code).toBe(143);
 	});
+
+	it('ends a spawned child when its signal aborts, without waiting for it to exit', async () => {
+		const controller = new AbortController();
+		const started = Date.now();
+		const pending = nodeRunner().spawn('sleep', ['30'], { signal: controller.signal });
+		setTimeout(() => controller.abort(), 50);
+		const code = await pending;
+		expect(code).not.toBe(0);
+		expect(Date.now() - started).toBeLessThan(5_000);
+	});
+
+	it('kills a child that ignores SIGTERM once the grace period has passed', async () => {
+		const controller = new AbortController();
+		const pending = nodeRunner().spawn(
+			'node',
+			['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'],
+			{ signal: controller.signal }
+		);
+		setTimeout(() => controller.abort(), 200);
+		expect(await pending).toBe(143);
+	}, 15_000);
 });
 
 describe('nodeFiles', () => {

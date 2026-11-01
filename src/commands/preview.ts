@@ -10,6 +10,8 @@ import {
 	blankingOverrides,
 	blankOverrideCredentials,
 	describeCredential,
+	isCarried,
+	isSecretName,
 	mergeOverrides,
 	readCredentials,
 	type Credential
@@ -352,13 +354,13 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 	 * check it against the source as carried, then follow the repositories and check it again.
 	 * Returns the first failure instead of throwing, so the summary is printed either way.
 	 */
-	const settle = async (
+	const settleSteps = async (
 		origin: string,
 		headers?: Record<string, string>
 	): Promise<DranglerError | null> => {
 		const claimed = await claimDuplicate(ctx, origin, out, opts, headers);
 		done.push({ step: 'up', summary: claimed.summary });
-		if (missingLibs.length > 0 && claimed.owner !== null && !opts.globals.dryRun) {
+		if (missingLibs.length > 0 && !opts.globals.dryRun) {
 			const rows = await requirePackages(ctx, claimed.owner, missingLibs, {});
 			const failed = rows.filter((r) => !r.installed);
 			done.push({
@@ -380,28 +382,29 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 		done.push({ step: 'verify', summary: verified.summary });
 		let failure: DranglerError | null = verified.failed;
 		if (followPlan.length > 0) {
-			if (claimed.owner === null) {
-				const why =
-					'not followed: the worker has no migrated claim, so there is no owner token';
-				done.push({ step: 'follow', summary: why });
-				failure ??= new FindingError('follow-failed', why);
-			} else {
-				for (const one of await followModules(
-					ctx,
-					claimed.owner,
-					followPlan,
-					followInterval
-				)) {
-					done.push({ step: 'follow', summary: `${one.module}: ${one.summary}` });
-					if (!one.ok) failure ??= new FindingError('follow-failed', one.summary);
-				}
-				const again = await verify(ctx, origin, survey!, db!, fileList, check);
-				done.push({ step: 'verify', summary: `after following: ${again.summary}` });
-				failure ??= again.failed;
+			for (const one of await followModules(ctx, claimed.owner, followPlan, followInterval)) {
+				done.push({ step: 'follow', summary: `${one.module}: ${one.summary}` });
+				if (!one.ok) failure ??= new FindingError('follow-failed', one.summary);
 			}
+			const again = await verify(ctx, origin, survey!, db!, fileList, check);
+			done.push({ step: 'verify', summary: `after following: ${again.summary}` });
+			failure ??= again.failed;
 		}
 		finish(null);
 		return failure;
+	};
+
+	// a throw must still finish the summary, and the caller stops the duplicate before the exit
+	const settle = async (
+		origin: string,
+		headers?: Record<string, string>
+	): Promise<Error | null> => {
+		try {
+			return await settleSteps(origin, headers);
+		} catch (e) {
+			finish(null);
+			return e instanceof Error ? e : new Error(String(e));
+		}
 	};
 
 	for (const step of PREVIEW_STEPS) {
@@ -524,7 +527,13 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 						privateNote = `; private files at ${privatePath} not carried`;
 					} else {
 						ctx.files.writeText(join(into, '.keep'), '');
-						await ctx.runner.run('tar', ['-xf', ptar, '-C', into]);
+						const x = await ctx.runner.run('tar', ['-xf', ptar, '-C', into]);
+						if (x.code !== 0) {
+							throw new DranglerError(
+								'files',
+								`tar could not unpack ${ptar}: ${x.stderr.trim()}`
+							);
+						}
 						const top = join(into, privatePath.split('/').filter(Boolean).at(-1)!);
 						privateList = ctx.files.exists(top) ? walkFiles(ctx.files, top) : [];
 						privateNote = `; ${privateList.length} private file(s)`;
@@ -624,7 +633,13 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 						);
 					}
 					ctx.files.writeText(join(root, '.keep'), '');
-					await ctx.runner.run('tar', ['-xf', tar, '-C', root]);
+					const x = await ctx.runner.run('tar', ['-xf', tar, '-C', root]);
+					if (x.code !== 0) {
+						throw new DranglerError(
+							'settings',
+							`tar could not unpack ${tar}: ${x.stderr.trim()}`
+						);
+					}
 				}
 				const wk = await transport.download(
 					wellKnownCommand(target.root),
@@ -632,7 +647,18 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 				);
 				if (wk.code === 0) {
 					ctx.files.writeText(join(root, '.keep'), '');
-					await ctx.runner.run('tar', ['-xf', join(out, 'well-known.tar'), '-C', root]);
+					const x = await ctx.runner.run('tar', [
+						'-xf',
+						join(out, 'well-known.tar'),
+						'-C',
+						root
+					]);
+					if (x.code !== 0) {
+						throw new DranglerError(
+							'settings',
+							`tar could not unpack ${join(out, 'well-known.tar')}: ${x.stderr.trim()}`
+						);
+					}
 					wellKnown = true;
 				}
 				const [htaccessCommand, stockCommand] = serverRulesCommands(target.root);
@@ -673,12 +699,26 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 				const plan = await previewPlan(ctx, opts);
 				secrets['PLAN'] = plan.plan;
 				const moduleSettings = settingsOverrides(assignments);
+				const heldSettings = Object.keys(moduleSettings.settings).filter(
+					(key) =>
+						isSecretName(key) &&
+						!isCarried({ config: key, path: [] }, opts.carryKey ?? [])
+				);
+				for (const key of heldSettings) delete moduleSettings.settings[key];
 				const settingNames = Object.keys(moduleSettings.settings);
 				moduleSettingCount = settingNames.length;
 				if (settingNames.length > 0) {
 					secrets['DRUPAL_SETTINGS'] = JSON.stringify(moduleSettings.settings);
 				}
-				if (settings.redisUrl !== null) secrets['REDIS_URL'] = settings.redisUrl;
+				const redisHeld =
+					settings.redisPassword &&
+					!isCarried(
+						{ config: 'redis.connection', path: ['password'] },
+						opts.carryKey ?? []
+					);
+				if (settings.redisUrl !== null && !redisHeld) {
+					secrets['REDIS_URL'] = settings.redisUrl;
+				}
 				if (Object.keys(secrets).length > 0) {
 					ctx.files.writeSecret(
 						join(out, 'secrets.json'),
@@ -703,9 +743,14 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 						(moduleSettings.expressions.length > 0
 							? `, ${moduleSettings.expressions.length} set by expression not carried: ${moduleSettings.expressions.join(', ')}`
 							: '') +
-						(settings.redisUrl === null
-							? ''
-							: ', redis.connection carried as REDIS_URL') +
+						(heldSettings.length > 0
+							? `, ${heldSettings.length} credential-named module setting(s) held, not carried: ${heldSettings.join(', ')}`
+							: '') +
+						(redisHeld
+							? ', redis.connection password held, so REDIS_URL is not written (carry it with --carry-key redis.connection:password)'
+							: settings.redisUrl === null
+								? ''
+								: ', redis.connection carried as REDIS_URL') +
 						(overrides.expressions.length > 0
 							? `, ${overrides.expressions.length} set by expression not carried: ${overrides.expressions.join(', ')}`
 							: '') +
@@ -996,15 +1041,26 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 				const port = opts.port === undefined ? DEV_PORT : Number(opts.port);
 				const origin = `http://localhost:${port}`;
 				// wrangler dev does not return until it is stopped, so it runs beside the check
+				const devStop = new AbortController();
 				const { running } = await bootDuplicate(ctx, origin, () =>
-					runDevCommand(ctx, [], { workspace, port, globals: opts.globals })
+					runDevCommand(ctx, [], {
+						workspace,
+						port,
+						globals: opts.globals,
+						signal: devStop.signal
+					})
 				);
 				done.push({ step: step.id, summary: origin });
 				const failure = await settle(origin);
+				// a failed preview stops the duplicate here; Ctrl-C is only for a preview that stays up
+				if (failure) {
+					devStop.abort();
+					running.catch(() => {});
+					throw failure;
+				}
 				ctx.io.err(`the duplicate is running at ${origin}; stop it with Ctrl-C`);
 				// stopping the duplicate is how the user ends a preview, not a failure
 				await running.catch(() => {});
-				if (failure) throw failure;
 				return;
 			}
 			case 'verify':
@@ -1239,10 +1295,11 @@ export async function verify(
 			continue;
 		}
 		const wantStatus = want === null ? 200 : want.status;
+		// a 503 is a site warming or refusing writes, so a match on it says nothing about the page
 		checks.push([
 			path,
 			`${got.status || 'no answer'}${want === null ? '' : ` (source ${want.status || 'no answer'})`}`,
-			got.status !== 0 && got.status === wantStatus
+			got.status !== 0 && got.status === wantStatus && got.status !== 503
 		]);
 		if (want !== null && want.keys !== null && got.keys !== null) {
 			checks.push([
@@ -1263,12 +1320,17 @@ export async function verify(
 				? ''
 				: `, ${notCompared.length} not compared (${notCompared.join(', ')} sit behind Cloudflare Access on the source)`),
 		failed:
-			bad.length === 0
-				? null
-				: new FindingError(
-						'mismatch',
-						`${bad.map(([n]) => n).join(', ')} did not match the source`
+			bad.length === 0 && checks.length === 0
+				? new FindingError(
+						'unchecked',
+						`no check ran: ${notCompared.length} page(s) sit behind Cloudflare Access on the source and the survey has no node or file counts`
 					)
+				: bad.length === 0
+					? null
+					: new FindingError(
+							'mismatch',
+							`${bad.map(([n]) => n).join(', ')} did not match the source`
+						)
 	};
 }
 
@@ -1314,17 +1376,18 @@ export function publishRootFiles(
 /** the first worker release a migrated duplicate runs correctly on */
 export const PREVIEW_MIN_WORKER = '1.0.4';
 
-/** refuses a checkout older than preview needs; one with no version to read is let through */
+/** refuses a checkout older than preview needs, or one whose version is not a release number */
 export function refuseOldWorker(ctx: Context, workspace: string): void {
 	const manifest = join(workspace, 'package.json');
 	if (!ctx.files.exists(manifest)) return;
 	const version = (JSON.parse(ctx.files.readText(manifest)) as { version?: unknown }).version;
 	if (
-		typeof version === 'string' &&
+		typeof version !== 'string' ||
+		!/^\d+\.\d+\.\d+/.test(version) ||
 		version.localeCompare(PREVIEW_MIN_WORKER, undefined, { numeric: true }) < 0
 	) {
 		throw new UsageError(
-			`the workspace worker is ${version}; preview needs ${PREVIEW_MIN_WORKER} or later, which claims a migrated site, reads DRUPAL_CONFIG, applies REDIRECTS and RESPONSE_HEADERS and hands request headers to Drupal. Move it with: drangler update --to v${PREVIEW_MIN_WORKER}`
+			`the workspace worker is ${String(version ?? 'unversioned')}; preview needs ${PREVIEW_MIN_WORKER} or later, which claims a migrated site, reads DRUPAL_CONFIG, applies REDIRECTS and RESPONSE_HEADERS and hands request headers to Drupal. Move it with: drangler update --to v${PREVIEW_MIN_WORKER}`
 		);
 	}
 }
@@ -1382,7 +1445,7 @@ export async function claimDuplicate(
 	out: string,
 	opts: Pick<PreviewOptions, 'globals'>,
 	headers?: Record<string, string>
-): Promise<{ summary: string; owner: OwnerTarget | null }> {
+): Promise<{ summary: string; owner: OwnerTarget }> {
 	const anonymous: OwnerTarget = {
 		origin,
 		site: null,
@@ -1428,11 +1491,10 @@ export async function claimDuplicate(
 			);
 		}
 		if (claim.body['ok'] !== true || typeof minted !== 'string') {
-			return {
-				summary:
-					'not claimed: this worker has no migrated claim, so database updates were not run',
-				owner: null
-			};
+			throw new DranglerError(
+				'claim',
+				'not claimed: this worker has no migrated claim, so database updates were not run'
+			);
 		}
 		token = minted;
 		ctx.files.writeSecret(stored, `${token}\n`);

@@ -590,6 +590,8 @@ export interface SettingsReport {
 	memcache: string[];
 	/** `redis://[:password@]host:port`; holds a credential, so it is written to a secret and never printed */
 	redisUrl: string | null;
+	/** whether `redisUrl` carries a password, which is a credential the caller must gate */
+	redisPassword: boolean;
 	/** what was translated or why not, with no values in it */
 	redisNote: string | null;
 	/** `redis.connection` parts set by expression */
@@ -609,6 +611,7 @@ export function settingsReport(assignments: readonly SettingsAssignment[]): Sett
 	const report: SettingsReport = {
 		memcache: [],
 		redisUrl: null,
+		redisPassword: false,
 		redisNote: null,
 		redisExpressions: [],
 		s3: []
@@ -665,6 +668,7 @@ export function settingsReport(assignments: readonly SettingsAssignment[]): Sett
 	const auth =
 		typeof password === 'string' && password !== '' ? `:${encodeURIComponent(password)}@` : '';
 	report.redisUrl = `redis://${auth}${host.includes(':') ? `[${host}]` : host}:${typeof port === 'number' ? port : REDIS_DEFAULT_PORT}`;
+	report.redisPassword = auth !== '';
 	report.redisNote = `translated to REDIS_URL${typeof port === 'number' ? '' : ` with the default port ${REDIS_DEFAULT_PORT}`}${auth === '' ? '' : ' with its password'}`;
 	return report;
 }
