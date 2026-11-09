@@ -5,7 +5,7 @@
     "": {
       "name": "@drupflare/drangler",
       "dependencies": {
-        "@drupflare/workforce": "^0.2.0",
+        "@drupflare/workforce": "^0.3.0",
         "@napi-rs/keyring": "^2.1.0",
         "commander": "^15.0.0",
       },
@@ -54,7 +54,7 @@
 
     "@cspotcode/source-map-support": ["@cspotcode/source-map-support@0.8.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.9" } }, "sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw=="],
 
-    "@drupflare/workforce": ["@drupflare/workforce@0.2.0", "", { "dependencies": { "node-diff3": "^3.2.1" }, "peerDependencies": { "edgeport": "^1.0.6" }, "optionalPeers": ["edgeport"] }, "sha512-NMnmcSldR3WI1eVJ2+4OcL1sTd1FyYvZ11E5ERQ+Dp761hQrXEnXonEZ0tTWaL9CL7jCgP0djOVrfX42s0As6Q=="],
+    "@drupflare/workforce": ["@drupflare/workforce@0.3.0", "", { "dependencies": { "node-diff3": "^3.2.1" }, "peerDependencies": { "edgeport": "^1.0.6" }, "optionalPeers": ["edgeport"] }, "sha512-6HPRyNhjBxWdvHU4M4W2EWiQEeD1gg//P2kwgoEhXjMzE6AGCi+fIZWHpNiHqh2QrBgdYnFZujLyeNt4T9tzew=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 

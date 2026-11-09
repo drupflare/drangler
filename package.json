@@ -45,7 +45,7 @@
 		"docs:serve": "typedoc --watch"
 	},
 	"dependencies": {
-		"@drupflare/workforce": "^0.2.0",
+		"@drupflare/workforce": "^0.3.0",
 		"@napi-rs/keyring": "^2.1.0",
 		"commander": "^15.0.0"
 	},
