@@ -20,6 +20,7 @@ import {
 import { DranglerError, FindingError, UsageError } from '../src/errors';
 import { nodeRunner, type CommandResult, type CommandRunner } from '../src/host/exec';
 import { memoryFiles, nodeFiles } from '../src/host/files';
+import { sourceId } from '../src/migrate/discover';
 import {
 	assetHeadersFile,
 	buildSiteDb,
@@ -68,6 +69,8 @@ vi.mock('../src/commands/workspace', async (importOriginal) => ({
 }));
 
 const ROOT = '/var/www/html';
+const SITE_UUID = '3f0a8f0e-7a52-4c41-9d0f-1c2b3a4d5e6f';
+const SITE_CONFIG_ROW = `a:2:{s:4:"uuid";s:36:"${SITE_UUID}";s:4:"name";s:4:"Test";}`;
 
 /** an excerpt of the .htaccess drupal/core scaffolds, enough to exercise every stock shape */
 const STOCK_HTACCESS = [
@@ -119,6 +122,10 @@ function recording(
 		label: 'fake',
 		async exec(command) {
 			calls.push(command);
+			// every real site holds this row, and a source without it is refused
+			if (answers[command] === undefined && command.includes("name = 'system.site'")) {
+				return ok(SITE_CONFIG_ROW);
+			}
 			return answers[command] ?? { code: 127, stdout: '', stderr: 'not scripted' };
 		},
 		async download(command, out) {
@@ -295,6 +302,27 @@ describe('previewName', () => {
 		expect(long.endsWith('-')).toBe(false);
 	});
 
+	it('keeps the host-only names a release already deployed', () => {
+		expect(previewName('earth-app')).toBe('drupflare-preview-earth-app');
+		expect(previewName('deploy@old.example:2222')).toBe(
+			'drupflare-preview-deploy-old-example-2222'
+		);
+		expect(previewName('a_b.Example')).toBe('drupflare-preview-a-b-example');
+		expect(previewName(`${'a'.repeat(80)}.example`)).toBe(
+			`drupflare-preview-${'a'.repeat(45)}`
+		);
+		expect(previewName(`${'x'.repeat(60)}--${'y'.repeat(10)}`)).toBe(
+			`drupflare-preview-${'x'.repeat(45)}`
+		);
+	});
+
+	it('gives two docroots behind one alias different names', () => {
+		const host = 'deploy@old.example';
+		const first = previewName(host, sourceId(host, '/var/www/a', '/var/www/a/web', 'default'));
+		const second = previewName(host, sourceId(host, '/var/www/b', '/var/www/b/web', 'default'));
+		expect(first).not.toBe(second);
+	});
+
 	it('keeps two sites behind one host apart, and cuts the host before the id', () => {
 		expect(previewName('earth-app', 'a1b2c3d4')).toBe('drupflare-preview-earth-app-a1b2c3d4');
 		expect(previewName('earth-app', 'a1b2c3d4')).not.toBe(previewName('earth-app', 'e5f6a7b8'));
@@ -318,6 +346,33 @@ describe('interaction', () => {
 		expect(calls).toEqual([]);
 		expect(ctx.io.text()).toContain('nothing was executed');
 		expect(ctx.io.text()).toContain('tar -cf - -C /var/www/html/sites/default files');
+	});
+
+	it('dry run prints the name and folder a real run uses, with the source id as a placeholder', async () => {
+		const ctx = testContext();
+		await runPreviewCommand(ctx, {
+			...base,
+			deploy: true,
+			transport: recording().transport,
+			globals: testGlobals({ dryRun: true, json: true }, ctx)
+		});
+		const report = ctx.io.json<{ out: string; local: string[] }>();
+		expect(report.local.at(-1)).toBe(
+			'bunx wrangler deploy --name drupflare-preview-old-example-<source-id>'
+		);
+		expect(report.out.endsWith('/.drangler/preview/old.example-<source-id>')).toBe(true);
+		expect(report.local.join('\n')).toContain('old.example-<source-id>/files.tar');
+	});
+
+	it('dry run keeps a stated --out as it is', async () => {
+		const ctx = testContext();
+		await runPreviewCommand(ctx, {
+			...base,
+			out: '/tmp/mine',
+			transport: recording().transport,
+			globals: testGlobals({ dryRun: true, json: true }, ctx)
+		});
+		expect(ctx.io.json<{ out: string }>().out).toBe('/tmp/mine');
 	});
 
 	it('dry run names every fixed command the real run can send', async () => {
@@ -887,6 +942,21 @@ describe('verify', () => {
 		expect(got.summary).toContain('0 of 0 checks passed');
 		expect(got.failed).toBeInstanceOf(FindingError);
 		expect(got.failed?.message).toContain('Cloudflare Access');
+		expect(got.failed?.message).toContain('--source-url');
+	});
+
+	// no source and no counts: the duplicate's own 200s are the only thing the check compares
+	it('fails when there is no source and the survey has no counts, and names --source-url', async () => {
+		const ctx = testContext({ fetch: fakeFetch(() => new Response('', { status: 200 })) });
+		const got = await verify(
+			ctx,
+			'http://localhost:8787',
+			{ nodes: null, fileRows: null } as Parameters<typeof verify>[2],
+			db,
+			[]
+		);
+		expect(got.failed).toBeInstanceOf(FindingError);
+		expect(got.failed?.message).toContain('--source-url');
 	});
 
 	it('still passes when one page is checked and the rest sit behind Access', async () => {
@@ -1113,6 +1183,19 @@ describe('the flow through install', () => {
 		installed.close();
 	});
 
+	it('names the source site in source-site.json and in the survey line', async () => {
+		const { ctx, out } = await runFlow();
+		expect(ctx.io.text()).toContain(`site ${SITE_UUID}`);
+		const written = JSON.parse(readFileSync(join(out, 'source-site.json'), 'utf8')) as {
+			id: { siteUuid: string; hostFingerprint: string };
+			digest: string;
+		};
+		expect(written.id.siteUuid).toBe(SITE_UUID);
+		// the host is hashed, so the file names no address
+		expect(JSON.stringify(written)).not.toContain('old.example');
+		expect(written.digest).toMatch(/^[0-9a-f]{64}$/);
+	});
+
 	it('fails the preview when the private files archive does not unpack', async () => {
 		await expect(runFlow(failUnpack('private.tar'))).rejects.toThrow('tar could not unpack');
 	});
@@ -1123,6 +1206,14 @@ describe('the flow through install', () => {
 
 	it('fails the preview when the .well-known archive does not unpack', async () => {
 		await expect(runFlow(failUnpack('well-known.tar'))).rejects.toThrow('tar could not unpack');
+	});
+
+	it('fails the preview when the public files archive does not unpack', async () => {
+		await expect(runFlow(failUnpack('files.tar'))).rejects.toThrow('tar could not unpack');
+	});
+
+	it('fails the preview when a code archive does not unpack', async () => {
+		await expect(runFlow(failUnpack('modules.tar'))).rejects.toThrow('tar could not unpack');
 	});
 
 	const json = (body: unknown, status = 200) =>
@@ -1742,5 +1833,63 @@ describe('refuseOldWorker', () => {
 
 	it('does nothing without a package.json to read', () => {
 		expect(() => refuseOldWorker(testContext({ files: memoryFiles() }), '/none')).not.toThrow();
+	});
+});
+
+describe('refusing a source before anything is carried', () => {
+	const survey: Record<string, CommandResult> = {
+		'php -v': ok('PHP 8.3.6 (cli)'),
+		'php -m': ok('[PHP Modules]\npdo_mysql\n'),
+		[`cd ${ROOT} && drush status --format=json`]: ok(
+			JSON.stringify({ 'drupal-version': '11.2.0', 'db-driver': 'mysql', root: ROOT })
+		),
+		[`cd ${ROOT} && drush pm:list --status=enabled --type=module --format=json`]: ok(
+			JSON.stringify({ node: {} })
+		),
+		[`cat ${ROOT}/sites/default/settings.php`]: ok('<?php\n')
+	};
+	const attempt = async (answers: Record<string, CommandResult>, extra = {}) => {
+		const { transport, calls } = recording({ ...survey, ...answers });
+		const ctx = testContext({ ask: async () => 'y' });
+		const failure = await runPreviewCommand(ctx, {
+			host: 'deploy@old.example',
+			root: ROOT,
+			out: mkdtempSync(join(tmpdir(), 'drangler-refuse-')),
+			transport,
+			globals: testGlobals({}, ctx),
+			...extra
+		}).catch((e: unknown) => e);
+		return { failure, calls };
+	};
+
+	it('stops on a site whose uuid is not the one expected', async () => {
+		const { failure, calls } = await attempt(
+			{},
+			{ expectUuid: '00000000-0000-4000-8000-000000000000' }
+		);
+		expect(failure).toMatchObject({ code: 'wrong-site' });
+		expect((failure as Error).message).toContain(SITE_UUID);
+		expect(calls.some((c) => c.includes('sql:dump'))).toBe(false);
+	});
+
+	it('lets the site through when its uuid is the one expected', async () => {
+		const { failure } = await attempt({}, { expectUuid: SITE_UUID });
+		expect(failure).not.toMatchObject({ code: 'wrong-site' });
+	});
+
+	it('stops on a database with no site configuration in it', async () => {
+		const { failure, calls } = await attempt({
+			[`cd ${ROOT} && drush sql:query "SELECT data FROM config WHERE name = 'system.site'"`]:
+				{ code: 1, stdout: '', stderr: "Table 'x.config' doesn't exist" }
+		});
+		expect(failure).toMatchObject({ code: 'empty-source' });
+		expect(calls.some((c) => c.includes('sql:dump'))).toBe(false);
+	});
+
+	it('asks for the password in the environment, never on the command line', async () => {
+		const { failure, calls } = await attempt({}, { login: 'admin' });
+		expect(failure).toBeInstanceOf(UsageError);
+		expect((failure as Error).message).toContain('DRANGLER_PREVIEW_PASSWORD');
+		expect(calls).toEqual([]);
 	});
 });

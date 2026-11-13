@@ -652,3 +652,40 @@ describe('migrate export', () => {
 		expect(ctx.io.stderr.join('\n')).toContain('?body=1');
 	});
 });
+
+describe('preview --site', () => {
+	// the program-level --site is an origin, so commander kept the value for itself and discovery
+	// never saw which of a host's sites was asked for
+	it('reaches the preview as the hostname to take', async () => {
+		for (const form of ['b.example', 'https://b.example/']) {
+			const ctx = testContext();
+			const code = await run(ctx, [
+				'--json',
+				'preview',
+				'--host',
+				'deploy@old.example',
+				'--root',
+				'/var/www/html',
+				'--site',
+				form,
+				'--dry-run'
+			]);
+			expect(code).toBe(EXIT.OK);
+			expect(ctx.io.json<{ site: string | null }>().site).toBe('b.example');
+		}
+	});
+
+	it('is null when no site was asked for', async () => {
+		const ctx = testContext();
+		await run(ctx, [
+			'--json',
+			'preview',
+			'--host',
+			'deploy@old.example',
+			'--root',
+			'/var/www/html',
+			'--dry-run'
+		]);
+		expect(ctx.io.json<{ site: string | null }>().site).toBeNull();
+	});
+});

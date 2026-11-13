@@ -59,6 +59,7 @@ import {
 	type SettingsAssignment,
 	type SiteDbReport
 } from '../migrate/preview';
+import { readSourceIdentity, type SourceIdentity } from '../migrate/read-identity';
 import { parseRedisState, REDIS_STATE_SCRIPT, type RedisRow } from '../migrate/redis-state';
 import { SOURCE_FINDING_IDS, type Finding } from '../migrate/rules';
 import { runSurvey, surveyPlan, type SiteSurvey } from '../migrate/survey';
@@ -73,6 +74,8 @@ import { runInstallCommand } from './migrate';
 import { requirePackages } from './modify';
 import { deployDuplicate, splitDeployValues } from './preview-deploy';
 import { followModules, followRoot, parseFollow, type Follow } from './preview-follow';
+import { writeReceipt } from './preview-receipt';
+import { verifyWorkflow } from './preview-workflow';
 import { driveUpdb } from './site';
 import { DEV_PORT, runBuildCommand, runDevCommand } from './workspace';
 
@@ -113,6 +116,21 @@ export interface PreviewOptions {
 	accessEmail?: string | undefined;
 	/** the live source site; the check then compares each page's status against it */
 	sourceUrl?: string;
+	/**
+	 * A user the check signs in as, to drive create, edit, upload twice and logout on the duplicate.
+	 * Its password is read from `DRANGLER_PREVIEW_PASSWORD`, never from a flag.
+	 */
+	login?: string | undefined;
+	/** refuse unless the source site's UUID is this one, before anything is carried */
+	expectUuid?: string | undefined;
+	/** a fleet's fencing epoch, written into the receipt */
+	epoch?: number;
+	/** internal: the workspace to use in place of `<out>/worker`, which a fleet clones per site */
+	workspace?: string;
+	/** every site the docroot serves, each verified by workflow; see `runFleetCommand` */
+	allSites?: boolean | undefined;
+	/** internal: stop the local duplicate once it has been checked, instead of leaving it up */
+	stopAfterCheck?: boolean;
 	port?: string | number;
 	targetPhp?: string;
 	globals: GlobalOptions;
@@ -141,6 +159,8 @@ export type PreviewStepId = (typeof PREVIEW_STEPS)[number]['id'];
 export const UP_TIMEOUT_MS = 15 * 60_000;
 const UP_POLL_MS = 2_000;
 const DEV_BOOTS = 5;
+/** stands in for the source id in a dry run, which discovers nothing and so cannot know it */
+const SOURCE_ID_PLACEHOLDER = '<source-id>';
 
 /**
  * A worker name that can only ever be a preview, so a deploy cannot land on a real site.
@@ -157,6 +177,21 @@ export function previewName(host: string, id?: string): string {
 		.slice(0, 63 - tail.length)
 		.replace(/-+$/, '')
 		.concat(tail);
+}
+
+/**
+ * The hostname `--site` names. The program-level `--site` is an origin and commander keeps the flag
+ * for itself, so the value arrives as either form.
+ */
+export function previewSite(value: string | undefined): string | undefined {
+	const raw = value?.trim();
+	if (raw === undefined || raw === '') return undefined;
+	if (!raw.includes('://')) return raw;
+	try {
+		return new URL(raw).hostname;
+	} catch {
+		throw new UsageError(`--site ${raw} is not a hostname or an origin`);
+	}
 }
 
 export interface PreviewPlan {
@@ -258,19 +293,30 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 			'drop --deploy, or drop --hold-mail and carry no mail credential'
 		);
 	}
+	const password = ctx.env['DRANGLER_PREVIEW_PASSWORD'];
+	if (opts.login !== undefined && (password === undefined || password === '')) {
+		throw new UsageError(
+			`--login ${opts.login} needs its password in DRANGLER_PREVIEW_PASSWORD; a password on the command line stays in shell history`
+		);
+	}
 	const target = parseTarget(opts.host, opts.root ?? '/', opts.identity);
 	let out = opts.out ?? join(ctx.cwd, '.drangler', 'preview', target.host);
-	let workspace = join(out, 'worker');
+	let workspace = opts.workspace ?? join(out, 'worker');
 	const json = opts.globals.json;
 	let layout: SourceLayout | null = null;
 	let drush: string | undefined;
 	let siteDir = 'default';
 
 	if (opts.globals.dryRun) {
+		const shownOut =
+			opts.out ??
+			join(ctx.cwd, '.drangler', 'preview', `${target.host}-${SOURCE_ID_PLACEHOLDER}`);
+		const shownWorkspace = join(shownOut, 'worker');
 		const report = {
 			target,
-			out,
-			workspace,
+			site: opts.site ?? null,
+			out: shownOut,
+			workspace: shownWorkspace,
 			steps: PREVIEW_STEPS,
 			remote:
 				opts.root === undefined
@@ -294,7 +340,7 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 							...serverRulesCommands(target.root),
 							`redis-cli eval "${REDIS_STATE_SCRIPT}" 0`
 						],
-			local: localCommands(opts, out, workspace)
+			local: localCommands(opts, shownOut, shownWorkspace, SOURCE_ID_PLACEHOLDER)
 		};
 		emit(ctx.io, json, report, () => [
 			`dry run against ${opts.host}; nothing was executed`,
@@ -324,6 +370,7 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 		]);
 
 	let survey: SiteSurvey | null = null;
+	let identity: SourceIdentity | null = null;
 	let dialect: ReturnType<typeof dialectOf> = null;
 	let db: SiteDbReport | null = null;
 	let fileList: string[] = [];
@@ -349,6 +396,26 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 	let followPlan: (Follow & { root: string })[] = [];
 	const followInterval = Number(opts.followInterval ?? 5);
 
+	/** the duplicate's receipt, advanced as the duplicate earns each state */
+	const seal = (origin: string, state: 'sealed' | 'claimed' | 'verified'): void => {
+		if (identity === null) return;
+		const pkg = join(workspace, 'package.json');
+		const revision = ctx.files.exists(pkg)
+			? String((JSON.parse(ctx.files.readText(pkg)) as { version?: unknown }).version ?? '')
+			: '';
+		writeReceipt(ctx, out, {
+			origin,
+			source: identity.digest,
+			epoch: opts.epoch ?? 0,
+			revision,
+			state,
+			findings: workerGaps(ctx.files, workspace, {
+				moduleSettings: moduleSettingCount > 0,
+				followMount: followPlan.length > 0
+			}).map((g) => ({ capability: g.id, status: 'absent' as const }))
+		});
+	};
+
 	/**
 	 * Everything after the duplicate answers, the same for a local run and a deployed one: claim it,
 	 * check it against the source as carried, then follow the repositories and check it again.
@@ -360,6 +427,7 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 	): Promise<DranglerError | null> => {
 		const claimed = await claimDuplicate(ctx, origin, out, opts, headers);
 		done.push({ step: 'up', summary: claimed.summary });
+		seal(origin, 'claimed');
 		if (missingLibs.length > 0 && !opts.globals.dryRun) {
 			const rows = await requirePackages(ctx, claimed.owner, missingLibs, {});
 			const failed = rows.filter((r) => !r.installed);
@@ -390,6 +458,22 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 			done.push({ step: 'verify', summary: `after following: ${again.summary}` });
 			failure ??= again.failed;
 		}
+		if (opts.login !== undefined) {
+			const worked = await verifyWorkflow(
+				ctx,
+				origin,
+				{ name: opts.login, password: password! },
+				headers
+			);
+			for (const w of worked.steps) {
+				done.push({
+					step: 'verify',
+					summary: `workflow ${w.step} ${w.ok ? 'ok' : 'FAILED'}: ${w.detail}`
+				});
+			}
+			failure ??= worked.failed;
+		}
+		if (failure === null && opts.login !== undefined) seal(origin, 'verified');
 		finish(null);
 		return failure;
 	};
@@ -420,7 +504,7 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 				out =
 					opts.out ??
 					join(ctx.cwd, '.drangler', 'preview', `${target.host}-${layout.id}`);
-				workspace = join(out, 'worker');
+				workspace = opts.workspace ?? join(out, 'worker');
 				drush = drushPrefix(layout);
 				siteDir = layout.siteDir;
 				ctx.files.writeText(
@@ -453,9 +537,29 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 					join(out, 'survey.json'),
 					`${JSON.stringify(survey, null, 2)}\n`
 				);
+				identity = await readSourceIdentity(transport, {
+					host: opts.host,
+					docroot: target.root,
+					siteDir,
+					uri: layout?.uri ?? null,
+					driver: survey.database.driver,
+					drush: drush ?? `cd ${target.root} && drush`,
+					settings: (await transport.exec(settingsCommands(target.root, siteDir)[0]!))
+						.stdout
+				});
+				if (opts.expectUuid !== undefined && identity.input.siteUuid !== opts.expectUuid) {
+					throw new FindingError(
+						'wrong-site',
+						`sites/${siteDir} on ${opts.host} is site ${identity.input.siteUuid}, not the ${opts.expectUuid} that was expected; nothing was carried`
+					);
+				}
+				ctx.files.writeText(
+					join(out, 'source-site.json'),
+					`${JSON.stringify({ id: identity.id, digest: identity.digest }, null, 2)}\n`
+				);
 				done.push({
 					step: step.id,
-					summary: `Drupal ${survey.drupal.version ?? '?'} on ${survey.database.driver ?? '?'}, ${survey.modules.length} modules, ${survey.nodes ?? '?'} nodes`
+					summary: `Drupal ${survey.drupal.version ?? '?'} on ${survey.database.driver ?? '?'}, ${survey.modules.length} modules, ${survey.nodes ?? '?'} nodes, site ${identity.input.siteUuid}`
 				});
 				break;
 			}
@@ -1034,6 +1138,7 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 							`${deployed.origin} did not answer 200 within the limit`
 						);
 					}
+					seal(deployed.origin, 'sealed');
 					const failure = await settle(deployed.origin, deployed.headers);
 					if (failure) throw failure;
 					return;
@@ -1051,12 +1156,18 @@ export async function runPreviewCommand(ctx: Context, given: PreviewOptions): Pr
 					})
 				);
 				done.push({ step: step.id, summary: origin });
+				seal(origin, 'sealed');
 				const failure = await settle(origin);
 				// a failed preview stops the duplicate here; Ctrl-C is only for a preview that stays up
 				if (failure) {
 					devStop.abort();
 					running.catch(() => {});
 					throw failure;
+				}
+				if (opts.stopAfterCheck === true) {
+					devStop.abort();
+					await running.catch(() => {});
+					return;
 				}
 				ctx.io.err(`the duplicate is running at ${origin}; stop it with Ctrl-C`);
 				// stopping the duplicate is how the user ends a preview, not a failure
@@ -1084,7 +1195,7 @@ function reportFindings(ctx: Context, findings: readonly Finding[]): void {
  * Returns the per-step asker. With `--full` the one typed confirmation happens here and every later
  * step proceeds; without it each step asks. Either way, no terminal is a refusal.
  */
-async function interaction(
+export async function interaction(
 	ctx: Context,
 	opts: PreviewOptions,
 	target: SshTarget
@@ -1228,6 +1339,8 @@ export async function verify(
 		typeof options === 'string' ? { sourceUrl: options } : (options ?? {});
 	const sourceUrl = opts.sourceUrl;
 	const checks: [string, string, boolean][] = [];
+	// survey counts come from the source, so they count as compared even with no source url
+	let compared = [survey.nodes, survey.fileRows].filter((n) => n !== null).length;
 	if (survey.nodes !== null) {
 		checks.push(['nodes', `${db.nodes ?? '?'} of ${survey.nodes}`, db.nodes === survey.nodes]);
 	}
@@ -1295,6 +1408,7 @@ export async function verify(
 			continue;
 		}
 		const wantStatus = want === null ? 200 : want.status;
+		if (want !== null) compared++;
 		// a 503 is a site warming or refusing writes, so a match on it says nothing about the page
 		checks.push([
 			path,
@@ -1320,16 +1434,18 @@ export async function verify(
 				? ''
 				: `, ${notCompared.length} not compared (${notCompared.join(', ')} sit behind Cloudflare Access on the source)`),
 		failed:
-			bad.length === 0 && checks.length === 0
+			bad.length > 0
 				? new FindingError(
-						'unchecked',
-						`no check ran: ${notCompared.length} page(s) sit behind Cloudflare Access on the source and the survey has no node or file counts`
+						'mismatch',
+						`${bad.map(([n]) => n).join(', ')} did not match the source`
 					)
-				: bad.length === 0
+				: compared > 0
 					? null
 					: new FindingError(
-							'mismatch',
-							`${bad.map(([n]) => n).join(', ')} did not match the source`
+							'unchecked',
+							sourceUrl === undefined
+								? 'nothing was compared with the source: no source was given and the survey has no node or file counts; pass --source-url <origin>'
+								: `nothing was compared with the source: ${notCompared.length} page(s) sit behind Cloudflare Access on it and the survey has no node or file counts; pass --source-url with a source Access does not gate`
 						)
 	};
 }

@@ -46,7 +46,8 @@ import {
 	runModifyStatus,
 	runModifyUpload
 } from './commands/modify';
-import { runPreviewCommand } from './commands/preview';
+import { previewSite, runPreviewCommand } from './commands/preview';
+import { runFleetCommand } from './commands/preview-fleet';
 import { runProjectBuild } from './commands/project';
 import { runReconcile } from './commands/reconcile';
 import { runRecover } from './commands/recover';
@@ -441,6 +442,22 @@ export function buildProgram(ctx: Context): Command {
 				'absolute Drupal docroot on that host; found from the web server config when omitted'
 			)
 			.option('--site <hostname>', 'which site to take when the host serves several')
+			.option(
+				'--all-sites',
+				'preview every site the docroot serves, one duplicate each, and finish when each is verified by workflow'
+			)
+			.option(
+				'--login <user>',
+				'sign in as this user on the duplicate and drive create, edit, upload twice and logout; the password is read from DRANGLER_PREVIEW_PASSWORD'
+			)
+			.option(
+				'--expect-uuid <uuid>',
+				'refuse unless the source site has this UUID, before anything is carried'
+			)
+			.option(
+				'--workspace-from <dir>',
+				'with --all-sites, a hydrated worker checkout copied for each site instead of building one'
+			)
 			.option('--identity <file>', 'ssh private key, passed to ssh as -i')
 			.option('--out <dir>', 'where the dump, files and preview workspace land')
 			.option('--full', 'run every step after one typed confirmation')
@@ -485,7 +502,7 @@ export function buildProgram(ctx: Context): Command {
 			)
 			.option(
 				'--source-url <origin>',
-				'the live site, so each checked page must match its status'
+				'the live site, so each checked page must match its status; with --all-sites {host} stands for each site name'
 			)
 			.option('--port <n>', 'the local port for wrangler dev')
 			.option(
@@ -508,7 +525,9 @@ export function buildProgram(ctx: Context): Command {
 			)
 			.action(async (opts, sub: Command) => {
 				const bound = bind(sub);
-				await runPreviewCommand(bound.ctx, { ...opts, globals: bound.globals });
+				const site = previewSite(opts.site ?? sub.optsWithGlobals()['site']);
+				const run = opts.allSites === true ? runFleetCommand : runPreviewCommand;
+				await run(bound.ctx, { ...opts, site, globals: bound.globals });
 			});
 
 	withPreview(program.command('preview'));
