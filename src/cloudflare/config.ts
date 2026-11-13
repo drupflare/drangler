@@ -344,7 +344,7 @@ export const SWEEP_FRACTION_MAX = 0.5;
 /**
  * The levers drangler has a command or a check for.
  *
- * Deliberately short. `worker/docs/configuration.md` documents every var the site reads, and a
+ * Deliberately short. `worker/docs/configuration/index.md` documents every var the site reads, and a
  * second list of all of them here would be a copy that goes stale on the next one the worker adds.
  * A lever earns a row when something in drangler acts on it: `FILES_PUBLIC_URL` has a reachability
  * check, `SWEEP` and `SWEEP_ROWS_FRACTION` drive `drangler sweep`, and `ASSET_AGGREGATES` needs a

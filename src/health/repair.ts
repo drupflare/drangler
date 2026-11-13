@@ -316,7 +316,7 @@ export function renderRepair(report: RepairReport): string[] {
 }
 
 /**
- * The class a repair falls into, from `worker/docs/configuration.md`'s repair surface.
+ * The class a repair falls into, from `worker/docs/configuration/index.md`'s repair surface.
  *
  * The worker documents these three words and this reads them rather than inventing a parallel
  * vocabulary: **safe** changes nothing a visitor sees, **rebuild** discards derived state that comes

@@ -5,7 +5,7 @@ import { readRepairState, type RepairReport } from './repair';
  * Scoring a deployed drupflare site from the envelopes its owner routes return.
  *
  * Every state names the worker code that owns it, and the verdict says whether a CLI can do
- * anything about it, in the three words `worker/docs/configuration.md` classifies the repair
+ * anything about it, in the three words `worker/docs/configuration/index.md` classifies the repair
  * surface with.
  *
  * **A withdrawn replica lane is not scored here.** `/replica` is diagnostic-only and stays that way:
@@ -31,7 +31,7 @@ export interface SiteFinding {
 	/**
 	 * Whether an owner route can act on it, in the worker's own three words.
 	 *
-	 * `worker/docs/configuration.md` classifies the repair surface as `safe`, `rebuild` and
+	 * `worker/docs/configuration/index.md` classifies the repair surface as `safe`, `rebuild` and
 	 * `stateful`; `none` is a state no owner route reaches at all.
 	 */
 	repair: 'none' | 'safe' | 'rebuild' | 'stateful';

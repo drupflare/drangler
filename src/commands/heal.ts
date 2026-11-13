@@ -68,7 +68,7 @@ export interface HealReport extends RepairReport {
  * What is wrong with a site, and the one thing that can be fixed from here.
  *
  * Read-only by default. Every write is behind its own flag and `--yes`, and each one carries the
- * class `worker/docs/configuration.md` gives its route: `safe`, `rebuild` or `stateful`. A command
+ * class `worker/docs/configuration/index.md` gives its route: `safe`, `rebuild` or `stateful`. A command
  * that implied more repair than the routes permit would be reporting on work it never did.
  *
  * Three things stay manual on purpose. A rollback is a decision the object makes with a dwell timer

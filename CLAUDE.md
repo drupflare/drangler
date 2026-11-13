@@ -284,7 +284,7 @@ depends on which step failed.
 
 ## The repair vocabulary is the WORKER's, and a fourth one would be an invention
 
-`worker/docs/configuration.md` classifies the repair surface as **safe** (changes nothing a visitor
+`worker/docs/configuration/index.md` classifies the repair surface as **safe** (changes nothing a visitor
 sees), **rebuild** (discards derived state that comes back on its own) and **stateful** (changes what
 the site serves). `src/health/repair.ts` and `src/health/site.ts` use those three words rather than a
 parallel set of their own.
@@ -402,7 +402,7 @@ configured bucket.
 row when something in drangler acts on it: `FILES_PUBLIC_URL` has the reachability check, `SWEEP` and
 `SWEEP_ROWS_FRACTION` drive `drangler sweep`, and `ASSET_AGGREGATES` needs a build artifact whose
 absence makes the lever inert. Listing every var the worker reads would be a copy of
-`worker/docs/configuration.md` that goes stale on the next one it adds; every other `vars` entry is
+`worker/docs/configuration/index.md` that goes stale on the next one it adds; every other `vars` entry is
 echoed as declared, without a verdict.
 
 **`config levers` reads a CONFIG, so it reports the DECLARED value.** `ASSET_AGGREGATES` is on the
@@ -423,14 +423,14 @@ Four constants, one classification and one formula are repeated here because the
 local disk the site cannot see. Each one has a spec that reads the sibling's source and fails when
 the two disagree, skipping without the sibling and failing under `REQUIRE_SIBLINGS=1`:
 
-| copied here                            | from                        | checked by                    |
-| -------------------------------------- | --------------------------- | ----------------------------- |
-| `KEEP` / `DROP` / `RECORD_CAP`         | `ops/package-install.ts`    | `tests/modify-detect.spec.ts` |
-| `RUNGS` / `QUARANTINE_STRIKES`         | `ops/repair.ts`             | `tests/heal.spec.ts`          |
-| the three repair class words           | `docs/configuration.md`     | `tests/heal.spec.ts`          |
-| `AUTHORITATIVE_TABLES`                 | `ops/state-inventory.ts`    | `tests/delta.spec.ts`         |
-| the service classes in `SUBSTITUTIONS` | `drupflare/drupflare`'s src | `tests/eligibility.spec.ts`   |
-| the revision id formula                | `ops/module-rev.ts`         | `tests/modify-rev.spec.ts`    |
+| copied here                            | from                          | checked by                    |
+| -------------------------------------- | ----------------------------- | ----------------------------- |
+| `KEEP` / `DROP` / `RECORD_CAP`         | `ops/package-install.ts`      | `tests/modify-detect.spec.ts` |
+| `RUNGS` / `QUARANTINE_STRIKES`         | `ops/repair.ts`               | `tests/heal.spec.ts`          |
+| the three repair class words           | `docs/configuration/index.md` | `tests/heal.spec.ts`          |
+| `AUTHORITATIVE_TABLES`                 | `ops/state-inventory.ts`      | `tests/delta.spec.ts`         |
+| the service classes in `SUBSTITUTIONS` | `drupflare/drupflare`'s src   | `tests/eligibility.spec.ts`   |
+| the revision id formula                | `ops/module-rev.ts`           | `tests/modify-rev.spec.ts`    |
 
 **A `to-vps` rule that ignores its envelope is scoring a paragraph rather than a site.** All five of
 them used to declare `evaluate()` with no parameters and return a constant, so the whole off-boarding
