@@ -1,6 +1,10 @@
+import { createHash } from 'node:crypto';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TransportError, UsageError } from '../src/errors';
-import { scriptedRunner } from '../src/host/exec';
+import { scriptedRunner, type CommandRunner } from '../src/host/exec';
 import { destination, normaliseRoot, parseTarget } from '../src/migrate/target';
 import {
 	refusingTransport,
@@ -137,5 +141,101 @@ describe('refusingTransport', () => {
 		await expect(refusingTransport('host').exec('rm -rf /')).rejects.toThrow(
 			/dry run.*rm -rf/s
 		);
+	});
+});
+
+/**
+ * ssh exits 255 after a command has started as well as when it never connected, so a retried
+ * capture is an unknown outcome and the checksum of what the first attempt left is the evidence.
+ */
+describe('an unknown outcome', () => {
+	const target = parseTarget('me@host', '/x');
+	const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+	const dir = mkdtempSync(join(tmpdir(), 'drangler-unknown-'));
+	/** each scripted attempt writes its bytes to the capture file, as a real ssh would */
+	const capturing = (attempts: { code: number; body: string }[]): CommandRunner => {
+		let n = 0;
+		return {
+			run: async () => ({ code: 0, stdout: '', stderr: '' }),
+			spawn: async () => 0,
+			runToFile: async (_f, _a, out) => {
+				const step = attempts[Math.min(n++, attempts.length - 1)]!;
+				writeFileSync(out, step.body);
+				return {
+					code: step.code,
+					stderr: step.code === 255 ? 'Connection reset' : '',
+					bytes: step.body.length
+				};
+			}
+		};
+	};
+
+	it('says the first capture was whole when the retry matches it byte for byte', async () => {
+		const out = join(dir, 'whole.tar');
+		const got = await sshTransport(
+			capturing([
+				{ code: 255, body: 'the dump' },
+				{ code: 0, body: 'the dump' }
+			]),
+			target
+		).download('tar -cf - -C /x modules', out);
+		expect(got).toEqual({
+			code: 0,
+			stderr: '',
+			bytes: 8,
+			sha256: sha('the dump'),
+			unknown: { attempts: 2, firstSha256: sha('the dump'), agreed: true }
+		});
+	});
+
+	it('says the first capture was cut short when the retry does not match it, and keeps the retry', async () => {
+		const out = join(dir, 'cut.tar');
+		const got = await sshTransport(
+			capturing([
+				{ code: 255, body: 'the du' },
+				{ code: 0, body: 'the dump' }
+			]),
+			target
+		).download('tar -cf - -C /x modules', out);
+		expect(got.unknown).toEqual({ attempts: 2, firstSha256: sha('the du'), agreed: false });
+		expect(got.sha256).toBe(sha('the dump'));
+	});
+
+	it('carries no unknown record when the first attempt answered', async () => {
+		const out = join(dir, 'clean.tar');
+		const got = await sshTransport(capturing([{ code: 0, body: 'x' }]), target).download(
+			'tar -cf - -C /x modules',
+			out
+		);
+		expect(got).toEqual({ code: 0, stderr: '', bytes: 1 });
+	});
+
+	it('names the unknown outcome and the first checksum when every attempt ends in 255', async () => {
+		const out = join(dir, 'dead.tar');
+		const err = await sshTransport(capturing([{ code: 255, body: 'half' }]), target)
+			.download('tar -cf - -C /x modules', out)
+			.catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(TransportError);
+		expect((err as Error).message).toContain('outcome of the command is unknown');
+		expect((err as Error).message).toContain(sha('half'));
+	});
+
+	it('marks a retried exec as unknown, and leaves a first-try answer unmarked', async () => {
+		let n = 0;
+		const flaky: CommandRunner = {
+			run: async () =>
+				++n === 1
+					? { code: 255, stdout: '', stderr: 'Connection reset' }
+					: { code: 0, stdout: '1\n', stderr: '' },
+			spawn: async () => 0,
+			runToFile: async () => ({ code: 0, stderr: '', bytes: 0 })
+		};
+		const transport = sshTransport(flaky, target);
+		expect((await transport.exec('id -u')).unknown).toEqual({
+			attempts: 2,
+			firstSha256: null,
+			agreed: null
+		});
+		expect((await transport.exec('id -u')).unknown).toBeUndefined();
 	});
 });
