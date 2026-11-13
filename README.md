@@ -313,7 +313,7 @@ owner-authenticated and one of them is an OAuth consent screen that has to compl
   `?action=apply` creates the subdomain and writes the DNS.
 
 The contracts live in
-[`worker/docs/configuration.md`](https://github.com/drupflare/worker/blob/master/docs/configuration.md)
+[`worker/docs/configuration/index.md`](https://github.com/drupflare/worker/blob/master/docs/configuration/index.md)
 under **Connecting a Cloudflare Account** and **Onboarding a Sending Domain**. drangler does not
 restate the stage vocabulary; that has one implementation, in the worker.
 
@@ -452,8 +452,8 @@ change. The dev site's owner token is minted for the process and never written t
 ```console
 $ drangler build --project ../mysite --dry-run
 project       /work/mysite
-shipped lock  https://raw.githubusercontent.com/drupflare/worker/master/composer.lock (core 11.4.7)
-core          11.4.7, patched
+shipped lock  https://raw.githubusercontent.com/drupflare/worker/master/composer.lock (core 11.4.11)
+core          11.4.11, patched
 delivered     3
 skipped       2
 
@@ -1059,35 +1059,65 @@ commands on the host**, which run on the server over SSH, and the **local comman
 your computer. Nothing is executed. A host command marked with a placeholder, such as the private
 files stream, names a path only the live run discovers.
 
-Every command sent to the host passes a read-only allow-list first: `php`, `du`, `find`, `tar`
+Every command sent to the host passes a read-only allow-list first: `php`, `du`, `find`, `readlink -f`, `tar`
 creating to stdout, `cat` of the settings files, `composer.lock` and `.htaccess`, and the read-only drush
 commands, with `sql:query` limited to `SELECT`. Redirection, `--result-file` and anything else not on
 the list are refused before they reach the host.
 
-| Flag                        | What it does                                                                            |
-| --------------------------- | --------------------------------------------------------------------------------------- |
-| `--dry-run`                 | Print every step and command, and run none of them                                      |
-| `--root <path>`             | The Drupal docroot, when you would rather not have it found                             |
-| `--site <hostname>`         | Which site to take when the host serves several                                         |
-| `--full`                    | Run every step after typing the host name once                                          |
-| `--confirm <host>`          | Run every step with no prompt; the value must name the host, as typing it would         |
-| `--check <path...>`         | Pages to compare with the source, beside `/` and the login page                         |
-| `--follow <module=repo...>` | Keep a module current from a git repository, as `mantle2=earth-app/mantle2`             |
-| `--follow-interval <min>`   | Minutes between polls of a followed repository (default 5, the least the worker allows) |
-| `--carry-key <name...>`     | Carry a credential into the duplicate instead of blanking it                            |
-| `--hold-mail`               | Local only: queue the duplicate's mail and never send it                                |
-| `--edge [branch]`           | Build the duplicate's worker from a branch tip and its CDN payload, not a release       |
-| `--plan <free\|paid>`       | The Workers plan the duplicate models; read from the account with `--deploy`            |
-| `--deploy`                  | Deploy as `drupflare-preview-<host>` behind Cloudflare Access                           |
-| `--access-email <email>`    | With `--deploy`, who may open the copy; defaults to the wrangler login                  |
-| `--source-url <origin>`     | The live site; each checked page must answer with the same status as there              |
-| `--out <dir>`               | Where the dump, the files and the workspace go (`.drangler/preview/<host>`)             |
-| `--port <n>`                | The local port for `wrangler dev`                                                       |
+| Flag                        | What it does                                                                                                                |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `--dry-run`                 | Print every step and command, and run none of them                                                                          |
+| `--root <path>`             | The Drupal docroot, when you would rather not have it found                                                                 |
+| `--site <hostname>`         | Which site to take when the host serves several                                                                             |
+| `--full`                    | Run every step after typing the host name once                                                                              |
+| `--confirm <host>`          | Run every step with no prompt; the value must name the host, as typing it would                                             |
+| `--check <path...>`         | Pages to compare with the source, beside `/` and the login page                                                             |
+| `--follow <module=repo...>` | Keep a module current from a git repository, as `mantle2=earth-app/mantle2`                                                 |
+| `--follow-interval <min>`   | Minutes between polls of a followed repository (default 5, the least the worker allows)                                     |
+| `--carry-key <name...>`     | Carry a credential into the duplicate instead of blanking it                                                                |
+| `--hold-mail`               | Local only: queue the duplicate's mail and never send it                                                                    |
+| `--edge [branch]`           | Build the duplicate's worker from a branch tip and its CDN payload, not a release                                           |
+| `--plan <free\|paid>`       | The Workers plan the duplicate models; read from the account with `--deploy`                                                |
+| `--deploy`                  | Deploy as `drupflare-preview-<host>-<source id>` behind Cloudflare Access                                                   |
+| `--access-email <email>`    | With `--deploy`, who may open the copy; defaults to the wrangler login                                                      |
+| `--source-url <origin>`     | The live site; each checked page must answer with the same status as there (`{host}` is each site name under `--all-sites`) |
+| `--out <dir>`               | Where the dump, the files and the workspace go (`.drangler/preview/<host>-<source id>`)                                     |
+| `--all-sites`               | Preview every site the docroot serves, one duplicate each; needs `--login`                                                  |
+| `--login <user>`            | Sign in on the duplicate and drive create, edit, upload twice and logout                                                    |
+| `--expect-uuid <uuid>`      | Refuse unless the source site has this UUID                                                                                 |
+| `--workspace-from <dir>`    | With `--all-sites`, a hydrated worker checkout copied for each site                                                         |
+| `--port <n>`                | The local port for `wrangler dev`                                                                                           |
 
 `preview` needs worker 1.0.4 or later in its workspace and refuses an older checkout before
 installing, naming the `drangler update` command that moves it. The duplicate uses its own workspace
 under `--out`, so the checkout you deploy your own site from is not touched. A deployed preview is
-removed with `wrangler delete --name drupflare-preview-<host>`.
+removed with `wrangler delete --name drupflare-preview-<host>-<source id>`.
+
+The source id is a short hash of the host, composer root, docroot and site directory, so two sites
+behind one SSH alias get two workers. A host deployed under v0.3.0 was named
+`drupflare-preview-<host>`. Redeploying it now creates a second worker with the id suffix, and the
+old one keeps running. Nothing migrates it; delete it with `wrangler delete --name
+drupflare-preview-<host>` once the new one is checked. A `--dry-run` prints the name with
+`<source-id>` in place of the id, which only a live run can read.
+
+### Several sites and the workflow check
+
+`--all-sites` reads every site under the docroot from `sites.php` and the `sites/` directories.
+A host name that `sites.php` maps to a site already listed is an alias of it and gets no duplicate.
+Each site is previewed in its own folder under `--out`, and `fleet.json` there records every site
+as pending, running, done, failed or unknown, under a plan digest and an epoch. Run the same command
+again after a failure or a kill: sites whose `receipt.json` says `verified` are left alone, and the
+rest run again in a new `attempt-N` folder. A state file written for a different set of sites is
+refused.
+
+`--login <user>` reads the password from `DRANGLER_PREVIEW_PASSWORD`. After the status checks it
+signs in, creates a node, edits it, uploads two images in separate saves, compares each stored file
+with the bytes sent, and logs out. The run writes content into the duplicate, never the source.
+`receipt.json` moves from `sealed` to `claimed`, and to `verified` only when every step passed.
+
+When ssh exits 255 the command may or may not have run. drangler sends it again and reports the
+outcome as unknown, with the checksum of what the first attempt wrote and whether the retry
+matches it.
 
 ### Answering without a prompt
 
@@ -1109,6 +1139,9 @@ CI step never hangs. Lists are comma separated and booleans are `1`.
 | `DRANGLER_PREVIEW_DEPLOY`          | `--deploy` (set to `1`)    |
 | `DRANGLER_PREVIEW_HOLD_MAIL`       | `--hold-mail` (set to `1`) |
 | `DRANGLER_PREVIEW_EDGE`            | `--edge` (`1` or a branch) |
+| `DRANGLER_PREVIEW_LOGIN`           | `--login`                  |
+| `DRANGLER_PREVIEW_EXPECT_UUID`     | `--expect-uuid`            |
+| `DRANGLER_PREVIEW_PASSWORD`        | the `--login` password     |
 
 ```sh
 DRANGLER_PREVIEW_CONFIRM=old.example DRANGLER_PREVIEW_FOLLOW=mantle2=earth-app/mantle2 \
@@ -1214,8 +1247,8 @@ never republished.
 
 ## Migrating to Workers
 
-`migrate survey` runs ten read-only commands over SSH and folds them into one record: PHP version and
-loaded extensions, Drupal version and install profile, database driver and size, the public files
+`migrate survey` runs fourteen read-only commands over SSH and folds them into one record: PHP version and
+loaded extensions, Drupal version and install profile, database driver and size (MySQL or PostgreSQL), the public files
 directory, the enabled module list, the node count and the image style count.
 
 `--dry-run` prints the command plan and connects to nothing, so the list can be reviewed before an

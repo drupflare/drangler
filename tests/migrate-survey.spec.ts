@@ -49,6 +49,7 @@ const transcript = (): Transcript => ({
 	[step('files-kb')]: ok('40960\t/var/www/html/sites/default/files'),
 	[step('files-count')]: ok('    1200\n'),
 	[step('db-bytes')]: ok('SUM(data_length + index_length)\n104857600'),
+	[step('db-bytes-pg')]: fail(1, 'ERROR 1305 (42000): FUNCTION pg_database_size does not exist'),
 	[step('db-alive')]: ok('1\n1'),
 	[step('file-rows')]: ok('COUNT(*)\n1200'),
 	[step('nodes')]: ok('COUNT(*)\n2000'),
@@ -74,6 +75,14 @@ describe('surveyPlan', () => {
 	it('runs every command from the given root', () => {
 		expect(surveyPlan('/srv/d').every((s) => !s.command.includes('/var/www'))).toBe(true);
 		expect(step('files-kb')).toContain('/var/www/html/sites/default/files');
+	});
+
+	it('sizes a PostgreSQL database through the same drush prefix, as an optional step', () => {
+		expect(PLAN.find((s) => s.id === 'db-bytes-pg')).toMatchObject({
+			required: false,
+			command:
+				'cd /var/www/html && drush sql:query "SELECT pg_database_size(current_database())"'
+		});
 	});
 });
 
@@ -129,6 +138,23 @@ describe('applyStep', () => {
 		const survey = emptySurvey('h', '/r');
 		applyStep(survey, 'nonsense', 'anything');
 		expect(survey).toEqual(emptySurvey('h', '/r'));
+	});
+
+	it('reads the PostgreSQL size with or without a column header', () => {
+		const bare = emptySurvey('h', '/r');
+		applyStep(bare, 'db-bytes-pg', '107191319\n');
+		expect(bare.database.bytes).toBe(107191319);
+
+		const headed = emptySurvey('h', '/r');
+		applyStep(headed, 'db-bytes-pg', 'pg_database_size\n107191319\n(1 row)\n');
+		expect(headed.database.bytes).toBe(107191319);
+	});
+
+	it('keeps the MySQL size when both size steps answer', () => {
+		const survey = emptySurvey('h', '/r');
+		applyStep(survey, 'db-bytes', 'SUM\n104857600');
+		applyStep(survey, 'db-bytes-pg', 'pg_database_size\n107191319');
+		expect(survey.database.bytes).toBe(104857600);
 	});
 
 	it('reduces a Redis key to a counted prefix without ids, hashes or addresses', () => {
@@ -218,6 +244,39 @@ describe('runSurvey', () => {
 		expect(survey.php.version).toBe('8.2.15');
 	});
 
+	it('takes the PostgreSQL size when the MySQL size step refuses', async () => {
+		const partial = transcript();
+		partial[step('drush-status')] = ok(
+			JSON.stringify({
+				'drupal-version': '10.3.1',
+				'db-driver': 'pgsql',
+				'db-name': 'drupal'
+			})
+		);
+		partial[step('db-bytes')] = fail(1, 'ERROR 1305 (42000): FUNCTION DATABASE does not exist');
+		partial[step('db-bytes-pg')] = ok('pg_database_size\n107191319\n(1 row)\n');
+		const survey = await runSurvey(
+			{ transport: replayTransport(partial) },
+			'h',
+			'/var/www/html'
+		);
+		expect(survey.database).toEqual({ driver: 'pgsql', name: 'drupal', bytes: 107191319 });
+		expect(survey.errors).toEqual([]);
+	});
+
+	it('leaves the size null when neither size step answers', async () => {
+		const partial = transcript();
+		partial[step('db-bytes')] = fail(1, 'ERROR 1305 (42000)');
+		partial[step('db-bytes-pg')] = fail(1, 'ERROR 1305 (42000)');
+		const survey = await runSurvey(
+			{ transport: replayTransport(partial) },
+			'h',
+			'/var/www/html'
+		);
+		expect(survey.database.bytes).toBeNull();
+		expect(survey.errors).toEqual([]);
+	});
+
 	it('stays quiet about a failing optional step', async () => {
 		const partial = transcript();
 		partial[step('db-bytes')] = fail(1, 'ERROR 1146');
@@ -295,6 +354,7 @@ describe('survey command', () => {
 		const text = ctx.io.text();
 		expect(text).toContain('nothing was executed');
 		expect(text).toContain('$ php -v');
+		expect(text).toContain('pg_database_size');
 		expect(ctx.runner).toBeDefined();
 	});
 
@@ -358,6 +418,29 @@ describe('runSurvey --resume', () => {
 	 * A required step's failure is recorded in `errors[]` and is therefore settled: it answered, and
 	 * the answer was an error.
 	 */
+	it('does not re-run a PostgreSQL size that is already recorded', async () => {
+		const partial = transcript();
+		partial[step('db-bytes')] = fail(1, 'ERROR 1305 (42000)');
+		partial[step('db-bytes-pg')] = ok('pg_database_size\n107191319\n');
+		const first = await runSurvey(
+			{ transport: replayTransport(partial), now: () => new Date(0) },
+			'me@old.example',
+			'/var/www/html'
+		);
+		expect(first.database.bytes).toBe(107191319);
+
+		// nothing here answers the size steps: a re-run would record "no entry" errors
+		const only: Transcript = { [step('nodes')]: ok('COUNT(*)\n2000') };
+		const resumed = await runSurvey(
+			{ transport: replayTransport(only), now: () => new Date(0) },
+			'me@old.example',
+			'/var/www/html',
+			first
+		);
+		expect(resumed.errors).toEqual([]);
+		expect(resumed.database.bytes).toBe(107191319);
+	});
+
 	it('re-runs a step that has neither a value nor an error', async () => {
 		const partial = transcript();
 		partial[step('nodes')] = fail(1, 'Lost connection to MySQL server');
@@ -390,9 +473,9 @@ describe('runSurvey --resume', () => {
 /**
  * The ssh retry, which terminates on an OBSERVATION rather than on the bound.
  *
- * ssh exits 255 for everything from a refused connection to a dropped session, and the remote
- * command never ran, so a retry cannot double anything. Any other exit code means the command ran
- * and its result is the answer, whatever the answer was.
+ * ssh exits 255 for everything from a refused connection to a dropped session, and also after a
+ * command has started, so a retry is an unknown outcome rather than a repeat of nothing. Any other
+ * exit code means the command ran and its result is the answer, whatever the answer was.
  */
 describe('the ssh retry', () => {
 	const target = parseTarget('me@old.example', '/var/www/html');
@@ -446,7 +529,9 @@ describe('the ssh retry', () => {
 			'tar -cf - -C /var/www/html/sites/default files',
 			'/tmp/files.tar'
 		);
-		expect(got).toEqual({ code: 0, stderr: '', bytes: 4096 });
+		// the first attempt left no file, so there is no checksum to compare the retry with
+		expect(got).toMatchObject({ code: 0, stderr: '', bytes: 4096 });
+		expect(got.unknown).toEqual({ attempts: 2, firstSha256: null, agreed: null });
 		expect(attempts).toBe(2);
 
 		const dead = {

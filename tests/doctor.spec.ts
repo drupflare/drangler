@@ -7,7 +7,7 @@ import { scriptedRunner, type CommandResult } from '../src/host/exec';
 import { memoryFiles } from '../src/host/files';
 import { surveyPlan } from '../src/migrate/survey';
 import { run } from '../src/run';
-import { ok, testContext, type TestContext } from './helpers';
+import { fail, ok, testContext, type TestContext } from './helpers';
 
 const ORIGIN = 'https://mysite.example';
 const TOKEN = 'tok-owner-1';
@@ -45,6 +45,7 @@ function ssh(over: Record<string, CommandResult> = {}): Record<string, CommandRe
 		'files-kb': ok('40960\t/var/www/html/sites/default/files'),
 		'files-count': ok('   1200\n'),
 		'db-bytes': ok('SUM\n1048576'),
+		'db-bytes-pg': fail(1, 'ERROR 1305 (42000): FUNCTION pg_database_size does not exist'),
 		'db-alive': ok('1\n1'),
 		'file-rows': ok('COUNT(*)\n1200'),
 		nodes: ok('COUNT(*)\n20'),

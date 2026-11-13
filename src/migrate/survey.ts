@@ -52,8 +52,9 @@ export interface SiteSurvey {
  * survey against a production VPS is safe to run during traffic; that is the property that makes
  * `--dry-run` printing this list a useful review rather than theatre.
  *
- * The `drush sql:query` steps are MySQL-shaped and are all optional, because a site on PostgreSQL or
- * SQLite should still produce a survey rather than an error report.
+ * The `drush sql:query` steps are MySQL- or PostgreSQL-shaped and are all optional, because a site on
+ * SQLite should still produce a survey rather than an error report. The two size steps both run on
+ * every site; the one that does not fit the driver fails and is ignored.
  */
 export function surveyPlan(
 	root: string,
@@ -106,6 +107,12 @@ export function surveyPlan(
 				'WHERE table_schema = DATABASE()"',
 			required: false,
 			description: 'database size (MySQL only)'
+		},
+		{
+			id: 'db-bytes-pg',
+			command: `${drush} sql:query "SELECT pg_database_size(current_database())"`,
+			required: false,
+			description: 'database size (PostgreSQL only)'
 		},
 		{
 			id: 'db-alive',
@@ -401,6 +408,7 @@ export function settledSteps(survey: SiteSurvey): Set<string> {
 	has('files-kb', survey.files.kb);
 	has('files-count', survey.files.count);
 	has('db-bytes', survey.database.bytes);
+	has('db-bytes-pg', survey.database.bytes);
 	has('db-alive', survey.dbAlive);
 	has('file-rows', survey.fileRows);
 	has('nodes', survey.nodes);
@@ -444,6 +452,10 @@ export function applyStep(survey: SiteSurvey, id: string, stdout: string): void 
 			return;
 		case 'db-bytes':
 			survey.database.bytes = parseCount(stdout);
+			return;
+		case 'db-bytes-pg':
+			// db-bytes runs first, so a MySQL answer is kept when both answer
+			survey.database.bytes = survey.database.bytes ?? parseCount(stdout);
 			return;
 		case 'db-alive':
 			// the query returns the literal 1, and anything at all coming back means the driver
