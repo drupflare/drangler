@@ -181,6 +181,10 @@ function refuseSegment(argv: string[], first: boolean): string | null {
 			return refuseDrush(args);
 		case 'id':
 			return args.length === 1 && args[0] === '-u' ? null : 'id only reads the user id';
+		case 'readlink':
+			return args.length === 2 && args[0] === '-f' && PATH.test(args[1]!)
+				? null
+				: 'readlink only resolves an absolute path with -f';
 		default:
 			// the project's own drush, run as the ssh user when that user is not root
 			if (program !== undefined && DRUSH_BIN.test(program)) return refuseDrush(args);

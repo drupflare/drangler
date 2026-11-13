@@ -1,0 +1,85 @@
+name: drangler-fixture
+
+x-drupal: &drupal
+  build: .
+  image: drangler-fixture-multisite:1
+  networks: [inside]
+  depends_on:
+    mysql: { condition: service_healthy }
+    postgres: { condition: service_healthy }
+  healthcheck:
+    test: ['CMD', 'test', '-f', '/opt/fixture-ready']
+    interval: 3s
+    timeout: 3s
+    retries: 120
+
+services:
+  mysql:
+    image: mariadb@sha256:2fd6d83be13d6f95119fe7823c4a445a771d973ce15a4f4621e3c14898f9f1ab
+    command: ['--innodb-buffer-pool-size=64M', '--max-connections=40']
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_USER: drupal
+      MARIADB_PASSWORD: drupalpass
+    volumes:
+      - ./init-mysql.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - mysql-data:/var/lib/mysql
+    networks: [inside]
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  postgres:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    environment:
+      POSTGRES_USER: drupal
+      POSTGRES_PASSWORD: drupalpass
+      POSTGRES_DB: site_b
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks: [inside]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U drupal -d site_b']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  drupal:
+    <<: *drupal
+    environment:
+      SSH_PUBLIC_KEY: ${FIXTURE_SSH_PUBKEY:-}
+    volumes:
+      - site-a:/opt/drupal/web/sites/site-a
+      - site-b:/opt/drupal/web/sites/site-b
+
+  drupal-empty:
+    <<: *drupal
+    profiles: ['negative']
+    environment:
+      FIXTURE_ROLE: empty
+      SSH_PUBLIC_KEY: ${FIXTURE_SSH_PUBKEY:-}
+
+  gate:
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    volumes:
+      - ./gate.nginx.conf:/etc/nginx/nginx.conf:ro
+    networks: [inside, front]
+    ports:
+      - '127.0.0.1:8280:80'
+      - '127.0.0.1:8281:8281'
+      - '127.0.0.1:8282:8282'
+      - '127.0.0.1:2280:2022'
+      - '127.0.0.1:2281:2023'
+
+networks:
+  inside:
+    internal: true
+  front: {}
+
+volumes:
+  mysql-data:
+  pg-data:
+  site-a:
+  site-b:

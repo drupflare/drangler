@@ -3,6 +3,7 @@ import { UsageError } from '../src/errors';
 import {
 	chooseSiteDir,
 	discoverLayout,
+	discoverSites,
 	discoveryCommands,
 	drushPrefix,
 	looksLikeDocroot,
@@ -339,5 +340,147 @@ describe('the allow-list for discovery', () => {
 			/cat reads only/
 		);
 		expect(refuseRemote('cat /etc/apache2/sites-enabled/a b')).not.toBeNull();
+	});
+});
+
+// the multisite fixture's shape: the vhost names no host and its DocumentRoot is a symlink
+const FIXTURE_VHOST = `<VirtualHost *:80>
+	ServerAdmin webmaster@localhost
+	DocumentRoot /var/www/html
+</VirtualHost>
+`;
+const FIXTURE_SITES_PHP = `<?php
+
+$sites['site-a.fixture.localhost'] = 'site-a';
+$sites['alias-a.fixture.localhost'] = 'site-a';
+$sites['site-b.fixture.localhost'] = 'site-b';
+`;
+const FIXTURE: Record<string, string> = {
+	'id -u': '33\n',
+	'ls /etc/apache2/sites-enabled': '000-default.conf\n',
+	'cat /etc/apache2/sites-enabled/000-default.conf': FIXTURE_VHOST,
+	'readlink -f /var/www/html': '/opt/drupal/web\n',
+	'find /opt/drupal/web -maxdepth 1 -type f': DOCROOT_LISTING.replaceAll(
+		'/var/www/drupal/web',
+		'/opt/drupal/web'
+	),
+	'ls /opt/drupal/vendor/bin': 'drush\nphpunit\n',
+	'ls /opt/drupal/web/sites': 'default\nsite-a\nsite-b\nsites.php\nREADME.txt\n',
+	'cat /opt/drupal/web/sites/sites.php': FIXTURE_SITES_PHP,
+	'cat /opt/drupal/web/sites/site-a/settings.php': '<?php\n',
+	'cat /opt/drupal/web/sites/site-b/settings.php': '<?php\n'
+};
+
+describe('a symlinked docroot', () => {
+	it('is resolved to the directory it points at, so vendor/bin and sites/ are read from there', async () => {
+		const { transport } = host(FIXTURE);
+		const layout = await discoverLayout(transport, { host: 'fixture' });
+		expect(layout).toMatchObject({
+			docroot: '/opt/drupal/web',
+			composerRoot: '/opt/drupal',
+			drush: { bin: '/opt/drupal/vendor/bin/drush', user: null }
+		});
+		expect(layout.evidence.join('\n')).toContain('/var/www/html resolves to /opt/drupal/web');
+	});
+
+	it('keeps the configured path when the host cannot resolve it', async () => {
+		const table = { ...FIXTURE };
+		delete table['readlink -f /var/www/html'];
+		table['find /var/www/html -maxdepth 1 -type f'] = table[
+			'find /opt/drupal/web -maxdepth 1 -type f'
+		]!.replaceAll('/opt/drupal/web', '/var/www/html');
+		const layout = await discoverLayout(host(table).transport, { host: 'fixture' });
+		expect(layout.docroot).toBe('/var/www/html');
+	});
+
+	it('allows readlink -f on an absolute path and nothing else of readlink', () => {
+		expect(refuseRemote('readlink -f /var/www/html')).toBeNull();
+		expect(refuseRemote('readlink /var/www/html')).not.toBeNull();
+		expect(refuseRemote('readlink -f /var/www/html /etc')).not.toBeNull();
+		expect(refuseRemote('readlink -f ../x')).not.toBeNull();
+	});
+});
+
+describe('discoverSites', () => {
+	it('reads two sites and one alias out of sites.php, with the alias kept as an attribute', async () => {
+		const { transport } = host(FIXTURE);
+		expect(await discoverSites(transport, '/opt/drupal/web')).toEqual([
+			{
+				siteDir: 'site-a',
+				host: 'site-a.fixture.localhost',
+				aliases: ['alias-a.fixture.localhost']
+			},
+			{ siteDir: 'site-b', host: 'site-b.fixture.localhost', aliases: [] }
+		]);
+	});
+
+	it('lists a directory with a settings.php that sites.php does not map, and leaves out one without', async () => {
+		const table = {
+			...FIXTURE,
+			'ls /opt/drupal/web/sites': 'default\nsite-a\nsite-b\nsites.php\nextra.example.org\n',
+			'cat /opt/drupal/web/sites/extra.example.org/settings.php': '<?php\n',
+			'cat /opt/drupal/web/sites/default/settings.php': '<?php\n'
+		};
+		const sites = await discoverSites(host(table).transport, '/opt/drupal/web');
+		expect(sites.map((s) => s.siteDir)).toEqual([
+			'site-a',
+			'site-b',
+			'default',
+			'extra.example.org'
+		]);
+		expect(sites.at(-1)).toEqual({
+			siteDir: 'extra.example.org',
+			host: 'extra.example.org',
+			aliases: []
+		});
+		expect(sites.find((s) => s.siteDir === 'default')?.host).toBeNull();
+		const bare = await discoverSites(host(FIXTURE).transport, '/opt/drupal/web');
+		expect(bare.map((s) => s.siteDir)).not.toContain('default');
+	});
+
+	it('prefers the host named like the directory as the primary, whatever the file order', async () => {
+		const table = {
+			...FIXTURE,
+			'cat /opt/drupal/web/sites/sites.php': `<?php
+$sites['www.site-a.example'] = 'site-a.example';
+$sites['site-a.example'] = 'site-a.example';
+`,
+			'ls /opt/drupal/web/sites': 'site-a.example\nsites.php\n',
+			'cat /opt/drupal/web/sites/site-a.example/settings.php': '<?php\n'
+		};
+		const sites = await discoverSites(host(table).transport, '/opt/drupal/web');
+		expect(sites).toEqual([
+			{ siteDir: 'site-a.example', host: 'site-a.example', aliases: ['www.site-a.example'] }
+		]);
+	});
+});
+
+describe('--site on a docroot whose vhost names no host', () => {
+	it('picks the site directory from sites.php and takes the uri from the flag', async () => {
+		const layout = await discoverLayout(host(FIXTURE).transport, {
+			host: 'fixture',
+			site: 'alias-a.fixture.localhost'
+		});
+		expect(layout).toMatchObject({
+			docroot: '/opt/drupal/web',
+			siteDir: 'site-a',
+			uri: 'http://alias-a.fixture.localhost'
+		});
+	});
+
+	it('still drops a vhost that names other hosts only', async () => {
+		const table = {
+			...FIXTURE,
+			'cat /etc/apache2/sites-enabled/000-default.conf': FIXTURE_VHOST.replace(
+				'ServerAdmin',
+				'ServerName other.example\n\tServerAdmin'
+			)
+		};
+		await expect(
+			discoverLayout(host(table).transport, {
+				host: 'fixture',
+				site: 'site-a.fixture.localhost'
+			})
+		).rejects.toThrow(/no Drupal docroot found/);
 	});
 });

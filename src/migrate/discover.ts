@@ -203,6 +203,59 @@ async function lines(transport: Transport, command: string): Promise<string | nu
 	return got.code === 0 ? got.stdout : null;
 }
 
+/** the path itself when the host cannot say where a link leads */
+async function resolveDir(transport: Transport, path: string): Promise<string> {
+	const real = (await lines(transport, `readlink -f ${path}`))?.trim();
+	return real !== undefined && /^\/[A-Za-z0-9._\-/]+$/.test(real) ? real : path;
+}
+
+/** a Drupal site under one docroot; a domain alias is an attribute of the site it maps to */
+export interface SiteGroup {
+	siteDir: string;
+	/** the name the site is reached by, or null when only `sites/<dir>/` names it */
+	host: string | null;
+	aliases: string[];
+}
+
+/**
+ * The sites a multisite docroot serves, from `sites.php` and the directories under `sites/`.
+ *
+ * A mapped host is a site's name or an alias of it, never a second site. A directory counts when
+ * its `settings.php` can be read, which leaves out `all/`, `README.txt` and an unconfigured
+ * `default/`.
+ */
+export async function discoverSites(transport: Transport, docroot: string): Promise<SiteGroup[]> {
+	const entries = ((await lines(transport, `ls ${docroot}/sites`)) ?? '')
+		.split('\n')
+		.map((n) => n.trim())
+		.filter(Boolean);
+	const sitesPhp = entries.includes('sites.php')
+		? await lines(transport, `cat ${docroot}/sites/sites.php`)
+		: null;
+	const hosts = new Map<string, string[]>();
+	for (const m of (sitesPhp ?? '').matchAll(
+		/\$sites\[\s*['"]([^'"]+)['"]\s*\]\s*=\s*['"]([^'"]+)['"]/g
+	)) {
+		if (!/^[A-Za-z0-9._-]+$/.test(m[2]!) || !/^[A-Za-z0-9._-]+$/.test(m[1]!)) continue;
+		hosts.set(m[2]!, [...(hosts.get(m[2]!) ?? []), m[1]!.toLowerCase()]);
+	}
+	const dirs = [
+		...hosts.keys(),
+		...entries.filter((e) => !hosts.has(e) && /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(e))
+	];
+	const out: SiteGroup[] = [];
+	for (const siteDir of dirs) {
+		if ((await lines(transport, `cat ${docroot}/sites/${siteDir}/settings.php`)) === null)
+			continue;
+		const names = hosts.get(siteDir) ?? (siteDir.includes('.') ? [siteDir.toLowerCase()] : []);
+		const primary = names.includes(siteDir.toLowerCase())
+			? siteDir.toLowerCase()
+			: (names[0] ?? null);
+		out.push({ siteDir, host: primary, aliases: names.filter((n) => n !== primary) });
+	}
+	return out;
+}
+
 /**
  * Resolves the layout of the Drupal site on a host from what the host itself shows.
  *
@@ -233,17 +286,26 @@ export async function discoverLayout(
 			}
 		}
 		const wanted = opts.site?.toLowerCase();
+		// a vhost that names no host answers every host, and sites.php may be what names this one
 		if (wanted !== undefined)
-			vhosts = vhosts.filter((v) => v.names.some((n) => n.toLowerCase() === wanted));
+			vhosts = vhosts.filter(
+				(v) => v.names.length === 0 || v.names.some((n) => n.toLowerCase() === wanted)
+			);
 		const roots = new Map<string, Vhost[]>();
 		for (const v of vhosts) {
 			if (v.docroot === null || !/^\/[A-Za-z0-9._\-/]*$/.test(v.docroot)) continue;
 			roots.set(v.docroot, [...(roots.get(v.docroot) ?? []), v]);
 		}
 		const drupal: string[] = [];
+		const resolved = new Map<string, string>();
 		for (const docroot of roots.keys()) {
-			const listing = await lines(transport, `find ${docroot} -maxdepth 1 -type f`);
-			if (listing !== null && looksLikeDocroot(listing)) drupal.push(docroot);
+			// a deploy tool's `current` link, or `/var/www/html -> <app>/web`, hides vendor/ and sites/
+			const real = await resolveDir(transport, docroot);
+			const listing = await lines(transport, `find ${real} -maxdepth 1 -type f`);
+			if (listing !== null && looksLikeDocroot(listing)) {
+				drupal.push(docroot);
+				resolved.set(docroot, real);
+			}
 		}
 		if (drupal.length === 0) {
 			throw new UsageError(
@@ -257,9 +319,11 @@ export async function discoverLayout(
 				`drangler preview --host ${opts.host} --site <hostname>`
 			);
 		}
-		opts = { ...opts, root: drupal[0]! };
+		const real = resolved.get(drupal[0]!)!;
+		opts = { ...opts, root: real };
 		vhosts = roots.get(drupal[0]!)!;
-		evidence.push(`docroot ${drupal[0]} from ${vhosts[0]!.file}`);
+		evidence.push(`docroot ${real} from ${vhosts[0]!.file}`);
+		if (real !== drupal[0]) evidence.push(`${drupal[0]} resolves to ${real}`);
 	} else {
 		evidence.push(`docroot ${opts.root} from --root`);
 	}
