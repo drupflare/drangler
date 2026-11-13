@@ -86,12 +86,14 @@ describe.skipIf(shipping === null)('the fallback tracks what the worker actually
 	});
 });
 
-const LOCK = resolve(WORKER_DIR, 'src', 'ops', 'shipped-lock.ts');
+const LOCK = resolve(WORKER_DIR, 'composer.lock');
 
 describe.skipIf(!existsSync(LOCK))('the shipped Drupal tracks the worker lock', () => {
-	it('matches SHIPPED_CORE_VERSION', () => {
-		const shipped = /SHIPPED_CORE_VERSION = "([^"]+)"/.exec(readFileSync(LOCK, 'utf8'))?.[1];
-		expect(SHIPPED_DRUPAL).toBe(shipped);
+	it('matches the drupal/core the worker lock pins', () => {
+		const { packages } = JSON.parse(readFileSync(LOCK, 'utf8')) as {
+			packages: { name: string; version: string }[];
+		};
+		expect(SHIPPED_DRUPAL).toBe(packages.find((p) => p.name === 'drupal/core')?.version);
 	});
 });
 
