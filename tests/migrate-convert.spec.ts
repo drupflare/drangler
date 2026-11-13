@@ -6,6 +6,7 @@ import { memoryFiles } from '../src/host/files';
 import {
 	byteaHex,
 	convertDump,
+	convertPgParts,
 	decodeCopyField,
 	decodeMysqlString,
 	encodeMysqlString,
@@ -618,6 +619,56 @@ describe('PostgreSQL to SQLite', () => {
 		expect(pgTypeToSqlite('bytea')).toBe('BLOB');
 		expect(pgTypeToSqlite('integer[]')).toBeNull();
 		expect(() => fromPg('CREATE TABLE t (tags text[]);')).toThrow(ConvertError);
+	});
+
+	it('converts in parts that replay to the same database as the whole dump', () => {
+		const whole = fromPg(DUMP);
+		const statements = splitPgStatements(DUMP);
+		const isData = (s: { sql: string; copy?: string[] }) =>
+			s.copy !== undefined || /^INSERT\b/i.test(s.sql);
+		const ddl = statements
+			.filter((s) => !isData(s))
+			.map((s) => `${s.sql};`)
+			.join('\n');
+		const base = convertPgParts(ddl);
+		expect(base.dataSql).toBe('');
+		expect(base.schemaSql).toContain('CREATE TABLE "node_field_data"');
+		// a restore onto a site that already has the table replaces it
+		expect(base.schemaSql).toContain('DROP TABLE IF EXISTS "node_field_data";\nCREATE TABLE');
+		expect(base.indexSql).toContain('CREATE INDEX');
+		const rows = statements.filter(isData).map((s) => {
+			const body = s.copy === undefined ? '' : `\n${s.copy.join('\n')}\n\\.\n`;
+			return `${s.sql};${body}`;
+		});
+		// each piece of data is converted with the tables ahead of it
+		const data = rows.map((piece) => convertPgParts(`${ddl}\n${piece}`).dataSql).join('');
+		expect(`${base.schemaSql}${data}${base.indexSql}`).toBe(whole.sql);
+		expect(base.lossy).toEqual(whole.lossy);
+	});
+
+	it('reads the clean prelude drush sql:dump writes ahead of the tables', () => {
+		const prelude = [
+			'DROP INDEX public.node_field_data__title__idx;',
+			'ALTER TABLE ONLY public.node_field_data DROP CONSTRAINT node_field_data____pkey;',
+			'ALTER TABLE public.node_field_data ALTER COLUMN nid DROP DEFAULT;',
+			'DROP TABLE public.node_field_data;',
+			'DROP TABLE public.cache_default;',
+			'DROP SEQUENCE public.node_field_data_nid_seq;',
+			'DROP FUNCTION public.greatest(numeric, numeric);',
+			'DROP EXTENSION pg_trgm;',
+			'ALTER FUNCTION public.greatest(numeric, numeric) OWNER TO drupal;',
+			''
+		].join('\n');
+		const plain = fromPg(DUMP);
+		const cleaned = fromPg(DUMP.replace('SET default_table_access_method = heap;', prelude));
+		expect(cleaned.sql).toBe(plain.sql);
+		expect(cleaned.skipped).toEqual([]);
+	});
+
+	it('types a COPY row by the tables the caller passes in', () => {
+		const ddl = 'CREATE TABLE public.t (a boolean, b bytea);';
+		const out = convertPgParts(`${ddl}\nCOPY public.t (a, b) FROM stdin;\nt\t\\\\x6162\n\\.\n`);
+		expect(out.dataSql).toContain("VALUES (1, x'6162')");
 	});
 
 	it('refuses a target other than SQLite, and pgsql as a target', () => {

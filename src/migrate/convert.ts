@@ -1059,7 +1059,7 @@ function sqliteValue(value: string | null, type: string | undefined): string {
  * anything is written. Sequences are not carried: an `AUTOINCREMENT` column continues from the
  * largest id already stored, which is where a restored sequence would continue too.
  */
-function convertPg(state: ConvertState, input: string): string[] {
+function convertPg(state: ConvertState, input: string): PgParts {
 	const statements = splitPgStatements(input);
 	const tables = new Map<string, PgTable>();
 	const order: string[] = [];
@@ -1142,7 +1142,13 @@ function convertPg(state: ConvertState, input: string): string[] {
 		if (alter) {
 			const table = tables.get(pgName(alter[1] as string));
 			const action = alter[2] as string;
-			if (/OWNER\s+TO|ENABLE\s+ROW|REPLICA\s+IDENTITY|SET\s+\(/i.test(action)) continue;
+			// the DROP forms are the clean prelude `drush sql:dump` writes ahead of the tables
+			if (
+				/OWNER\s+TO|ENABLE\s+ROW|REPLICA\s+IDENTITY|SET\s+\(|DROP\s+CONSTRAINT|ALTER\s+COLUMN\s+("(?:[^"]|"")*"|\S+)\s+DROP\s+DEFAULT/i.test(
+					action
+				)
+			)
+				continue;
 			const serial =
 				/ALTER\s+COLUMN\s+("(?:[^"]|"")*"|\S+)\s+SET\s+DEFAULT\s+nextval\(/i.exec(action);
 			if (serial && table) {
@@ -1193,7 +1199,7 @@ function convertPg(state: ConvertState, input: string): string[] {
 		}
 		if (/^(COPY|INSERT)\b/i.test(sql)) continue;
 		if (
-			/^(SET|SELECT\s+pg_catalog\.(set_config|setval)|CREATE\s+SCHEMA|ALTER\s+SCHEMA|COMMENT\s+ON|GRANT|REVOKE|ALTER\s+DEFAULT\s+PRIVILEGES|CREATE\s+EXTENSION|ALTER\s+EXTENSION|CREATE\s+SEQUENCE|ALTER\s+SEQUENCE|BEGIN|COMMIT|\\connect|\\restrict|\\unrestrict)\b/i.test(
+			/^(SET|SELECT\s+pg_catalog\.(set_config|setval)|CREATE\s+SCHEMA|ALTER\s+SCHEMA|COMMENT\s+ON|GRANT|REVOKE|ALTER\s+DEFAULT\s+PRIVILEGES|CREATE\s+EXTENSION|ALTER\s+EXTENSION|CREATE\s+SEQUENCE|ALTER\s+SEQUENCE|ALTER\s+(FUNCTION|PROCEDURE|AGGREGATE)|DROP\s+(INDEX|TABLE|SEQUENCE|FUNCTION|PROCEDURE|AGGREGATE|EXTENSION)|BEGIN|COMMIT|\\connect|\\restrict|\\unrestrict)\b/i.test(
 				sql
 			)
 		) {
@@ -1234,7 +1240,10 @@ function convertPg(state: ConvertState, input: string): string[] {
 		}
 		for (const cols of table.unique)
 			lines.push(`UNIQUE (${cols.map((c) => ident(c, 'sqlite')).join(', ')})`);
-		schemaOut.push(`CREATE TABLE ${ident(name, 'sqlite')} (\n\t${lines.join(',\n\t')}\n);`);
+		schemaOut.push(
+			`DROP TABLE IF EXISTS ${ident(name, 'sqlite')};`,
+			`CREATE TABLE ${ident(name, 'sqlite')} (\n\t${lines.join(',\n\t')}\n);`
+		);
 		state.schema.set(name, {
 			name,
 			columns: new Map(table.columns.map((c) => [c.name, c.type]))
@@ -1283,7 +1292,7 @@ function convertPg(state: ConvertState, input: string): string[] {
 			if (keepWidth(state, name, stmt)) data.push(stmt);
 		}
 	}
-	return [...schemaOut, ...data, ...indexes];
+	return { schema: schemaOut, data, indexes };
 }
 
 // #endregion
@@ -1301,37 +1310,18 @@ export function convertDump(input: string, opts: ConvertOptions): ConvertResult 
 		throw new UsageError(`--from and --to are both ${opts.from}; there is nothing to convert`);
 	}
 	const to = opts.to;
-	const state: ConvertState = {
-		opts: {
-			...opts,
-			splitRows: opts.splitRows ?? to === 'sqlite',
-			skipUnsupported: opts.skipUnsupported ?? false
-		},
-		schema: new Map(),
-		skipped: [],
-		lossy: [],
-		tables: [],
-		indexes: 0,
-		rows: 0,
-		maxStatementChars: 0,
-		overLimit: new Map(),
-		// 0 or a negative value turns the ceiling off explicitly; absent means the target's default
-		limit:
-			opts.maxStatementChars === undefined
-				? to === 'sqlite'
-					? DO_STATEMENT_CHARS
-					: null
-				: opts.maxStatementChars > 0
-					? opts.maxStatementChars
-					: null
-	};
+	const state = newState(opts);
 
 	if (opts.from === 'pgsql' && to !== 'sqlite') {
 		throw new UsageError('a PostgreSQL dump converts to sqlite only');
 	}
 	if (to === 'pgsql')
 		throw new UsageError('pgsql is a source dialect only; convert to sqlite or mysql');
-	const out: string[] = opts.from === 'pgsql' ? convertPg(state, input) : [];
+	const out: string[] = [];
+	if (opts.from === 'pgsql') {
+		const parts = convertPg(state, input);
+		out.push(...parts.schema, ...parts.data, ...parts.indexes);
+	}
 	for (const statement of opts.from === 'pgsql'
 		? []
 		: splitStatements(input, opts.from === 'mysql')) {
@@ -1385,6 +1375,51 @@ export function convertDump(input: string, opts: ConvertOptions): ConvertResult 
 	return {
 		sql: sql === '' ? '' : `${sql}\n`,
 		statements: out.length,
+		...summary(state)
+	};
+}
+
+/** the statements of a converted pg_dump, split by where they must replay */
+interface PgParts {
+	schema: string[];
+	data: string[];
+	indexes: string[];
+}
+
+export interface ConvertPgPartsResult extends Omit<ConvertResult, 'sql' | 'statements'> {
+	/** the `CREATE TABLE` statements; they replay first */
+	schemaSql: string;
+	/** the row inserts */
+	dataSql: string;
+	/** the `CREATE INDEX` statements; they replay last */
+	indexSql: string;
+}
+
+/**
+ * Converts a plain-format pg_dump into SQLite in three parts instead of one string.
+ *
+ * A caller that holds a large dump in pieces cannot hand `convertDump` the whole thing: pg_dump puts
+ * every `CREATE TABLE` ahead of the data and every key after it, and `COPY` rows are typed by the
+ * table they land in. It converts the statements that are not data once, to get the tables and the
+ * indexes, and then each piece of data together with those statements, keeping only `data`.
+ */
+export function convertPgParts(
+	input: string,
+	opts: Pick<ConvertOptions, 'skipUnsupported' | 'maxStatementChars'> = {}
+): ConvertPgPartsResult {
+	const state = newState({ from: 'pgsql', to: 'sqlite', ...opts });
+	const parts = convertPg(state, input);
+	const text = (lines: string[]) => (lines.length === 0 ? '' : `${lines.join('\n')}\n`);
+	return {
+		schemaSql: text(parts.schema),
+		dataSql: text(parts.data),
+		indexSql: text(parts.indexes),
+		...summary(state)
+	};
+}
+
+function summary(state: ConvertState) {
+	return {
 		tables: state.tables,
 		indexes: state.indexes,
 		rows: state.rows,
@@ -1394,5 +1429,33 @@ export function convertDump(input: string, opts: ConvertOptions): ConvertResult 
 		overLimit: [...state.overLimit]
 			.map(([table, m]) => ({ table, ...m }))
 			.sort((a, b) => b.widest - a.widest)
+	};
+}
+
+function newState(opts: ConvertOptions): ConvertState {
+	const to = opts.to;
+	return {
+		opts: {
+			...opts,
+			splitRows: opts.splitRows ?? to === 'sqlite',
+			skipUnsupported: opts.skipUnsupported ?? false
+		},
+		schema: new Map(),
+		skipped: [],
+		lossy: [],
+		tables: [],
+		indexes: 0,
+		rows: 0,
+		maxStatementChars: 0,
+		overLimit: new Map(),
+		// 0 or a negative value turns the ceiling off explicitly; absent means the target's default
+		limit:
+			opts.maxStatementChars === undefined
+				? to === 'sqlite'
+					? DO_STATEMENT_CHARS
+					: null
+				: opts.maxStatementChars > 0
+					? opts.maxStatementChars
+					: null
 	};
 }
