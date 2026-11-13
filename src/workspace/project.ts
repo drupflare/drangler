@@ -34,7 +34,10 @@ export const WORKER_PATCHED_CORE = [
 	'core/lib/Drupal/Core/Field/Plugin/Field/FieldType/EntityReferenceItemBase.php',
 	'core/modules/language/src/ConfigurableLanguageManager.php',
 	'core/modules/big_pipe/src/Render/BigPipe.php',
-	'core/includes/batch.inc'
+	'core/includes/batch.inc',
+	'core/lib/Drupal/Component/PhpStorage/MTimeProtectedFastFileStorage.php',
+	'core/modules/views/src/Plugin/views/exposed_form/InputRequired.php',
+	'core/modules/navigation/src/Plugin/TopBarItem/PageContext.php'
 ];
 
 /** text a vendor package may need beyond the PHP allow-list; a blob is UTF-8 text */
