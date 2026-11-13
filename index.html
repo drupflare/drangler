@@ -1,5 +1,5 @@
-<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>drupflare/drangler - v0.4.0</title><meta name="description" content="Documentation for drupflare/drangler"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script><script async src="assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
-<div class="tsd-toolbar-contents container"><a href="index.html" class="title">drupflare/drangler - v0.4.0</a>
+<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>drupflare/drangler - v1.0.0</title><meta name="description" content="Documentation for drupflare/drangler"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script><script async src="assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<div class="tsd-toolbar-contents container"><a href="index.html" class="title">drupflare/drangler - v1.0.0</a>
 <div id="tsd-toolbar-links"></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
 <ul role="listbox" id="tsd-search-results"></ul>
 <div id="tsd-search-status" aria-live="polite" aria-atomic="true">
@@ -7,7 +7,7 @@
 <div class="container container-main">
 <div class="col-content">
 <div class="tsd-page-title">
-<h1>drupflare/drangler - v0.4.0</h1></div>
+<h1>drupflare/drangler - v1.0.0</h1></div>
 <div class="tsd-panel tsd-typography"><h1 id="drangler" class="tsd-anchor-link">drangler<a href="#drangler" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1>
 <blockquote>
 <p>Start, maintain and migrate a drupflare site, in either direction</p>
@@ -336,7 +336,7 @@ is the alternative and needs no OAuth client.</li>
 <code>?action=apply</code> creates the subdomain and writes the DNS.</li>
 </ul>
 <p>The contracts live in
-<a href="https://github.com/drupflare/worker/blob/master/docs/configuration.md"><code>worker/docs/configuration.md</code></a>
+<a href="https://github.com/drupflare/worker/blob/master/docs/configuration/index.md"><code>worker/docs/configuration/index.md</code></a>
 under <strong>Connecting a Cloudflare Account</strong> and <strong>Onboarding a Sending Domain</strong>. drangler does not
 restate the stage vocabulary; that has one implementation, in the worker.</p>
 <h3 id="adding-a-hostname" class="tsd-anchor-link">Adding a Hostname<a href="#adding-a-hostname" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
@@ -463,7 +463,7 @@ change. The dev site's owner token is minted for the process and never written t
 <h2 id="build-a-project" class="tsd-anchor-link">Build a Project<a href="#build-a-project" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
 <p><code>drangler build --project &lt;dir&gt;</code> takes a composer project the registry cannot resolve on its own
 (patches, a private repository, a VCS-only dependency) and sends the site what its pack lacks.</p>
-<pre><code class="console"><span class="hl-1">$ drangler build --project ../mysite --dry-run</span><br/><span class="hl-1">project       /work/mysite</span><br/><span class="hl-1">shipped lock  https://raw.githubusercontent.com/drupflare/worker/master/composer.lock (core 11.4.7)</span><br/><span class="hl-1">core          11.4.7, patched</span><br/><span class="hl-1">delivered     3</span><br/><span class="hl-1">skipped       2</span><br/><br/><span class="hl-1">package          version   why             mount                    files</span><br/><span class="hl-1">---------------  --------  --------------  -----------------------  -----</span><br/><span class="hl-1">drupal/token     1.15.0    missing         modules/contrib/token    41</span><br/><span class="hl-1">acme/widget      1.4.0     missing         vendor/acme/widget       12</span><br/><span class="hl-1">symfony/console  v7.4.21   pack has 7.4.19 vendor/symfony/console   96</span>
+<pre><code class="console"><span class="hl-1">$ drangler build --project ../mysite --dry-run</span><br/><span class="hl-1">project       /work/mysite</span><br/><span class="hl-1">shipped lock  https://raw.githubusercontent.com/drupflare/worker/master/composer.lock (core 11.4.11)</span><br/><span class="hl-1">core          11.4.11, patched</span><br/><span class="hl-1">delivered     3</span><br/><span class="hl-1">skipped       2</span><br/><br/><span class="hl-1">package          version   why             mount                    files</span><br/><span class="hl-1">---------------  --------  --------------  -----------------------  -----</span><br/><span class="hl-1">drupal/token     1.15.0    missing         modules/contrib/token    41</span><br/><span class="hl-1">acme/widget      1.4.0     missing         vendor/acme/widget       12</span><br/><span class="hl-1">symfony/console  v7.4.21   pack has 7.4.19 vendor/symfony/console   96</span>
 </code><button type="button">Copy</button></pre>
 
 <ol>
@@ -1244,7 +1244,7 @@ file and every <code>--check</code> path against the running duplicate.</li>
 commands on the host</strong>, which run on the server over SSH, and the <strong>local commands</strong>, which run on
 your computer. Nothing is executed. A host command marked with a placeholder, such as the private
 files stream, names a path only the live run discovers.</p>
-<p>Every command sent to the host passes a read-only allow-list first: <code>php</code>, <code>du</code>, <code>find</code>, <code>tar</code>
+<p>Every command sent to the host passes a read-only allow-list first: <code>php</code>, <code>du</code>, <code>find</code>, <code>readlink -f</code>, <code>tar</code>
 creating to stdout, <code>cat</code> of the settings files, <code>composer.lock</code> and <code>.htaccess</code>, and the read-only drush
 commands, with <code>sql:query</code> limited to <code>SELECT</code>. Redirection, <code>--result-file</code> and anything else not on
 the list are refused before they reach the host.</p>
@@ -1306,7 +1306,7 @@ the list are refused before they reach the host.</p>
 </tr>
 <tr>
 <td><code>--deploy</code></td>
-<td>Deploy as <code>drupflare-preview-&lt;host&gt;</code> behind Cloudflare Access</td>
+<td>Deploy as <code>drupflare-preview-&lt;host&gt;-&lt;source id&gt;</code> behind Cloudflare Access</td>
 </tr>
 <tr>
 <td><code>--access-email &lt;email&gt;</code></td>
@@ -1314,11 +1314,27 @@ the list are refused before they reach the host.</p>
 </tr>
 <tr>
 <td><code>--source-url &lt;origin&gt;</code></td>
-<td>The live site; each checked page must answer with the same status as there</td>
+<td>The live site; each checked page must answer with the same status as there (<code>{host}</code> is each site name under <code>--all-sites</code>)</td>
 </tr>
 <tr>
 <td><code>--out &lt;dir&gt;</code></td>
-<td>Where the dump, the files and the workspace go (<code>.drangler/preview/&lt;host&gt;</code>)</td>
+<td>Where the dump, the files and the workspace go (<code>.drangler/preview/&lt;host&gt;-&lt;source id&gt;</code>)</td>
+</tr>
+<tr>
+<td><code>--all-sites</code></td>
+<td>Preview every site the docroot serves, one duplicate each; needs <code>--login</code></td>
+</tr>
+<tr>
+<td><code>--login &lt;user&gt;</code></td>
+<td>Sign in on the duplicate and drive create, edit, upload twice and logout</td>
+</tr>
+<tr>
+<td><code>--expect-uuid &lt;uuid&gt;</code></td>
+<td>Refuse unless the source site has this UUID</td>
+</tr>
+<tr>
+<td><code>--workspace-from &lt;dir&gt;</code></td>
+<td>With <code>--all-sites</code>, a hydrated worker checkout copied for each site</td>
 </tr>
 <tr>
 <td><code>--port &lt;n&gt;</code></td>
@@ -1329,7 +1345,27 @@ the list are refused before they reach the host.</p>
 <p><code>preview</code> needs worker 1.0.4 or later in its workspace and refuses an older checkout before
 installing, naming the <code>drangler update</code> command that moves it. The duplicate uses its own workspace
 under <code>--out</code>, so the checkout you deploy your own site from is not touched. A deployed preview is
-removed with <code>wrangler delete --name drupflare-preview-&lt;host&gt;</code>.</p>
+removed with <code>wrangler delete --name drupflare-preview-&lt;host&gt;-&lt;source id&gt;</code>.</p>
+<p>The source id is a short hash of the host, composer root, docroot and site directory, so two sites
+behind one SSH alias get two workers. A host deployed under v0.3.0 was named
+<code>drupflare-preview-&lt;host&gt;</code>. Redeploying it now creates a second worker with the id suffix, and the
+old one keeps running. Nothing migrates it; delete it with <code>wrangler delete --name drupflare-preview-&lt;host&gt;</code> once the new one is checked. A <code>--dry-run</code> prints the name with
+<code>&lt;source-id&gt;</code> in place of the id, which only a live run can read.</p>
+<h3 id="several-sites-and-the-workflow-check" class="tsd-anchor-link">Several sites and the workflow check<a href="#several-sites-and-the-workflow-check" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p><code>--all-sites</code> reads every site under the docroot from <code>sites.php</code> and the <code>sites/</code> directories.
+A host name that <code>sites.php</code> maps to a site already listed is an alias of it and gets no duplicate.
+Each site is previewed in its own folder under <code>--out</code>, and <code>fleet.json</code> there records every site
+as pending, running, done, failed or unknown, under a plan digest and an epoch. Run the same command
+again after a failure or a kill: sites whose <code>receipt.json</code> says <code>verified</code> are left alone, and the
+rest run again in a new <code>attempt-N</code> folder. A state file written for a different set of sites is
+refused.</p>
+<p><code>--login &lt;user&gt;</code> reads the password from <code>DRANGLER_PREVIEW_PASSWORD</code>. After the status checks it
+signs in, creates a node, edits it, uploads two images in separate saves, compares each stored file
+with the bytes sent, and logs out. The run writes content into the duplicate, never the source.
+<code>receipt.json</code> moves from <code>sealed</code> to <code>claimed</code>, and to <code>verified</code> only when every step passed.</p>
+<p>When ssh exits 255 the command may or may not have run. drangler sends it again and reports the
+outcome as unknown, with the checksum of what the first attempt wrote and whether the retry
+matches it.</p>
 <h3 id="answering-without-a-prompt" class="tsd-anchor-link">Answering without a prompt<a href="#answering-without-a-prompt" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <p>Every decision has a flag, a <code>DRANGLER_PREVIEW_&lt;NAME&gt;</code> variable, and a prompt on a terminal. A flag
 wins over a variable, and anything still open is asked on a terminal and refused without one, so a
@@ -1389,6 +1425,18 @@ CI step never hangs. Lists are comma separated and booleans are <code>1</code>.<
 <tr>
 <td><code>DRANGLER_PREVIEW_EDGE</code></td>
 <td><code>--edge</code> (<code>1</code> or a branch)</td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_LOGIN</code></td>
+<td><code>--login</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_EXPECT_UUID</code></td>
+<td><code>--expect-uuid</code></td>
+</tr>
+<tr>
+<td><code>DRANGLER_PREVIEW_PASSWORD</code></td>
+<td>the <code>--login</code> password</td>
 </tr>
 </tbody>
 </table>
@@ -1498,8 +1546,8 @@ the docroot files, only static types are carried, so a stray <code>backup.sql</c
 never republished.</p>
 <hr>
 <h2 id="migrating-to-workers" class="tsd-anchor-link">Migrating to Workers<a href="#migrating-to-workers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
-<p><code>migrate survey</code> runs ten read-only commands over SSH and folds them into one record: PHP version and
-loaded extensions, Drupal version and install profile, database driver and size, the public files
+<p><code>migrate survey</code> runs fourteen read-only commands over SSH and folds them into one record: PHP version and
+loaded extensions, Drupal version and install profile, database driver and size (MySQL or PostgreSQL), the public files
 directory, the enabled module list, the node count and the image style count.</p>
 <p><code>--dry-run</code> prints the command plan and connects to nothing, so the list can be reviewed before an
 SSH key is handed over:</p>
@@ -1994,6 +2042,7 @@ checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <li><a href="#preview"><span>Preview</span></a></li>
 <li>
 <ul>
+<li><a href="#several-sites-and-the-workflow-check"><span>Several sites and the workflow check</span></a></li>
 <li><a href="#answering-without-a-prompt"><span>Answering without a prompt</span></a></li>
 <li><a href="#what-preview-decides-for-you"><span>What preview decides for you</span></a></li></ul></li>
 <li><a href="#migrating-to-workers"><span>Migrating to <wbr/>Workers</span></a></li>
@@ -2010,7 +2059,7 @@ checks that read <code>drupflare/worker</code>'s source beside this one.</p>
 <li><a href="#related-repositories"><span>Related <wbr/>Repositories</span></a></li>
 <li><a href="#license"><span>License</span></a></li></ul></div></details></div>
 <div class="site-menu">
-<nav class="tsd-navigation"><a href="modules.html">drupflare/drangler - v0.4.0</a>
+<nav class="tsd-navigation"><a href="modules.html">drupflare/drangler - v1.0.0</a>
 <ul class="tsd-small-nested-navigation" id="tsd-nav-container">
 <li>Loading...</li></ul></nav></div></div></div><footer>
 <p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer>
